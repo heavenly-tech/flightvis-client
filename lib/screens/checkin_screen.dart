@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../app_config.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
@@ -41,9 +42,11 @@ class _CheckinScreenState extends State<CheckinScreen> {
   @override
   void initState() {
     super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
+    if (!AppConfig.screenshotTest) {
+      _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    }
     if (widget.initialScan != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _submitRaw(widget.initialScan!);

@@ -207,7 +207,7 @@ jobs:
 
   emulator-screenshots:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -244,16 +244,16 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
           disable-animations: true
           script: |
+            set -eux
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
 
-            flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+            echo "flightvis-ci: probing mock from runner (127.0.0.1)"
+            curl -sf http://127.0.0.1:18080/api/ci-health
 
-            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            DART_DEFINES="--dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true"
 
-            flutter test integration_test/screenshot_flow_test.dart --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
-
-            flutter test integration_test/deep_link_checkin_test.dart --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+            flutter test integration_test/ $DART_DEFINES
 
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true

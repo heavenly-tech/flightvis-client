@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../app_config.dart';
 import '../dev/dev_tools_gate.dart';
 import '../l10n/pilot_l10n.dart';
 import '../util/checkin_expiry_format.dart';
@@ -43,9 +44,11 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
   @override
   void initState() {
     super.initState();
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
+    if (!AppConfig.screenshotTest) {
+      _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override

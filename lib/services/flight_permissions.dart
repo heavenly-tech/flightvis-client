@@ -4,6 +4,8 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../app_config.dart';
+
 /// Pilot tracking prerequisites (location, notifications, battery).
 class FlightPermissionStatus {
   const FlightPermissionStatus({
@@ -44,8 +46,6 @@ enum PermissionGap {
 }
 
 class FlightPermissions {
-  static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
-
   static Future<bool> _needsNotificationPermission() async {
     if (!Platform.isAndroid) return false;
     final info = await DeviceInfoPlugin().androidInfo;
@@ -53,7 +53,7 @@ class FlightPermissions {
   }
 
   static Future<FlightPermissionStatus> check() async {
-    if (screenshotTest || kIsWeb) {
+    if (AppConfig.screenshotTest || kIsWeb) {
       return const FlightPermissionStatus(
         fineLocationGranted: true,
         backgroundLocationGranted: true,
@@ -86,32 +86,32 @@ class FlightPermissions {
   }
 
   static Future<bool> requestFineLocation() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     final result = await Permission.locationWhenInUse.request();
     return result.isGranted;
   }
 
   static Future<bool> requestBackgroundLocation() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     final result = await Permission.locationAlways.request();
     return result.isGranted;
   }
 
   static Future<bool> requestNotifications() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     if (!await _needsNotificationPermission()) return true;
     final result = await Permission.notification.request();
     return result.isGranted;
   }
 
   static Future<bool> requestBatteryExemption() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     final result = await Permission.ignoreBatteryOptimizations.request();
     return result.isGranted;
   }
 
   static Future<void> openGapSettings(PermissionGap gap) async {
-    if (screenshotTest) return;
+    if (AppConfig.screenshotTest) return;
     switch (gap) {
       case PermissionGap.fineLocation:
       case PermissionGap.backgroundLocation:

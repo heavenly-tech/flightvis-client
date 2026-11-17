@@ -1,5 +1,7 @@
 /// Build-time and runtime server base URL configuration.
 class AppConfig {
+  static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
+
   static const defaultBaseUrl = String.fromEnvironment(
     'FLIGHTVIS_BASE_URL',
     defaultValue: 'https://flight.heavenly.cl',

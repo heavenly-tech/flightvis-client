@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'util/checkin_expiry_format.dart';
 import 'util/flight_deep_link.dart';
+import 'app_config.dart';
 import 'app_shell.dart';
 import 'api/flight_vis_client.dart';
 import 'screens/checkin_screen.dart';
@@ -139,6 +140,16 @@ class _FlightVisAppState extends State<FlightVisApp> {
   }
 
   Future<void> _restore() async {
+    if (AppConfig.screenshotTest) {
+      // ignore: avoid_print
+      print(
+        'flightvis-ci: screenshot=1 baseUrl=${AppConfig.defaultBaseUrl} '
+        'saved=${widget.repo.prefs.baseUrl()}',
+      );
+      if (!widget.repo.prefs.permissionsOnboardingComplete()) {
+        await widget.repo.prefs.setPermissionsOnboardingComplete(true);
+      }
+    }
     widget.repo.refreshBaseUrl();
     widget.repo.syncClubFromPrefs();
     final session = await widget.repo.secure.readSessionId();
@@ -199,7 +210,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
         _appReady = true;
         return;
       }
-      if (!widget.repo.prefs.permissionsOnboardingComplete()) {
+      if (!widget.repo.prefs.permissionsOnboardingComplete() && !AppConfig.screenshotTest) {
         _flow = _Flow.permissions;
       } else {
         _flow = _Flow.hub;

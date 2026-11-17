@@ -1,18 +1,16 @@
 import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 
-import '../app_config.dart';
+import '../app_config.dart' show AppConfig;
 import '../geolocation_service.dart';
 import 'tracking_session.dart';
 
 class TrackingService {
-  static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
-
   final TrackingSession _session = TrackingSession();
   Future<void> initForFlight({
     required String baseUrl,
     required String deviceToken,
   }) async {
-    if (screenshotTest) return;
+    if (AppConfig.screenshotTest) return;
     final config = Config(
       serverUrl: AppConfig.osmandUrl(baseUrl),
       deviceId: deviceToken,
@@ -32,7 +30,7 @@ class TrackingService {
   }
 
   Future<bool> start() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     _session.resetLogCursor();
     try {
       await GeolocationService.tracker.start();
@@ -43,17 +41,17 @@ class TrackingService {
   }
 
   Future<void> stop() async {
-    if (screenshotTest) return;
+    if (AppConfig.screenshotTest) return;
     await GeolocationService.tracker.stop();
   }
 
   Future<bool> isTracking() async {
-    if (screenshotTest) return true;
+    if (AppConfig.screenshotTest) return true;
     return GeolocationService.tracker.isTracking();
   }
 
   Future<bool> ingestFailureRequiresStop() async {
-    if (screenshotTest) return false;
+    if (AppConfig.screenshotTest) return false;
     return _session.pollIngestRequiresStop();
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/flight_vis_client.dart';
+import '../app_config.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/tracking_lifecycle.dart';
@@ -45,7 +46,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void initState() {
     super.initState();
     _bootstrap();
-    _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    if (!AppConfig.screenshotTest) {
+      _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    }
   }
 
   Future<void> _haltTracking() async {

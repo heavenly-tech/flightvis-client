@@ -36,6 +36,11 @@ Future<void> main() async {
       await request.response.close();
     }
 
+    if (method == 'GET' && path == '/api/ci-health') {
+      await jsonResponse(200, {'ok': true, 'source': 'mock_flight_vis_server'});
+      continue;
+    }
+
     if (method == 'POST' && path == '/api/devices/anonymous') {
       await jsonResponse(200, {
         'ok': true,
