@@ -88,6 +88,18 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Ensure Android debug keystore (PR debug-signed APK)
+        if: steps.keystore.outputs.signed != 'true'
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Android Debug,O=Android,C=US'
+          fi
+
       - name: Build release APK
         run: |
           flutter build apk --release \
@@ -112,20 +124,34 @@ jobs:
 
       - name: Extract APK signing certificate SHA-256
         id: cert
+        env:
+          FLIGHTVIS_KEY_ALIAS: ${{ secrets.FLIGHTVIS_KEY_ALIAS }}
+          FLIGHTVIS_KEYSTORE_PASSWORD: ${{ secrets.FLIGHTVIS_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           APK=build/app/outputs/flutter-apk/app-release.apk
-          APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
-          OUT=""
-          if [ -n "$APKSIGNER" ]; then
-            set +e
-            OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
-            set -e
-          fi
-          echo "$OUT" > build/app-release.cert-sha256.txt
-          FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}' || true)"
-          if [ -z "$FINGERPRINT" ]; then
-            (cd android && ./gradlew :app:signingReport --no-daemon) 2>&1 | tee build/app-release.cert-sha256.txt
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
+            OUT=""
+            if [ -n "$APKSIGNER" ]; then
+              set +e
+              OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
+              set -e
+            fi
+            echo "$OUT" | tee build/app-release.cert-sha256.txt
+            FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}' || true)"
+            if [ -z "$FINGERPRINT" ]; then
+              keytool -list -v \
+                -keystore android/release.keystore \
+                -alias "$FLIGHTVIS_KEY_ALIAS" \
+                -storepass "$FLIGHTVIS_KEYSTORE_PASSWORD" 2>&1 | tee build/app-release.cert-sha256.txt
+              FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//' || true)"
+            fi
+          else
+            keytool -list -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -alias androiddebugkey \
+              -storepass android -keypass android 2>&1 | tee build/app-release.cert-sha256.txt
             FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//' || true)"
           fi
           if [ -z "$FINGERPRINT" ]; then
@@ -199,7 +225,7 @@ jobs:
           for i in $(seq 1 30); do
             if curl -sf -X POST http://127.0.0.1:18080/api/devices/anonymous \
               -H 'Content-Type: application/json' \
-              -d '{"label":"ci"}'; then
+              -d '{"name":"CI"}'; then
               echo "mock API ready"
               exit 0
             fi
