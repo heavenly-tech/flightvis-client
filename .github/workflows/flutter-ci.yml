@@ -145,14 +145,14 @@ jobs:
                 -keystore android/release.keystore \
                 -alias "$FLIGHTVIS_KEY_ALIAS" \
                 -storepass "$FLIGHTVIS_KEYSTORE_PASSWORD" 2>&1 | tee build/app-release.cert-sha256.txt
-              FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//' || true)"
+              FINGERPRINT="$(grep -m1 -E 'SHA-?256:' build/app-release.cert-sha256.txt | sed -E 's/.*SHA-?256: *//' || true)"
             fi
           else
             keytool -list -v \
               -keystore "$HOME/.android/debug.keystore" \
               -alias androiddebugkey \
               -storepass android -keypass android 2>&1 | tee build/app-release.cert-sha256.txt
-            FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//' || true)"
+            FINGERPRINT="$(grep -m1 -E 'SHA-?256:' build/app-release.cert-sha256.txt | sed -E 's/.*SHA-?256: *//' || true)"
           fi
           if [ -z "$FINGERPRINT" ]; then
             echo "::error::Could not parse signing certificate SHA-256"
