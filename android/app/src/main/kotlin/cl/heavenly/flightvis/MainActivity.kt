@@ -1,0 +1,5 @@
+package cl.heavenly.flightvis
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()

@@ -1,0 +1,95 @@
+name: flight_vis CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: flutter analyze
+        run: flutter analyze
+
+      - name: flutter test
+        run: flutter test
+
+      - name: Decode release keystore (optional)
+        id: keystore
+        env:
+          FLIGHTVIS_KEYSTORE_BASE64: ${{ secrets.FLIGHTVIS_KEYSTORE_BASE64 }}
+          FLIGHTVIS_KEYSTORE_PASSWORD: ${{ secrets.FLIGHTVIS_KEYSTORE_PASSWORD }}
+          FLIGHTVIS_KEY_ALIAS: ${{ secrets.FLIGHTVIS_KEY_ALIAS }}
+          FLIGHTVIS_KEY_PASSWORD: ${{ secrets.FLIGHTVIS_KEY_PASSWORD }}
+        run: |
+          if [ -n "$FLIGHTVIS_KEYSTORE_BASE64" ]; then
+            echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/release.keystore
+            cat > android/key.properties <<EOF
+          storePassword=$FLIGHTVIS_KEYSTORE_PASSWORD
+          keyPassword=$FLIGHTVIS_KEY_PASSWORD
+          keyAlias=$FLIGHTVIS_KEY_ALIAS
+          storeFile=release.keystore
+          EOF
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release APK
+        run: |
+          flutter build apk --release \
+            --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+
+      - name: Package metadata
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          echo "$SHA" > build/app-release.apk.sha256
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          VERSION_NAME=${VERSION%%+*}
+          VERSION_CODE=${VERSION##*+}
+          cat > build/app-release.json <<EOF
+          {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}"}
+          EOF
+
+      - name: Job summary
+        run: |
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            echo "### APK signed with release keystore (FLIGHTVIS_KEYSTORE_* secrets)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### APK signed with debug key (no FLIGHTVIS_KEYSTORE_* secrets)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Golden UI screenshots
+        run: flutter test --update-goldens test/golden_screenshots_test.dart
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-android-${{ github.sha }}
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app-release.apk.sha256
+            build/app-release.json
+            docs/screenshots/
+
+      - name: Attach to GitHub Release on version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app-release.apk.sha256
+            build/app-release.json

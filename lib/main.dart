@@ -1,137 +1,143 @@
-import 'dart:async';
-import 'dart:ui' show PlatformDispatcher;
-
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:app_links/app_links.dart';
-import 'package:rate_my_app/rate_my_app.dart';
-import 'package:traccar_client/password_service.dart';
-import 'package:traccar_client/push_service.dart';
-import 'package:traccar_client/quick_actions.dart';
 
-import 'configuration_service.dart';
-import 'geolocation_service.dart';
-import 'l10n/app_localizations.dart';
-import 'main_screen.dart';
-import 'managed_config_service.dart';
-import 'preferences.dart';
-
-final messengerKey = GlobalKey<ScaffoldMessengerState>();
-final navigatorKey = GlobalKey<NavigatorState>();
-final mainScreenKey = GlobalKey<MainScreenState>();
+import 'api/flight_vis_client.dart';
+import 'screens/home_hub_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/pairing_screen.dart';
+import 'screens/permissions_screen.dart';
+import 'screens/tracking_screen.dart';
+import 'services/app_repository.dart';
+import 'services/tracking_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
-  await Preferences.init();
-  await GeolocationService.tracker.init(Preferences.buildConfig());
-  await PasswordService.migrate();
-  await PushService.init();
-  await ManagedConfigService.init();
-  runApp(const MainApp());
+  final repo = await AppRepository.create();
+  runApp(FlightVisApp(repo: repo));
 }
 
-class MainApp extends StatefulWidget {
-  const MainApp({super.key});
+class FlightVisApp extends StatefulWidget {
+  const FlightVisApp({super.key, required this.repo});
+
+  final AppRepository repo;
 
   @override
-  State<MainApp> createState() => _MainAppState();
+  State<FlightVisApp> createState() => _FlightVisAppState();
 }
 
-class _MainAppState extends State<MainApp> {
-  RateMyApp rateMyApp = RateMyApp(minDays: 0, minLaunches: 0);
+class _FlightVisAppState extends State<FlightVisApp> {
+  final _tracking = TrackingService();
+  _Flow _flow = _Flow.loading;
+  String? _pilotName;
+  String? _flightId;
+  String? _tail;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _initLinks();
-      await rateMyApp.init();
-      final dialogContext = navigatorKey.currentContext;
-      if (dialogContext != null && dialogContext.mounted && rateMyApp.shouldOpenDialog) {
-        await rateMyApp.showRateDialog(dialogContext);
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    widget.repo.refreshBaseUrl();
+    final token = await widget.repo.secure.readDeviceToken();
+    final session = await widget.repo.secure.readSessionId();
+    if (session != null) {
+      widget.repo.client.setSessionId(session);
+    }
+    if (token != null) {
+      widget.repo.client.setDeviceToken(token);
+    }
+    PilotProfile? pilot;
+    try {
+      pilot = await widget.repo.client.me();
+    } catch (_) {
+      pilot = null;
+    }
+    final activeFlight = widget.repo.prefs.activeFlightId();
+    if (!mounted) return;
+    setState(() {
+      if (pilot == null || !pilot.isApproved) {
+        _flow = _Flow.login;
+        return;
+      }
+      _pilotName = pilot.name;
+      if (activeFlight != null) {
+        _flightId = activeFlight;
+        _tail = _tail ?? '—';
+        _flow = _Flow.tracking;
+      } else if (token == null) {
+        _flow = _Flow.pairing;
+      } else {
+        _flow = _Flow.hub;
       }
     });
   }
 
-  Future<void> _initLinks() async {
-    AppLinks().uriLinkStream.listen(_handleUri);
+  void _onLoggedIn() => _restore();
+
+  void _afterPairing() {
+    setState(() => _flow = _Flow.permissions);
   }
 
-  Future<void> _handleUri(Uri uri) async {
-    final context = navigatorKey.currentState?.overlay?.context;
-    if (Preferences.instance.getString(Preferences.password) != null) {
-      if (context == null || !context.mounted) return;
-      if (!await PasswordService.authenticate(context) || !context.mounted) return;
-    }
-    if (uri.host == 'action') {
-      try {
-        switch (uri.pathSegments.firstOrNull) {
-          case 'start':
-            await GeolocationService.tracker.start();
-          case 'stop':
-            await GeolocationService.tracker.stop();
-        }
-      } on PlatformException {
-        // permission denied or startup error
-      }
-      return;
-    }
-    if (context == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        content: Text(AppLocalizations.of(context)!.configurationMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(AppLocalizations.of(context)!.cancelButton),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(AppLocalizations.of(context)!.okButton),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await ConfigurationService.applyUri(uri);
-      mainScreenKey.currentState?.refresh();
-    }
+  void _afterPermissions() => setState(() => _flow = _Flow.hub);
+
+  void _startFlight(String id, String tail) async {
+    await widget.repo.prefs.setActiveFlightId(id);
+    setState(() {
+      _flightId = id;
+      _tail = tail;
+      _flow = _Flow.tracking;
+    });
+  }
+
+  void _stopped() {
+    setState(() {
+      _flightId = null;
+      _tail = null;
+      _flow = _Flow.hub;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      scaffoldMessengerKey: messengerKey,
-      navigatorKey: navigatorKey,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
+      title: 'flight_vis',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.light,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B4D89)),
       ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.dark,
-        ),
-      ),
-      home: Stack(
-        children: [
-          const QuickActionsInitializer(),
-          MainScreen(key: mainScreenKey),
-        ],
-      ),
+      home: switch (_flow) {
+        _Flow.loading => const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+        _Flow.login => LoginScreen(
+            repo: widget.repo,
+            onLoggedIn: _onLoggedIn,
+          ),
+        _Flow.pairing => PairingScreen(
+            repo: widget.repo,
+            onPaired: _afterPairing,
+          ),
+        _Flow.permissions => PermissionsScreen(onContinue: _afterPermissions),
+        _Flow.hub => HomeHubScreen(
+            repo: widget.repo,
+            pilotName: _pilotName ?? 'Pilot',
+            onStartFlight: _startFlight,
+            onLogout: () async {
+              await widget.repo.client.logout();
+              await widget.repo.secure.clearAll();
+              if (mounted) setState(() => _flow = _Flow.login);
+            },
+          ),
+        _Flow.tracking => TrackingScreen(
+            repo: widget.repo,
+            flightId: _flightId!,
+            tail: _tail ?? '—',
+            tracking: _tracking,
+            onStopped: _stopped,
+          ),
+      },
     );
   }
 }
+
+enum _Flow { loading, login, pairing, permissions, hub, tracking }
