@@ -122,20 +122,6 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
-      - name: Download release APK
-        uses: actions/download-artifact@v4
-        with:
-          name: flight-vis-android-${{ github.sha }}
-          path: .
-
-      - name: Locate release APK for emulator
-        run: |
-          APK="$(find "$GITHUB_WORKSPACE" -name app-release.apk -type f | head -1)"
-          test -n "$APK"
-          cp "$APK" "$GITHUB_WORKSPACE/ci-release.apk"
-          echo "$GITHUB_WORKSPACE/ci-release.apk" > apk-locations.txt
-          cat apk-locations.txt
-
       - name: Start mock flight_vis API
         run: |
           dart run tool/mock_flight_vis_server.dart &
@@ -160,10 +146,8 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            echo "Installing CI release APK smoke check"
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-            adb install -r "$(head -1 "$GITHUB_WORKSPACE/apk-locations.txt")"
 
             flutter build apk --debug \
               --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
