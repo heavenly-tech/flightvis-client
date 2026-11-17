@@ -123,12 +123,10 @@ jobs:
             set -e
           fi
           echo "$OUT" > build/app-release.cert-sha256.txt
-          FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}')"
+          FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}' || true)"
           if [ -z "$FINGERPRINT" ]; then
-            cd android
-            ./gradlew :app:signingReport --no-daemon 2>&1 | tee ../build/app-release.cert-sha256.txt
-            cd ..
-            FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//')"
+            (cd android && ./gradlew :app:signingReport --no-daemon) 2>&1 | tee build/app-release.cert-sha256.txt
+            FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//' || true)"
           fi
           if [ -z "$FINGERPRINT" ]; then
             echo "::error::Could not parse signing certificate SHA-256"
