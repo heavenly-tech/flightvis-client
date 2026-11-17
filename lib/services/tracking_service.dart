@@ -38,7 +38,13 @@ class TrackingService {
     }
   }
 
-  Future<void> stop() => GeolocationService.tracker.stop();
+  Future<void> stop() async {
+    if (screenshotTest) return;
+    await GeolocationService.tracker.stop();
+  }
 
-  Future<bool> isTracking() => GeolocationService.tracker.isTracking();
+  Future<bool> isTracking() async {
+    if (screenshotTest) return true;
+    return GeolocationService.tracker.isTracking();
+  }
 }

@@ -8,13 +8,13 @@ void main() {
   test('no check-in blocks start', () {
     final gate = CheckinGate(expiresAtMs: null, nowMs: now);
     expect(gate.canStartFlight, isFalse);
-    expect(gate.startBlockedReason(), contains('Scan the club'));
+    expect(gate.startBlock(), CheckinStartBlock.missing);
   });
 
   test('expired check-in blocks start', () {
     final gate = CheckinGate(expiresAtMs: now - 1, nowMs: now);
     expect(gate.canStartFlight, isFalse);
-    expect(gate.startBlockedReason(), contains('expired'));
+    expect(gate.startBlock(), CheckinStartBlock.expired);
   });
 
   test('valid check-in allows start', () {

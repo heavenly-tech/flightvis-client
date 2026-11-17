@@ -23,7 +23,7 @@ Future<void> saveScreenshot(IntegrationTestWidgetsFlutterBinding binding, String
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('pilot flow screenshots', (tester) async {
+  testWidgets('canonical pre-flight flow screenshots', (tester) async {
     app.main();
     await tester.pumpAndSettle(const Duration(seconds: 3));
 
@@ -34,8 +34,6 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
-    await saveScreenshot(binding, '02-pairing');
-
     await tester.enterText(
       find.widgetWithText(TextField, 'Or paste device token'),
       _deviceToken,
@@ -43,10 +41,10 @@ void main() {
     await tester.tap(find.text('Save token'));
     await tester.pumpAndSettle(const Duration(seconds: 3));
 
-    await saveScreenshot(binding, '04-permissions');
-
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    await saveScreenshot(binding, '02-hub');
 
     await tester.tap(find.text('Club check-in'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -63,14 +61,17 @@ void main() {
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
-    await tester.tap(find.text('Start flight'));
+    await tester.tap(find.text('Flight details'));
+    await tester.pumpAndSettle(const Duration(seconds: 3));
+
+    await saveScreenshot(binding, '04-flight-details');
+
+    await tester.tap(find.text('Start'));
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
-    await saveScreenshot(binding, '05-tail-picker');
+    await saveScreenshot(binding, '05-broadcasting');
 
-    await tester.tap(find.text('Start tracking'));
-    await tester.pumpAndSettle(const Duration(seconds: 4));
-
-    await saveScreenshot(binding, '06-tracking-active');
+    expect(find.text('Stop'), findsOneWidget);
+    await saveScreenshot(binding, '06-stop');
   });
 }

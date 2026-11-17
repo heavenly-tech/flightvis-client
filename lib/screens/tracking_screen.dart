@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/flight_vis_client.dart';
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/tracking_service.dart';
 
@@ -30,7 +31,14 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen> {
   bool _active = false;
   String? _error;
+  String? _missingTokenMessage;
   Timer? _poll;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _missingTokenMessage = context.pilotL10n.pilotDeviceTokenMissing;
+  }
 
   @override
   void initState() {
@@ -45,7 +53,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<void> _bootstrap() async {
     final token = await widget.repo.secure.readDeviceToken();
     if (token == null) {
-      setState(() => _error = 'Device token missing.');
+      if (mounted) setState(() => _error = _missingTokenMessage);
       return;
     }
     await widget.tracking.initForFlight(
@@ -80,15 +88,16 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     return Scaffold(
-      appBar: AppBar(title: const Text('Tracking')),
+      appBar: AppBar(title: Text(l10n.pilotTrackingTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Tail: ${widget.tail}', style: Theme.of(context).textTheme.titleLarge),
-            Text('Flight: ${widget.flightId}'),
+            Text(l10n.pilotTailLine(widget.tail), style: Theme.of(context).textTheme.titleLarge),
+            Text(l10n.pilotFlightIdLine(widget.flightId)),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -97,7 +106,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   color: _active ? Colors.green : Colors.grey,
                 ),
                 const SizedBox(width: 8),
-                Text(_active ? 'Uploading fixes to server' : 'Tracking paused'),
+                Text(_active ? l10n.pilotBroadcasting : l10n.pilotBroadcastingPaused),
               ],
             ),
             if (_error != null) ...[
@@ -111,7 +120,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 foregroundColor: Theme.of(context).colorScheme.onError,
               ),
               onPressed: _endFlight,
-              child: const Text('End flight & stop tracking'),
+              child: Text(l10n.pilotStop),
             ),
           ],
         ),

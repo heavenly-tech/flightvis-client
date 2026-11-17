@@ -70,4 +70,23 @@ void main() {
       throwsA(isA<FlightVisException>()),
     );
   });
+
+  test('startFlight shows not-cleared message from server', () async {
+    final client = FlightVisClient(
+      baseUrl: 'https://example.test',
+      httpClient: MockClient((request) async {
+        return http.Response(
+          jsonEncode({'error': 'not cleared for CC-ABC / C172'}),
+          403,
+        );
+      }),
+    );
+    try {
+      await client.startFlight(tail: 'CC-ABC');
+      fail('expected exception');
+    } on FlightVisException catch (e) {
+      expect(e.message, 'not cleared for CC-ABC / C172');
+      expect(e.statusCode, 403);
+    }
+  });
 }

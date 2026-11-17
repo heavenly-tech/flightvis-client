@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../state/checkin_gate.dart';
 
@@ -49,18 +50,19 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
   }
 
   Future<void> _start() async {
+    final l10n = context.pilotL10n;
     final gate = CheckinGate(
       expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
-    final blocked = gate.startBlockedReason();
+    final blocked = checkinBlockMessage(l10n, gate.startBlock());
     if (blocked != null) {
       setState(() => _error = blocked);
       return;
     }
     final tail = _selectedTail;
     if (tail == null) {
-      setState(() => _error = 'Select a tail.');
+      setState(() => _error = l10n.pilotSelectTail);
       return;
     }
     setState(() {
@@ -85,12 +87,14 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     final gate = CheckinGate(
       expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
+    final blockMsg = checkinBlockMessage(l10n, gate.startBlock());
     return Scaffold(
-      appBar: AppBar(title: const Text('Start flight')),
+      appBar: AppBar(title: Text(l10n.pilotFlightDetailsTitle)),
       body: _loading && _tails.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : Padding(
@@ -98,20 +102,20 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (!gate.canStartFlight)
+                  if (!gate.canStartFlight && blockMsg != null)
                     Card(
                       color: Theme.of(context).colorScheme.errorContainer,
                       child: Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Text(gate.startBlockedReason() ?? 'Check-in required'),
+                        child: Text(blockMsg),
                       ),
                     ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     value: _selectedTail,
-                    decoration: const InputDecoration(
-                      labelText: 'Tail',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.pilotTailLabel,
+                      border: const OutlineInputBorder(),
                     ),
                     items: _tails
                         .map((t) => DropdownMenuItem(
@@ -124,19 +128,19 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     value: _visibility,
-                    decoration: const InputDecoration(
-                      labelText: 'Visibility',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.pilotVisibilityLabel,
+                      border: const OutlineInputBorder(),
                     ),
-                    items: const [
-                      DropdownMenuItem(value: 'private', child: Text('Private')),
-                      DropdownMenuItem(value: 'club', child: Text('Club')),
-                      DropdownMenuItem(value: 'public', child: Text('Public')),
+                    items: [
+                      DropdownMenuItem(value: 'private', child: Text(l10n.pilotVisibilityPrivate)),
+                      DropdownMenuItem(value: 'club', child: Text(l10n.pilotVisibilityClub)),
+                      DropdownMenuItem(value: 'public', child: Text(l10n.pilotVisibilityPublic)),
                     ],
                     onChanged: (v) => setState(() => _visibility = v ?? 'club'),
                   ),
                   SwitchListTile(
-                    title: const Text('Show pilot name on public map'),
+                    title: Text(l10n.pilotShowPilotNamePublic),
                     value: _showPilotNamePublic,
                     onChanged: (v) => setState(() => _showPilotNamePublic = v),
                   ),
@@ -151,7 +155,7 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
                   const Spacer(),
                   FilledButton(
                     onPressed: gate.canStartFlight && !_loading ? _start : null,
-                    child: const Text('Start tracking'),
+                    child: Text(l10n.pilotStart),
                   ),
                 ],
               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import 'checkin_screen.dart';
 import 'hidden_settings_screen.dart';
@@ -42,6 +43,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     return Scaffold(
       appBar: AppBar(
         title: GestureDetector(
@@ -62,27 +64,12 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Signed in as ${widget.pilotName}'),
+          Text(l10n.pilotHubSignedInAs(widget.pilotName)),
           const SizedBox(height: 16),
           _navCard(
             context,
-            title: 'Device pairing',
-            subtitle: 'Scan or paste your device token',
-            icon: Icons.phonelink_setup,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PairingScreen(
-                  repo: widget.repo,
-                  onPaired: () => Navigator.pop(context),
-                ),
-              ),
-            ),
-          ),
-          _navCard(
-            context,
-            title: 'Club check-in',
-            subtitle: 'Scan the kiosk QR before flying',
+            title: l10n.pilotHubCheckInTitle,
+            subtitle: l10n.pilotHubCheckInSubtitle,
             icon: Icons.qr_code_2,
             onTap: () => Navigator.push(
               context,
@@ -96,8 +83,8 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
           ),
           _navCard(
             context,
-            title: 'Start flight',
-            subtitle: 'Pick tail, visibility, begin tracking',
+            title: l10n.pilotHubFlightTitle,
+            subtitle: l10n.pilotHubFlightSubtitle,
             icon: Icons.flight_takeoff,
             onTap: () => Navigator.push(
               context,
@@ -108,6 +95,21 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
                     Navigator.pop(context);
                     widget.onStartFlight(flight.id, tail);
                   },
+                ),
+              ),
+            ),
+          ),
+          _navCard(
+            context,
+            title: l10n.pilotHubPairingTitle,
+            subtitle: l10n.pilotHubPairingSubtitle,
+            icon: Icons.phonelink_setup,
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PairingScreen(
+                  repo: widget.repo,
+                  onPaired: () => Navigator.pop(context),
                 ),
               ),
             ),

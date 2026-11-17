@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -64,6 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     return Scaffold(
       appBar: AppBar(title: const Text('flight_vis')),
       body: Padding(
@@ -71,9 +73,9 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Pilot sign in',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+            Text(
+              l10n.pilotSignInTitle,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text('Server: ${widget.repo.prefs.baseUrl()}'),
@@ -82,9 +84,9 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _email,
               keyboardType: TextInputType.emailAddress,
               autofillHints: const [AutofillHints.email],
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.pilotEmailLabel,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
@@ -92,9 +94,9 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _password,
               obscureText: true,
               autofillHints: const [AutofillHints.password],
-              decoration: const InputDecoration(
-                labelText: 'Password',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.pilotPasswordLabel,
+                border: const OutlineInputBorder(),
               ),
               onSubmitted: (_) => _busy ? null : _submit(),
             ),
@@ -111,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Sign in'),
+                  : Text(l10n.pilotSignInButton),
             ),
           ],
         ),

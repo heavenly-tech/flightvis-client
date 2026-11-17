@@ -35,5 +35,63 @@
   "stopAction": "Stop service",
   "sosAction": "Send SOS",
   "disclosureMessage": "This app collects location and activity data in the background and sends it to the configured server.",
-  "configurationMessage": "Apply new configuration?"
+  "configurationMessage": "Apply new configuration?",
+  "pilotSignInTitle": "Pilot sign in",
+  "pilotSignInButton": "Sign in",
+  "pilotEmailLabel": "Email",
+  "pilotPasswordLabel": "Password",
+  "pilotHubSignedInAs": "Signed in as {name}",
+  "@pilotHubSignedInAs": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "pilotHubCheckInTitle": "Club check-in",
+  "pilotHubCheckInSubtitle": "Scan the club screen QR (valid ~30 min to start)",
+  "pilotHubFlightTitle": "Flight details",
+  "pilotHubFlightSubtitle": "Pick your tail and visibility, then start",
+  "pilotHubPairingTitle": "Device pairing",
+  "pilotHubPairingSubtitle": "Scan or paste your device token (web pairing)",
+  "pilotCheckInTitle": "Club check-in",
+  "pilotCheckInIntro": "Scan the rotating QR on the club screen. It renews about every 30 seconds.",
+  "pilotScanCheckInQr": "Scan check-in QR",
+  "pilotPasteCheckInToken": "Or paste check-in token",
+  "pilotSubmitPastedToken": "Submit pasted token",
+  "pilotContinue": "Continue",
+  "pilotCheckInSuccess": "Check-in successful.",
+  "pilotCheckInValidFor": "Check-in valid for {minutes}m {seconds}s",
+  "@pilotCheckInValidFor": {
+    "placeholders": {
+      "minutes": {"type": "int"},
+      "seconds": {"type": "int"}
+    }
+  },
+  "pilotCheckInExpired": "Check-in expired. Scan the club screen QR again.",
+  "pilotCheckInRequired": "Scan the club check-in QR before starting a flight.",
+  "pilotFlightDetailsTitle": "Flight details",
+  "pilotTailLabel": "Tail",
+  "pilotVisibilityLabel": "Visibility",
+  "pilotVisibilityPrivate": "Private",
+  "pilotVisibilityClub": "Club",
+  "pilotVisibilityPublic": "Public",
+  "pilotShowPilotNamePublic": "Show pilot name on public map",
+  "pilotSelectTail": "Select a tail.",
+  "pilotStart": "Start",
+  "pilotStop": "Stop",
+  "pilotTrackingTitle": "In flight",
+  "pilotTailLine": "Tail: {tail}",
+  "@pilotTailLine": {
+    "placeholders": {
+      "tail": {"type": "String"}
+    }
+  },
+  "pilotFlightIdLine": "Flight: {id}",
+  "@pilotFlightIdLine": {
+    "placeholders": {
+      "id": {"type": "String"}
+    }
+  },
+  "pilotBroadcasting": "Broadcasting position",
+  "pilotBroadcastingPaused": "Broadcasting paused",
+  "pilotDeviceTokenMissing": "Device token missing — pair your device first."
 }

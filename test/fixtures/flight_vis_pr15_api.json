@@ -52,5 +52,8 @@
   },
   "error_checkin_required": {
     "error": "check-in required"
+  },
+  "error_not_cleared": {
+    "error": "not cleared for CC-ABC / C172"
   }
 }

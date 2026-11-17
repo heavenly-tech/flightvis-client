@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_shell.dart';
 import 'api/flight_vis_client.dart';
 import 'screens/home_hub_screen.dart';
 import 'screens/login_screen.dart';
@@ -102,11 +103,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'flight_vis',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B4D89)),
-      ),
+    return PilotAppShell(
       home: switch (_flow) {
         _Flow.loading => const Scaffold(
             body: Center(child: CircularProgressIndicator()),

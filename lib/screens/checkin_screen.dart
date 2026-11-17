@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
-import '../app_config.dart';
+import '../l10n/app_localizations.dart';
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../state/checkin_gate.dart';
 import 'qr_scan_screen.dart';
@@ -45,15 +46,15 @@ class _CheckinScreenState extends State<CheckinScreen> {
         nowMs: DateTime.now().millisecondsSinceEpoch,
       );
 
-  String _countdownText() {
+  String _countdownText(AppLocalizations l10n) {
     final remaining = _gate.remaining();
     if (remaining == null) {
-      return 'Check-in successful.';
+      return l10n.pilotCheckInSuccess;
     }
     if (remaining <= Duration.zero) {
-      return 'Check-in expired.';
+      return l10n.pilotCheckInExpired;
     }
-    return 'Check-in valid for ${remaining.inMinutes}m ${remaining.inSeconds % 60}s.';
+    return l10n.pilotCheckInValidFor(remaining.inMinutes, remaining.inSeconds % 60);
   }
 
   Future<void> _submitToken(String token) async {
@@ -86,35 +87,34 @@ class _CheckinScreenState extends State<CheckinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     final gate = _gate;
     final remaining = gate.remaining();
     return Scaffold(
-      appBar: AppBar(title: const Text('Club check-in')),
+      appBar: AppBar(title: Text(l10n.pilotCheckInTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Scan the rotating QR on the club screen (/club/screen). Tokens rotate every 30 seconds.',
-            ),
+            Text(l10n.pilotCheckInIntro),
             if (_justCheckedIn) ...[
               const SizedBox(height: 16),
               Text(
-                _countdownText(),
+                _countdownText(l10n),
                 style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(height: 8),
-              FilledButton(onPressed: widget.onCheckedIn, child: const Text('Continue')),
+              FilledButton(onPressed: widget.onCheckedIn, child: Text(l10n.pilotContinue)),
             ],
             if (!_justCheckedIn && gate.canStartFlight && remaining != null) ...[
               const SizedBox(height: 16),
               Text(
-                'Check-in valid for ${remaining.inMinutes}m ${remaining.inSeconds % 60}s (about ${AppConfig.defaultCheckinValidMinutes} min).',
+                l10n.pilotCheckInValidFor(remaining.inMinutes, remaining.inSeconds % 60),
                 style: const TextStyle(color: Colors.green),
               ),
               const SizedBox(height: 8),
-              FilledButton(onPressed: widget.onCheckedIn, child: const Text('Continue')),
+              FilledButton(onPressed: widget.onCheckedIn, child: Text(l10n.pilotContinue)),
             ],
             if (_error != null) ...[
               const SizedBox(height: 12),
@@ -123,15 +123,15 @@ class _CheckinScreenState extends State<CheckinScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _pasteController,
-              decoration: const InputDecoration(
-                labelText: 'Or paste check-in token',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.pilotPasteCheckInToken,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 8),
             FilledButton.tonal(
               onPressed: _busy ? null : () => _submitToken(_pasteController.text),
-              child: const Text('Submit pasted token'),
+              child: Text(l10n.pilotSubmitPastedToken),
             ),
             const Spacer(),
             FilledButton.icon(
@@ -142,7 +142,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) => QrScanScreen(
-                            title: 'Scan check-in QR',
+                            title: l10n.pilotScanCheckInQr,
                             onScanned: (_) {},
                           ),
                         ),
@@ -157,7 +157,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                       width: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Scan check-in QR'),
+                  : Text(l10n.pilotScanCheckInQr),
             ),
           ],
         ),

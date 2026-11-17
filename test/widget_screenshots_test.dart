@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/screens/login_screen.dart';
 import 'package:flight_vis/screens/permissions_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
@@ -42,9 +42,7 @@ void main() {
   testWidgets('login screen renders', (tester) async {
     final repo = await mockRepo();
     await tester.pumpWidget(
-      MaterialApp(
-        home: LoginScreen(repo: repo, onLoggedIn: () {}),
-      ),
+      PilotAppShell(home: LoginScreen(repo: repo, onLoggedIn: () {})),
     );
     await tester.pumpAndSettle();
     expect(find.text('Pilot sign in'), findsOneWidget);
@@ -52,7 +50,7 @@ void main() {
 
   testWidgets('permissions screen renders', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: PermissionsScreen(onContinue: () {})),
+      PilotAppShell(home: PermissionsScreen(onContinue: () {})),
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('Allow all the time'), findsOneWidget);

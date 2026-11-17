@@ -26,9 +26,12 @@ class CheckinGate {
   static int defaultExpiresAtMs(int nowMs) =>
       nowMs + AppConfig.defaultCheckinValidMinutes * 60 * 1000;
 
-  String? startBlockedReason() {
-    if (!hasCheckin) return 'Scan the club check-in QR before starting a flight.';
-    if (isExpired) return 'Check-in expired. Scan the club screen QR again.';
+  /// Why [canStartFlight] is false (client-side gate before POST /api/flights).
+  CheckinStartBlock? startBlock() {
+    if (!hasCheckin) return CheckinStartBlock.missing;
+    if (isExpired) return CheckinStartBlock.expired;
     return null;
   }
 }
+
+enum CheckinStartBlock { missing, expired }

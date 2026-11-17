@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/screens/login_screen.dart';
 import 'package:flight_vis/screens/pairing_screen.dart';
 import 'package:flight_vis/screens/checkin_screen.dart';
@@ -46,7 +47,7 @@ Future<AppRepository> _repo() async {
 
 Future<void> _golden(WidgetTester tester, Widget home, String name) async {
   await tester.binding.setSurfaceSize(const Size(390, 844));
-  await tester.pumpWidget(MaterialApp(home: home));
+  await tester.pumpWidget(PilotAppShell(home: home));
   await tester.pumpAndSettle();
   await expectLater(
     find.byType(MaterialApp),

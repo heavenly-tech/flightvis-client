@@ -6,13 +6,11 @@ import 'package:flight_vis/state/checkin_gate.dart';
 void main() {
   test('server rejection message shown when start blocked', () {
     final gate = CheckinGate(expiresAtMs: null, nowMs: 0);
-    final reason = gate.startBlockedReason();
-    expect(reason, isNotNull);
-    expect(reason, isNot(contains('expired')));
+    expect(gate.startBlock(), CheckinStartBlock.missing);
   });
 
   test('expired check-in reason', () {
     final gate = CheckinGate(expiresAtMs: 100, nowMs: 200);
-    expect(gate.startBlockedReason(), contains('expired'));
+    expect(gate.startBlock(), CheckinStartBlock.expired);
   });
 }
