@@ -207,6 +207,7 @@ jobs:
 
   emulator-screenshots:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -236,7 +237,7 @@ jobs:
 
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 30
           arch: x86_64
           target: google_apis
           emulator-boot-timeout: 1800

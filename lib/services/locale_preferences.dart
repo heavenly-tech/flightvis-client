@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LocalePreferences {
   LocalePreferences(this._prefs);
 
+  static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
+
   static const languageKey = 'fv_language_override';
 
   final SharedPreferences _prefs;
@@ -25,6 +27,7 @@ class LocalePreferences {
   }
 
   Locale resolveLocale(Locale? deviceLocale) {
+    if (screenshotTest) return const Locale('es', 'CL');
     final override = languageOverride();
     if (override == 'en') return const Locale('en');
     if (override == 'es') return const Locale('es', 'CL');
