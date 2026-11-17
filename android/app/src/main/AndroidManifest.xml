@@ -53,6 +53,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <receiver
+            android:name="org.traccar.client.BootReceiver"
+            tools:node="remove" />
     </application>
     <queries>
         <intent>
