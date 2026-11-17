@@ -109,6 +109,9 @@ void main() {
             200,
           );
         }
+        if (request.url.path == '/api/me/access-requests') {
+          return http.Response(jsonEncode({'requests': []}), 200);
+        }
         return http.Response('{}', 404);
       }),
     );

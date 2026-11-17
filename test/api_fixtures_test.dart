@@ -72,6 +72,24 @@ void main() {
     );
   });
 
+  test('access request encode and parse', () async {
+    String? captured;
+    final client = FlightVisClient(
+      baseUrl: 'https://example.test',
+      httpClient: MockClient((request) async {
+        captured = request.body;
+        return http.Response(jsonEncode(fixtures['post_access_requests_success']), 200);
+      }),
+    );
+    final req = await client.createAccessRequest(tail: 'CC-ABC', typeCode: 'C172');
+    expect(jsonDecode(captured!), fixtures['post_access_requests_request']);
+    expect(req.status, 'pending');
+    AccessRequest.fromJson(
+      ((fixtures['get_access_requests_rejected'] as Map)['requests'] as List).first
+          as Map<String, dynamic>,
+    );
+  });
+
   test('login calls /me after session cookie', () async {
     final paths = <String>[];
     final client = FlightVisClient(

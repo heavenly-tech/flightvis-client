@@ -60,6 +60,35 @@ class TailOption {
       );
 }
 
+class AccessRequest {
+  AccessRequest({
+    required this.id,
+    required this.tail,
+    required this.typeCode,
+    required this.status,
+    this.rejectReason,
+  });
+
+  final String id;
+  final String tail;
+  final String typeCode;
+  /// `pending`, `approved`, or `rejected` per PR #15 access requests.
+  final String status;
+  final String? rejectReason;
+
+  bool get isPending => status == 'pending';
+  bool get isApproved => status == 'approved';
+  bool get isRejected => status == 'rejected';
+
+  factory AccessRequest.fromJson(Map<String, dynamic> json) => AccessRequest(
+        id: json['id'] as String,
+        tail: json['tail'] as String,
+        typeCode: json['type_code'] as String,
+        status: json['status'] as String,
+        rejectReason: (json['rejectReason'] ?? json['reject_reason']) as String?,
+      );
+}
+
 class CheckinResult {
   CheckinResult({required this.ok, this.expiresAtUtc});
 
@@ -224,6 +253,37 @@ class FlightVisClient {
       throw FlightVisException('check-in failed');
     }
     return result;
+  }
+
+  Future<List<AccessRequest>> accessRequests() async {
+    final response = await _http.get(_uri('/api/me/access-requests'), headers: _headers());
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    return (body['requests'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(AccessRequest.fromJson)
+        .toList();
+  }
+
+  Future<AccessRequest> createAccessRequest({
+    required String tail,
+    required String typeCode,
+  }) async {
+    final response = await _http.post(
+      _uri('/api/me/access-requests'),
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({
+        'tail': tail,
+        'type_code': typeCode,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    final req = body['request'];
+    if (req is Map<String, dynamic>) {
+      return AccessRequest.fromJson(req);
+    }
+    return AccessRequest.fromJson(body);
   }
 
   Future<List<TailOption>> tails() async {

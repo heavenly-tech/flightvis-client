@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -18,6 +17,18 @@ Future<void> saveScreenshot(IntegrationTestWidgetsFlutterBinding binding, String
     dir.createSync(recursive: true);
   }
   File('${dir.path}/$name.png').writeAsBytesSync(bytes);
+}
+
+Future<void> openAccessRequestForm(WidgetTester tester) async {
+  await tester.tap(find.text('Request another aircraft'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> submitAccessRequest(WidgetTester tester, String tail) async {
+  await openAccessRequestForm(tester);
+  await tester.enterText(find.widgetWithText(TextField, 'Tail (CC-XXX)'), tail);
+  await tester.tap(find.text('Submit access request'));
+  await tester.pumpAndSettle(const Duration(seconds: 2));
 }
 
 void main() {
@@ -66,12 +77,32 @@ void main() {
 
     await saveScreenshot(binding, '04-flight-details');
 
+    await openAccessRequestForm(tester);
+    await tester.enterText(find.widgetWithText(TextField, 'Tail (CC-XXX)'), 'CC-PEND');
+    await saveScreenshot(binding, '07-access-request');
+    await tester.tap(find.text('Submit access request'));
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    await saveScreenshot(binding, '08-access-pending');
+
+    await submitAccessRequest(tester, 'CC-BAD');
+    await tester.pumpAndSettle(const Duration(seconds: 4));
+    await saveScreenshot(binding, '09-access-rejected');
+
+    await submitAccessRequest(tester, 'CC-OK');
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(seconds: 3));
+      if (find.textContaining('CC-OK').evaluate().isNotEmpty &&
+          find.text('Start is disabled until admin approves access for this tail.').evaluate().isEmpty) {
+        break;
+      }
+    }
+    await saveScreenshot(binding, '10-access-approved');
+
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
     await saveScreenshot(binding, '05-broadcasting');
-
     expect(find.text('Stop'), findsOneWidget);
     await saveScreenshot(binding, '06-stop');
-  });
+  }, timeout: const Timeout(Duration(minutes: 8)));
 }
