@@ -67,10 +67,19 @@ class ClubSummary {
   final String slug;
   final String name;
 
-  factory ClubSummary.fromJson(Map<String, dynamic> json) => ClubSummary(
-        slug: json['slug'] as String? ?? json['id'] as String? ?? '',
-        name: json['name'] as String? ?? json['slug'] as String? ?? '',
+  factory ClubSummary.fromJson(Map<String, dynamic> json) {
+    final club = json['club'];
+    if (club is Map<String, dynamic>) {
+      return ClubSummary(
+        slug: club['slug'] as String? ?? '',
+        name: club['name'] as String? ?? club['slug'] as String? ?? '',
       );
+    }
+    return ClubSummary(
+      slug: json['slug'] as String? ?? json['id'] as String? ?? '',
+      name: json['name'] as String? ?? json['slug'] as String? ?? '',
+    );
+  }
 }
 
 class CheckinResult {
@@ -326,7 +335,7 @@ class FlightVisClient {
 
   Future<void> sendMagicLink(String email, {String? locale}) async {
     final response = await _http.post(
-      _uri(FlightVisApiPaths.authMagicLink),
+      _uri(FlightVisApiPaths.authMagicSend),
       headers: _headers(jsonBody: true),
       body: jsonEncode({
         'email': email.trim(),
@@ -336,15 +345,14 @@ class FlightVisClient {
     if (response.statusCode != 200) _throwForError(response);
   }
 
-  Future<PilotProfile> completeMagicLink(String token) async {
-    final response = await _http.get(
-      _uri(FlightVisApiPaths.authMagicConsume).replace(
-        queryParameters: {'token': token.trim()},
-      ),
-      headers: {
-        ..._headers(),
-        'Accept': 'application/json',
-      },
+  Future<PilotProfile> completeMagicLink(String token, {String? clubSlug}) async {
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.authMagicComplete),
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({
+        'token': token.trim(),
+        if (clubSlug != null && clubSlug.isNotEmpty) 'slug': clubSlug,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
     final session = _sessionFromResponse(response);
@@ -361,7 +369,7 @@ class FlightVisClient {
 
   Future<Map<String, dynamic>> passkeyLoginBegin(String email) async {
     final response = await _http.post(
-      _uri(FlightVisApiPaths.webauthnLoginBegin),
+      _uri(FlightVisApiPaths.passkeyLoginOptions),
       headers: _headers(jsonBody: true),
       body: jsonEncode({'email': email.trim()}),
     );
@@ -374,7 +382,7 @@ class FlightVisClient {
     required Map<String, dynamic> credential,
   }) async {
     final response = await _http.post(
-      _uri(FlightVisApiPaths.webauthnLoginFinish),
+      _uri(FlightVisApiPaths.passkeyLoginVerify),
       headers: _headers(jsonBody: true),
       body: jsonEncode({'nonce': nonce, 'credential': credential}),
     );
@@ -440,21 +448,22 @@ class FlightVisClient {
     return StartFlightResult.fromJson(_decodeJson(response));
   }
 
-  /// Guest device registration (`POST /api/devices/anonymous`).
-  Future<DeviceRegistration> registerAnonymousDevice({
-    String label = 'Android',
-    String? locale,
-  }) async {
+  /// Guest pilot session (`POST /api/devices/anonymous` → server `post_guest`).
+  Future<PilotProfile> startGuestSession({String name = 'Android'}) async {
     final response = await _http.post(
       _uri(FlightVisApiPaths.devicesAnonymous),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({
-        'label': label,
-        if (locale != null && locale.isNotEmpty) 'locale': locale,
-      }),
+      body: jsonEncode({'name': name}),
     );
     if (response.statusCode != 200) _throwForError(response);
-    return DeviceRegistration.fromJson(_decodeJson(response));
+    final session = _sessionFromResponse(response);
+    if (session != null) _sessionId = session;
+    final body = _decodeJson(response);
+    final pilot = body['pilot'];
+    if (pilot is Map<String, dynamic>) {
+      return PilotProfile.fromJson(pilot);
+    }
+    throw FlightVisException('guest session failed');
   }
 
   /// Logged-in pilot device (`POST /api/me/devices` or club-scoped).

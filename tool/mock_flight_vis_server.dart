@@ -38,9 +38,15 @@ Future<void> main() async {
 
     if (method == 'POST' && path == '/api/devices/anonymous') {
       await jsonResponse(200, {
-        'id': 'dev-ci',
-        'token': deviceToken,
-      });
+        'ok': true,
+        'pilot': {
+          'id': 'guest-1',
+          'name': 'Guest',
+          'email': 'guest-1@guest.invalid',
+          'status': 'approved',
+          'role': 'pilot',
+        },
+      }, cookie: session);
       continue;
     }
 
@@ -49,23 +55,33 @@ Future<void> main() async {
         'id': 'dev-ci',
         'token': deviceToken,
         'label': 'Android',
+        'created': true,
       });
       continue;
     }
 
     if (method == 'GET' && path == '/api/clubs/$clubSlug') {
-      await jsonResponse(200, {'slug': clubSlug, 'name': clubName});
+      await jsonResponse(200, {
+        'club': {
+          'id': 'club-ci',
+          'slug': clubSlug,
+          'name': clubName,
+          'defaultLocale': 'es',
+        },
+        'userLocale': null,
+      });
       continue;
     }
 
-    if (method == 'POST' && path == '/api/club/auth/magic-link') {
+    if (method == 'POST' && path == '/api/auth/magic/send') {
       await jsonResponse(200, {'ok': true});
       continue;
     }
 
-    if (method == 'GET' && path == '/api/club/auth/magic') {
-      final token = request.uri.queryParameters['token'];
-      if (token == null || token.isEmpty) {
+    if (method == 'POST' && path == '/api/auth/magic/complete') {
+      final raw = await utf8.decoder.bind(request).join();
+      final body = jsonDecode(raw) as Map<String, dynamic>;
+      if ((body['token'] as String?)?.isEmpty ?? true) {
         await jsonResponse(400, {'error': 'invalid'});
         continue;
       }
@@ -82,7 +98,7 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/club/auth/webauthn/login/begin') {
+    if (method == 'POST' && path == '/api/auth/passkey/login/options') {
       await jsonResponse(200, {
         'nonce': 'ci-nonce',
         'publicKey': {
@@ -95,7 +111,7 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/club/auth/webauthn/login/finish') {
+    if (method == 'POST' && path == '/api/auth/passkey/login/verify') {
       await jsonResponse(200, {
         'ok': true,
         'pilot': {

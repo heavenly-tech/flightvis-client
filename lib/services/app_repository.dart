@@ -81,9 +81,13 @@ class AppRepository {
       client.setDeviceToken(existing);
       return;
     }
-    final reg = preferPilotRegistration && client.sessionId != null
-        ? await client.registerDevice(installId: await DeviceInstallId.getOrCreate())
-        : await client.registerAnonymousDevice(locale: client.acceptLanguage);
+    if (client.sessionId == null) {
+      await client.startGuestSession(name: 'Android');
+      await persistSession();
+    }
+    final reg = await client.registerDevice(
+      installId: await DeviceInstallId.getOrCreate(),
+    );
     await persistDeviceToken(reg.token);
   }
 
