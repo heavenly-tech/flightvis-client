@@ -18,8 +18,9 @@ Future<void> main() async {
   print('mock flight_vis listening on ${server.port}');
 
   bool checkinValid() {
-    if (checkinExpiresAtMs == null) return false;
-    return DateTime.now().millisecondsSinceEpoch < checkinExpiresAtMs!;
+    final expires = checkinExpiresAtMs;
+    if (expires == null) return false;
+    return DateTime.now().millisecondsSinceEpoch < expires;
   }
 
   bool isClubScoped(String path, String tail) => path == '/api/clubs/$clubSlug/$tail';
