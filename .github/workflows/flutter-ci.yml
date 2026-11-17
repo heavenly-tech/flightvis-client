@@ -127,9 +127,9 @@ jobs:
           dart run tool/mock_flight_vis_server.dart &
           echo $! > mock_server.pid
           for i in $(seq 1 30); do
-            if curl -sf -X POST http://127.0.0.1:18080/api/club/login \
+            if curl -sf -X POST http://127.0.0.1:18080/api/devices/anonymous \
               -H 'Content-Type: application/json' \
-              -d '{"email":"pilot@demo.test","password":"password12"}'; then
+              -d '{"label":"ci"}'; then
               echo "mock API ready"
               exit 0
             fi
@@ -149,7 +149,9 @@ jobs:
             echo "Installing CI release APK smoke check"
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-            adb install -r build/ci-artifacts/app-release.apk
+            RELEASE_APK="$(find build/ci-artifacts -name app-release.apk | head -1)"
+            test -n "$RELEASE_APK" && test -f "$RELEASE_APK"
+            adb install -r "$RELEASE_APK"
 
             flutter build apk --debug \
               --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
