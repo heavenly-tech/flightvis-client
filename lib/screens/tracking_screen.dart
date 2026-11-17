@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../api/flight_vis_client.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
+import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -44,18 +45,37 @@ class _TrackingScreenState extends State<TrackingScreen> {
   void initState() {
     super.initState();
     _bootstrap();
-    _poll = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final on = await widget.tracking.isTracking();
-      if (mounted) setState(() => _active = on);
-    });
+    _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+  }
+
+  Future<void> _haltTracking() async {
+    await widget.tracking.stop();
+    await widget.repo.prefs.setActiveFlightId(null);
+    if (mounted) widget.onStopped();
+  }
+
+  Future<void> _tick() async {
+    if (!mounted) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (checkinExpired(
+      expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
+      nowMs: nowMs,
+    )) {
+      await _haltTracking();
+      return;
+    }
+    if (await widget.tracking.ingestFailureRequiresStop()) {
+      await _haltTracking();
+      return;
+    }
+    final on = await widget.tracking.isTracking();
+    if (mounted) setState(() => _active = on);
   }
 
   Future<void> _bootstrap() async {
     final expiresMs = widget.repo.prefs.checkinExpiresAtMs();
-    if (expiresMs != null && DateTime.now().millisecondsSinceEpoch >= expiresMs) {
-      await widget.tracking.stop();
-      await widget.repo.prefs.setActiveFlightId(null);
-      if (mounted) widget.onStopped();
+    if (checkinExpired(expiresAtMs: expiresMs, nowMs: DateTime.now().millisecondsSinceEpoch)) {
+      await _haltTracking();
       return;
     }
     final token = await widget.repo.secure.readDeviceToken();

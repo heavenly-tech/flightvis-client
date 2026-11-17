@@ -11,6 +11,7 @@ import 'screens/permissions_onboarding_screen.dart';
 import 'screens/tracking_screen.dart';
 import 'services/app_repository.dart';
 import 'services/deep_link_dispatcher.dart';
+import 'services/tracking_lifecycle.dart';
 import 'services/tracking_service.dart';
 
 Future<AppRepository> createAppRepository() => AppRepository.create();
@@ -163,18 +164,30 @@ class _FlightVisAppState extends State<FlightVisApp> {
       }
     }
 
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
     var activeFlight = widget.repo.prefs.activeFlightId();
+    bool? serverSaysActive;
     if (activeFlight != null && session != null) {
       try {
-        final stillActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
-        if (!stillActive) {
-          await widget.repo.prefs.setActiveFlightId(null);
-          activeFlight = null;
-        }
+        serverSaysActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
       } catch (_) {
-        await widget.repo.prefs.setActiveFlightId(null);
-        activeFlight = null;
+        serverSaysActive = false;
       }
+    } else if (activeFlight != null) {
+      serverSaysActive = null;
+    }
+    final resumeTracking = shouldResumeTracking(
+      activeFlightId: activeFlight,
+      serverSaysActive: serverSaysActive,
+      checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
+      nowMs: nowMs,
+    );
+    if (!resumeTracking) {
+      await _tracking.stop();
+      if (activeFlight != null) {
+        await widget.repo.prefs.setActiveFlightId(null);
+      }
+      activeFlight = null;
     }
     if (!mounted) return;
     setState(() {
