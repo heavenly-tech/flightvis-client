@@ -5,6 +5,8 @@ import 'package:flight_vis/main.dart' as app;
 import 'package:flight_vis/services/deep_link_dispatcher.dart';
 import 'package:flight_vis/util/flight_deep_link.dart';
 
+import 'integration_helpers.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -12,10 +14,7 @@ void main() {
     app.main();
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
-    if (find.text('Continue').evaluate().isNotEmpty) {
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
-    }
+    await advancePermissionsOnboardingIfNeeded(tester);
 
     await DeepLinkTestHooks.dispatch(
       const CheckinDeepLink(

@@ -130,9 +130,11 @@ jobs:
 
       - name: Locate release APK for emulator
         run: |
-          find . -name app-release.apk > apk-locations.txt
+          APK="$(find "$GITHUB_WORKSPACE" -name app-release.apk -type f | head -1)"
+          test -n "$APK"
+          cp "$APK" "$GITHUB_WORKSPACE/ci-release.apk"
+          echo "$GITHUB_WORKSPACE/ci-release.apk" > apk-locations.txt
           cat apk-locations.txt
-          test -s apk-locations.txt
 
       - name: Start mock flight_vis API
         run: |
@@ -161,8 +163,7 @@ jobs:
             echo "Installing CI release APK smoke check"
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-            RELEASE_APK="$(head -1 apk-locations.txt)"
-            adb install -r "$RELEASE_APK"
+            adb install -r "$(head -1 "$GITHUB_WORKSPACE/apk-locations.txt")"
 
             flutter build apk --debug \
               --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
