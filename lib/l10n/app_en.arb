@@ -93,33 +93,5 @@
   },
   "pilotBroadcasting": "Broadcasting position",
   "pilotBroadcastingPaused": "Broadcasting paused",
-  "pilotDeviceTokenMissing": "Device token missing — pair your device first.",
-  "pilotRequestAnotherAircraft": "Request another aircraft",
-  "pilotRequestTailLabel": "Tail (CC-XXX)",
-  "pilotRequestTypeLabel": "Aircraft type",
-  "pilotRequestNewType": "New type",
-  "pilotRequestNewTypeHint": "Type code (e.g. C172)",
-  "pilotRequestSubmit": "Submit access request",
-  "pilotRequestInvalidTail": "Enter a valid tail in CC-XXX format (three letters).",
-  "pilotRequestEnterType": "Enter an aircraft type code.",
-  "pilotAccessPending": "Access pending for {tail}",
-  "@pilotAccessPending": {
-    "placeholders": {
-      "tail": {"type": "String"}
-    }
-  },
-  "pilotAccessRejected": "Access denied for {tail}: {reason}",
-  "@pilotAccessRejected": {
-    "placeholders": {
-      "tail": {"type": "String"},
-      "reason": {"type": "String"}
-    }
-  },
-  "pilotAccessApproved": "Access approved for {tail}. You can start now.",
-  "@pilotAccessApproved": {
-    "placeholders": {
-      "tail": {"type": "String"}
-    }
-  },
-  "pilotAccessPendingStartBlocked": "Start is disabled until admin approves access for this tail."
+  "pilotDeviceTokenMissing": "Device token missing — pair your device first."
 }

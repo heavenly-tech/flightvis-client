@@ -1,42 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-class _MockAccessRequest {
-  _MockAccessRequest({
-    required this.id,
-    required this.tail,
-    required this.typeCode,
-    this.status = 'pending',
-    this.rejectReason,
-  });
-
-  final String id;
-  final String tail;
-  final String typeCode;
-  String status;
-  String? rejectReason;
-  int pollViews = 0;
-}
-
 /// Minimal club API mock for emulator integration screenshots (CI).
 Future<void> main() async {
   const session = 'ci-mock-session';
   var checkedIn = false;
-  final accessRequests = <_MockAccessRequest>[];
-  final approvedTails = <Map<String, String>>[];
-
-  var nextReq = 0;
 
   final server = await HttpServer.bind(InternetAddress.anyIPv4, int.parse(
     Platform.environment['MOCK_PORT'] ?? '18080',
   ));
   // ignore: avoid_print
   print('mock flight_vis listening on ${server.port}');
-
-  List<Map<String, String>> baseTails() => [
-        {'id': 'a1', 'tail': 'N12345', 'type_code': 'C172'},
-        ...approvedTails,
-      ];
 
   await for (final request in server) {
     final path = request.uri.path;
@@ -101,59 +75,9 @@ Future<void> main() async {
     }
 
     if (method == 'GET' && path == '/api/me/tails') {
-      await jsonResponse(200, {'tails': baseTails()});
-      continue;
-    }
-
-    if (method == 'POST' && path == '/api/me/access-requests') {
-      final raw = await utf8.decoder.bind(request).join();
-      final body = jsonDecode(raw) as Map<String, dynamic>;
-      final tail = (body['tail'] as String? ?? '').toUpperCase();
-      final typeCode = (body['type_code'] as String? ?? '').toUpperCase();
-      nextReq++;
-      final id = 'ar$nextReq';
-      final req = _MockAccessRequest(id: id, tail: tail, typeCode: typeCode);
-      if (tail == 'CC-BAD') {
-        req.status = 'rejected';
-        req.rejectReason = 'Aircraft not in club fleet';
-      }
-      accessRequests.add(req);
       await jsonResponse(200, {
-        'request': {
-          'id': id,
-          'tail': tail,
-          'type_code': typeCode,
-          'status': req.status,
-          if (req.rejectReason != null) 'rejectReason': req.rejectReason,
-        },
-      });
-      continue;
-    }
-
-    if (method == 'GET' && path == '/api/me/access-requests') {
-      for (final r in accessRequests) {
-        r.pollViews++;
-        if (r.tail == 'CC-OK' && r.status == 'pending' && r.pollViews >= 2) {
-          r.status = 'approved';
-          if (!approvedTails.any((t) => t['tail'] == r.tail)) {
-            approvedTails.add({
-              'id': 'a-${r.tail}',
-              'tail': r.tail,
-              'type_code': r.typeCode,
-            });
-          }
-        }
-      }
-      await jsonResponse(200, {
-        'requests': [
-          for (final r in accessRequests)
-            {
-              'id': r.id,
-              'tail': r.tail,
-              'type_code': r.typeCode,
-              'status': r.status,
-              if (r.rejectReason != null) 'rejectReason': r.rejectReason,
-            },
+        'tails': [
+          {'id': 'a1', 'tail': 'N12345', 'type_code': 'C172'},
         ],
       });
       continue;

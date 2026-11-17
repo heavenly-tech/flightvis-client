@@ -55,48 +55,5 @@
   },
   "error_not_cleared": {
     "error": "not cleared for CC-ABC / C172"
-  },
-  "post_access_requests_request": {
-    "tail": "CC-ABC",
-    "type_code": "C172"
-  },
-  "post_access_requests_success": {
-    "request": {
-      "id": "ar1",
-      "tail": "CC-ABC",
-      "type_code": "C172",
-      "status": "pending"
-    }
-  },
-  "get_access_requests_pending": {
-    "requests": [
-      {
-        "id": "ar1",
-        "tail": "CC-ABC",
-        "type_code": "C172",
-        "status": "pending"
-      }
-    ]
-  },
-  "get_access_requests_rejected": {
-    "requests": [
-      {
-        "id": "ar2",
-        "tail": "CC-BAD",
-        "type_code": "C172",
-        "status": "rejected",
-        "rejectReason": "Aircraft not in club fleet"
-      }
-    ]
-  },
-  "get_access_requests_approved": {
-    "requests": [
-      {
-        "id": "ar3",
-        "tail": "CC-OK",
-        "type_code": "C152",
-        "status": "approved"
-      }
-    ]
   }
 }

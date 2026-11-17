@@ -94,33 +94,5 @@
   "pilotBroadcasting": "Transmitiendo posición",
   "pilotBroadcastingPaused": "Transmisión pausada",
   "pilotDeviceTokenMissing": "Falta el token del dispositivo — vincúlelo primero.",
-  "pilotRequestAnotherAircraft": "Solicitar otra aeronave",
-  "pilotRequestTailLabel": "Matrícula (CC-XXX)",
-  "pilotRequestTypeLabel": "Tipo de aeronave",
-  "pilotRequestNewType": "Tipo nuevo",
-  "pilotRequestNewTypeHint": "Código de tipo (ej. C172)",
-  "pilotRequestSubmit": "Enviar solicitud de acceso",
-  "pilotRequestInvalidTail": "Ingrese una matrícula válida CC-XXX (tres letras).",
-  "pilotRequestEnterType": "Ingrese un código de tipo.",
-  "pilotAccessPending": "Acceso pendiente para {tail}",
-  "@pilotAccessPending": {
-    "placeholders": {
-      "tail": {"type": "String"}
-    }
-  },
-  "pilotAccessRejected": "Acceso denegado para {tail}: {reason}",
-  "@pilotAccessRejected": {
-    "placeholders": {
-      "tail": {"type": "String"},
-      "reason": {"type": "String"}
-    }
-  },
-  "pilotAccessApproved": "Acceso aprobado para {tail}. Ya puede volar.",
-  "@pilotAccessApproved": {
-    "placeholders": {
-      "tail": {"type": "String"}
-    }
-  },
-  "pilotAccessPendingStartBlocked": "Comenzar deshabilitado hasta que aprueben el acceso.",
   "@@locale": "es"
 }
