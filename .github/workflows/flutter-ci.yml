@@ -20,14 +20,13 @@ jobs:
       - name: Determine signing policy
         id: signing_policy
         run: |
-          if [ "${{ github.event_name }}" = "push" ] && {
-            [ "${{ github.ref }}" = "refs/heads/main" ] || \
-            echo "${{ github.ref }}" | grep -q '^refs/tags/v'
-          ; }; then
-            echo "require_release_keystore=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "require_release_keystore=false" >> "$GITHUB_OUTPUT"
+          require=false
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if [ "${{ github.ref }}" = "refs/heads/main" ] || echo "${{ github.ref }}" | grep -q '^refs/tags/v'; then
+              require=true
+            fi
           fi
+          echo "require_release_keystore=$require" >> "$GITHUB_OUTPUT"
 
       - name: flutter pub get
         run: flutter pub get
