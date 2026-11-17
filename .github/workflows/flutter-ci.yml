@@ -150,19 +150,13 @@ jobs:
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
 
-            flutter build apk --debug \
-              --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
-              --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+            flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
 
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
 
-            flutter test integration_test/screenshot_flow_test.dart \
-              --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
-              --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+            flutter test integration_test/screenshot_flow_test.dart --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
 
-            flutter test integration_test/deep_link_checkin_test.dart \
-              --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
-              --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+            flutter test integration_test/deep_link_checkin_test.dart --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
 
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
