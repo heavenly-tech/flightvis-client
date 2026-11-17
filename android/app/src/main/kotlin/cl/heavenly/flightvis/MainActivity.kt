@@ -42,10 +42,11 @@ class MainActivity : FlutterActivity() {
   private fun captureLaunchIntent(intent: Intent?) {
         if (intent == null) return
         if (Intent.ACTION_VIEW != intent.action) return
-        val data: Uri? = intent.data ?: return
+        val data = intent.data ?: return
         val host = data.host?.lowercase() ?: return
         if (host != PRODUCTION_HOST && !host.endsWith(".$PRODUCTION_HOST")) return
-        if (data.scheme != "https" && data.scheme != "http") return
+        val scheme = data.scheme ?: return
+        if (scheme != "https" && scheme != "http") return
         launchUri = data.toString()
     }
 
