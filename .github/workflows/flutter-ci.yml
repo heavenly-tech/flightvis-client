@@ -64,6 +64,14 @@ jobs:
           {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}"}
           EOF
 
+      - name: Verify release artifact bundle
+        run: |
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          test -f build/app-release.apk.sha256
+          test -f build/app-release.json
+          echo "release bundle OK"
+
       - name: Job summary
         run: |
           if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
@@ -71,9 +79,10 @@ jobs:
           else
             echo "### APK signed with debug key (no FLIGHTVIS_KEYSTORE_* secrets)" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "Artifacts: app-release.apk, app-release.apk.sha256, app-release.json" >> $GITHUB_STEP_SUMMARY
 
-      - name: Golden UI screenshots
-        run: flutter test --update-goldens test/golden_screenshots_test.dart
+      - name: Golden UI screenshots (widget tests)
+        run: flutter test test/golden_screenshots_test.dart
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -93,3 +102,69 @@ jobs:
             build/app/outputs/flutter-apk/app-release.apk
             build/app-release.apk.sha256
             build/app-release.json
+
+  emulator-screenshots:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Download release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-vis-android-${{ github.sha }}
+          path: build/ci-artifacts
+
+      - name: Start mock flight_vis API
+        run: |
+          dart run tool/mock_flight_vis_server.dart &
+          echo $! > mock_server.pid
+          sleep 1
+          curl -sf -X POST http://127.0.0.1:18080/api/club/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"pilot@demo.test","password":"password12"}' || (cat mock_server.pid; exit 1)
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            echo "Installing CI release APK smoke check"
+            adb wait-for-device
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
+            adb install -r build/ci-artifacts/app-release.apk
+
+            flutter build apk --debug \
+              --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
+              --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+
+            flutter test integration_test/screenshot_flow_test.dart \
+              --dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 \
+              --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true
+
+            mkdir -p docs/emulator-screenshots
+            adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
+            ls -la docs/emulator-screenshots || true
+
+      - name: Stop mock server
+        if: always()
+        run: kill "$(cat mock_server.pid)" 2>/dev/null || true
+
+      - name: Upload emulator screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-emulator-screenshots-${{ github.sha }}
+          path: docs/emulator-screenshots/
+          if-no-files-found: warn

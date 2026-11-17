@@ -9,9 +9,11 @@ import 'screens/tracking_screen.dart';
 import 'services/app_repository.dart';
 import 'services/tracking_service.dart';
 
+Future<AppRepository> createAppRepository() => AppRepository.create();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final repo = await AppRepository.create();
+  final repo = await createAppRepository();
   runApp(FlightVisApp(repo: repo));
 }
 

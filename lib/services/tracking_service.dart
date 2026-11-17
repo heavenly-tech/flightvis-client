@@ -4,10 +4,12 @@ import '../app_config.dart';
 import '../geolocation_service.dart';
 
 class TrackingService {
+  static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
   Future<void> initForFlight({
     required String baseUrl,
     required String deviceToken,
   }) async {
+    if (screenshotTest) return;
     final config = Config(
       serverUrl: AppConfig.osmandUrl(baseUrl),
       deviceId: deviceToken,
@@ -27,6 +29,7 @@ class TrackingService {
   }
 
   Future<bool> start() async {
+    if (screenshotTest) return true;
     try {
       await GeolocationService.tracker.start();
       return true;

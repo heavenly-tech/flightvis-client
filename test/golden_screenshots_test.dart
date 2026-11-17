@@ -114,7 +114,7 @@ void main() {
     final repo = AppRepository(secure: _FakeSecure(), prefs: prefs, client: client);
     await _golden(
       tester,
-      TailPickerScreen(repo: repo, onFlightStarted: (_, __) {}),
+      TailPickerScreen(repo: repo, onFlightStarted: (_, _) {}),
       '05-tail-picker',
     );
   });

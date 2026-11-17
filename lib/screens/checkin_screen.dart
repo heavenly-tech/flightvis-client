@@ -21,6 +21,8 @@ class CheckinScreen extends StatefulWidget {
 class _CheckinScreenState extends State<CheckinScreen> {
   String? _error;
   bool _busy = false;
+  bool _justCheckedIn = false;
+  final _pasteController = TextEditingController();
   Timer? _tick;
 
   @override
@@ -34,6 +36,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
   @override
   void dispose() {
     _tick?.cancel();
+    _pasteController.dispose();
     super.dispose();
   }
 
@@ -53,7 +56,12 @@ class _CheckinScreenState extends State<CheckinScreen> {
         DateTime.now().millisecondsSinceEpoch,
       );
       await widget.repo.prefs.setCheckinExpiresAtMs(expires);
-      if (mounted) widget.onCheckedIn();
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _justCheckedIn = true;
+        });
+      }
     } on FlightVisException catch (e) {
       setState(() {
         _error = e.message;
@@ -81,7 +89,16 @@ class _CheckinScreenState extends State<CheckinScreen> {
             const Text(
               'Scan the rotating QR on the club screen (/club/screen). Tokens rotate every 30 seconds.',
             ),
-            if (gate.canStartFlight && remaining != null) ...[
+            if (_justCheckedIn) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Check-in successful. Valid for about ${AppConfig.defaultCheckinValidMinutes} minutes.',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+              const SizedBox(height: 8),
+              FilledButton(onPressed: widget.onCheckedIn, child: const Text('Continue')),
+            ],
+            if (!_justCheckedIn && gate.canStartFlight && remaining != null) ...[
               const SizedBox(height: 16),
               Text(
                 'Check-in valid for ${remaining.inMinutes}m ${remaining.inSeconds % 60}s (about ${AppConfig.defaultCheckinValidMinutes} min).',
@@ -94,6 +111,19 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
+            const SizedBox(height: 12),
+            TextField(
+              controller: _pasteController,
+              decoration: const InputDecoration(
+                labelText: 'Or paste check-in token',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: _busy ? null : () => _submitToken(_pasteController.text),
+              child: const Text('Submit pasted token'),
+            ),
             const Spacer(),
             FilledButton.icon(
               onPressed: _busy
