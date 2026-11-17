@@ -51,6 +51,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   Future<void> _bootstrap() async {
+    final expiresMs = widget.repo.prefs.checkinExpiresAtMs();
+    if (expiresMs != null && DateTime.now().millisecondsSinceEpoch >= expiresMs) {
+      await widget.tracking.stop();
+      await widget.repo.prefs.setActiveFlightId(null);
+      if (mounted) widget.onStopped();
+      return;
+    }
     final token = await widget.repo.secure.readDeviceToken();
     if (token == null) {
       if (mounted) setState(() => _error = _missingTokenMessage);
@@ -108,6 +115,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
       await widget.repo.prefs.setActiveFlightId(null);
       if (mounted) widget.onStopped();
     } on FlightVisException catch (e) {
+      if (e.statusCode == 409 || e.statusCode == 404) {
+        await widget.tracking.stop();
+        await widget.repo.prefs.setActiveFlightId(null);
+        if (mounted) widget.onStopped();
+        return;
+      }
       setState(() => _error = e.message);
     }
   }

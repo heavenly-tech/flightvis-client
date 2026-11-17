@@ -1,4 +1,4 @@
-/// `https://flight.heavenly.cl/c/{slug}/q/{token}` and magic-link paths.
+/// `https://flight.heavenly.cl/c/{slug}/q/{token}` and club magic-link URLs.
 class CheckinPayload {
   const CheckinPayload({required this.token, this.clubSlug});
 
@@ -27,23 +27,25 @@ class FlightDeepLink {
   static const productionHost = 'flight.heavenly.cl';
   static const androidPackage = 'cl.heavenly.flightvis';
 
-  /// Normalizes https VIEW intents, Chrome `intent://` fallback URLs, and [extras].
+  /// Normalizes https VIEW intents and Chrome `intent://` fallback URLs (C-4: no untrusted extras).
   static ParsedDeepLink? parseIncoming(Uri uri, {Map<String, String>? extras}) {
-    final fromExtras = _fromExtras(extras);
-    if (fromExtras != null) return fromExtras;
-
     final https = _toHttps(uri);
     if (https == null) return null;
-    return parseHttpsUri(https);
+  if (!_isTrustedHost(https)) return null;
+    final parsed = parseHttpsUri(https);
+    if (parsed != null) return parsed;
+    return _magicFromApiPath(https);
   }
 
   static ParsedDeepLink? parseUri(Uri uri) => parseIncoming(uri);
 
-  static ParsedDeepLink? parseHttpsUri(Uri uri) {
+  static bool _isTrustedHost(Uri uri) {
     final host = uri.host.toLowerCase();
-    if (host != productionHost && !host.endsWith('.$productionHost')) {
-      return null;
-    }
+    return host == productionHost || host.endsWith('.$productionHost');
+  }
+
+  static ParsedDeepLink? parseHttpsUri(Uri uri) {
+    if (!_isTrustedHost(uri)) return null;
     final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
     if (segs.length >= 4 && segs[0] == 'c' && segs[2] == 'q') {
       final slug = segs[1];
@@ -55,6 +57,21 @@ class FlightDeepLink {
       final token = segs.sublist(2).join('/');
       if (token.isEmpty) return null;
       return MagicLinkDeepLink(token: Uri.decodeComponent(token));
+    }
+    return null;
+  }
+
+  static ParsedDeepLink? _magicFromApiPath(Uri uri) {
+    final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (segs.length == 4 &&
+        segs[0] == 'api' &&
+        segs[1] == 'club' &&
+        segs[2] == 'auth' &&
+        segs[3] == 'magic') {
+      final token = uri.queryParameters['token'];
+      if (token != null && token.isNotEmpty) {
+        return MagicLinkDeepLink(token: token);
+      }
     }
     return null;
   }
@@ -100,20 +117,6 @@ class FlightDeepLink {
   static String? _intentParam(String fragment, String key) {
     final match = RegExp('$key=([^;]+)').firstMatch(fragment);
     return match?.group(1);
-  }
-
-  static ParsedDeepLink? _fromExtras(Map<String, String>? extras) {
-    if (extras == null || extras.isEmpty) return null;
-    final token = extras['token'] ?? extras['checkin_token'] ?? extras['checkinToken'];
-    final slug = extras['slug'] ?? extras['club_slug'] ?? extras['clubSlug'];
-    if (token != null && token.isNotEmpty && slug != null && slug.isNotEmpty) {
-      return CheckinDeepLink(clubSlug: slug, token: token);
-    }
-    final magic = extras['magic_token'] ?? extras['magicToken'];
-    if (magic != null && magic.isNotEmpty) {
-      return MagicLinkDeepLink(token: magic);
-    }
-    return null;
   }
 
   /// QR scan or paste: HTTPS check-in URL, `intent://`, or raw rotating token.

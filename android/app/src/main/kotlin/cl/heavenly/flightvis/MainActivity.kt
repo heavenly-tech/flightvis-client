@@ -9,7 +9,6 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private var launchUri: String? = null
-    private var launchExtras: Map<String, String>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         captureLaunchIntent(intent)
@@ -31,7 +30,7 @@ class MainActivity : FlutterActivity() {
                         result.success(
                             mapOf(
                                 "uri" to (launchUri ?: ""),
-                                "extras" to (launchExtras ?: emptyMap<String, String>()),
+                                "extras" to emptyMap<String, String>(),
                             ),
                         )
                     }
@@ -40,14 +39,17 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    private fun captureLaunchIntent(intent: Intent?) {
+  private fun captureLaunchIntent(intent: Intent?) {
         if (intent == null) return
-        val data: Uri? = intent.data
-        launchUri = data?.toString()
-        val extras = mutableMapOf<String, String>()
-        for (key in listOf("slug", "club_slug", "clubSlug", "token", "checkin_token", "checkinToken", "magic_token", "magicToken")) {
-            intent.getStringExtra(key)?.let { if (it.isNotBlank()) extras[key] = it }
-        }
-        if (extras.isNotEmpty()) launchExtras = extras
+        if (Intent.ACTION_VIEW != intent.action) return
+        val data: Uri? = intent.data ?: return
+        val host = data.host?.lowercase() ?: return
+        if (host != PRODUCTION_HOST && !host.endsWith(".$PRODUCTION_HOST")) return
+        if (data.scheme != "https" && data.scheme != "http") return
+        launchUri = data.toString()
+    }
+
+    companion object {
+        private const val PRODUCTION_HOST = "flight.heavenly.cl"
     }
 }

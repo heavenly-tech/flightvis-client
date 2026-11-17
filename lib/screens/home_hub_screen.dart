@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../dev/dev_tools_gate.dart';
 import '../l10n/pilot_l10n.dart';
 import '../util/checkin_expiry_format.dart';
 import '../services/app_repository.dart';
@@ -59,6 +60,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
       );
 
   void _openHidden() {
+    if (!hiddenServerSettingsEnabled) return;
     _secretTaps++;
     if (_secretTaps >= 7) {
       _secretTaps = 0;

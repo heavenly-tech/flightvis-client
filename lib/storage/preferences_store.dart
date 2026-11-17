@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_config.dart';
+import '../dev/dev_tools_gate.dart';
 import '../services/locale_preferences.dart';
 
 class PreferencesStore {
@@ -24,16 +25,22 @@ class PreferencesStore {
     return PreferencesStore(prefs);
   }
 
-  String baseUrl() {
-    final saved = _prefs.getString(baseUrlKey);
-    if (saved != null && saved.trim().isNotEmpty) {
+  /// Effective API base URL (persisted override only in non-release builds).
+  static String effectiveBaseUrl({required String? saved, required bool releaseMode}) {
+    if (!releaseMode && saved != null && saved.trim().isNotEmpty) {
       return AppConfig.normalizeBaseUrl(saved);
     }
     return AppConfig.normalizeBaseUrl(AppConfig.defaultBaseUrl);
   }
 
-  Future<void> setBaseUrl(String url) =>
-      _prefs.setString(baseUrlKey, AppConfig.normalizeBaseUrl(url));
+  String baseUrl() {
+    return effectiveBaseUrl(saved: _prefs.getString(baseUrlKey), releaseMode: !hiddenServerSettingsEnabled);
+  }
+
+  Future<void> setBaseUrl(String url) async {
+    if (!hiddenServerSettingsEnabled) return;
+    await _prefs.setString(baseUrlKey, AppConfig.normalizeBaseUrl(url));
+  }
 
   int? checkinExpiresAtMs() => _prefs.getInt(checkinExpiresAtKey);
 

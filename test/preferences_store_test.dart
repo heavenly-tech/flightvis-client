@@ -11,6 +11,7 @@ void main() {
     final store = await PreferencesStore.open();
     expect(store.baseUrl(), contains('flight.heavenly'));
     await store.setBaseUrl('https://club.example');
+    // Tests run in debug/profile (not release); override is honored.
     expect(store.baseUrl(), 'https://club.example');
     await store.setCheckinExpiresAtMs(999);
     expect(store.checkinExpiresAtMs(), 999);

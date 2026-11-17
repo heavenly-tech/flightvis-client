@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../dev/dev_tools_gate.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../widgets/language_picker_sheet.dart';
@@ -47,6 +48,9 @@ class _HiddenSettingsScreenState extends State<HiddenSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!hiddenServerSettingsEnabled) {
+      return const SizedBox.shrink();
+    }
     final l10n = context.pilotL10n;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.hiddenServerSettingsTitle)),

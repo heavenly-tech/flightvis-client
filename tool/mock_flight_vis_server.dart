@@ -23,8 +23,6 @@ Future<void> main() async {
     return DateTime.now().millisecondsSinceEpoch < expires;
   }
 
-  bool isClubScoped(String path, String tail) => path == '/api/clubs/$clubSlug/$tail';
-
   await for (final request in server) {
     final path = request.uri.path;
     final method = request.method;
@@ -46,7 +44,7 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && (path == '/api/me/devices' || isClubScoped(path, 'me/devices'))) {
+    if (method == 'POST' && path == '/api/me/devices') {
       await jsonResponse(200, {
         'id': 'dev-ci',
         'token': deviceToken,
@@ -60,12 +58,17 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/auth/magic/send') {
+    if (method == 'POST' && path == '/api/club/auth/magic-link') {
       await jsonResponse(200, {'ok': true});
       continue;
     }
 
-    if (method == 'POST' && path == '/api/auth/magic/complete') {
+    if (method == 'GET' && path == '/api/club/auth/magic') {
+      final token = request.uri.queryParameters['token'];
+      if (token == null || token.isEmpty) {
+        await jsonResponse(400, {'error': 'invalid'});
+        continue;
+      }
       await jsonResponse(200, {
         'ok': true,
         'pilot': {
@@ -79,18 +82,22 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/auth/passkey/login/options') {
+    if (method == 'POST' && path == '/api/club/auth/webauthn/login/begin') {
       await jsonResponse(200, {
-        'challenge': 'dGVzdA',
-        'timeout': 60000,
-        'rpId': 'flight.heavenly.cl',
-        'userVerification': 'preferred',
+        'nonce': 'ci-nonce',
+        'publicKey': {
+          'challenge': 'dGVzdA',
+          'timeout': 60000,
+          'rpId': 'flight.heavenly.cl',
+          'userVerification': 'preferred',
+        },
       });
       continue;
     }
 
-    if (method == 'POST' && path == '/api/auth/passkey/login/verify') {
+    if (method == 'POST' && path == '/api/club/auth/webauthn/login/finish') {
       await jsonResponse(200, {
+        'ok': true,
         'pilot': {
           'id': 'p1',
           'name': 'Demo Pilot',
@@ -141,7 +148,7 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && (path == '/api/checkin' || isClubScoped(path, 'checkin'))) {
+    if (method == 'POST' && path == '/api/checkin') {
       final expires = DateTime.now().toUtc().add(const Duration(hours: 12));
       checkinExpiresAtMs = expires.millisecondsSinceEpoch;
       await jsonResponse(200, {
@@ -152,7 +159,7 @@ Future<void> main() async {
       continue;
     }
 
-  if (method == 'GET' && (path == '/api/me/tails' || isClubScoped(path, 'me/tails'))) {
+    if (method == 'GET' && path == '/api/me/tails') {
       await jsonResponse(200, {
         'tails': [
           {'id': 'a1', 'tail': 'N12345', 'type_code': 'C172'},
@@ -161,7 +168,27 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && (path == '/api/flights' || isClubScoped(path, 'flights'))) {
+    if (method == 'GET' && path == '/api/me/flights') {
+      final cookie = request.headers.value('cookie') ?? '';
+      if (cookie.contains(session)) {
+        await jsonResponse(200, {
+          'flights': activeFlightId == null
+              ? <Map<String, dynamic>>[]
+              : [
+                  {
+                    'id': activeFlightId,
+                    'tail': 'N12345',
+                    'status': 'active',
+                  },
+                ],
+        });
+      } else {
+        await jsonResponse(401, {'error': 'unauthorized'});
+      }
+      continue;
+    }
+
+    if (method == 'POST' && path == '/api/flights') {
       if (!checkinValid()) {
         await jsonResponse(403, {'error': 'check-in required'});
         continue;
@@ -179,8 +206,12 @@ Future<void> main() async {
       continue;
     }
 
-    final endMatch = RegExp(r'^/api/(clubs/[^/]+/)?flights/([^/]+)/end$').firstMatch(path);
+    final endMatch = RegExp(r'^/api/flights/([^/]+)/end$').firstMatch(path);
     if (method == 'POST' && endMatch != null) {
+      if (activeFlightId == null) {
+        await jsonResponse(409, {'error': 'not active'});
+        continue;
+      }
       activeFlightId = null;
       await jsonResponse(200, {'ok': true});
       continue;

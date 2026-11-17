@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../api/flight_vis_client.dart';
+import 'device_install_id.dart';
 import '../services/locale_preferences.dart';
 import '../storage/preferences_store.dart';
 import '../storage/secure_store.dart';
@@ -81,7 +82,7 @@ class AppRepository {
       return;
     }
     final reg = preferPilotRegistration && client.sessionId != null
-        ? await client.registerDevice()
+        ? await client.registerDevice(installId: await DeviceInstallId.getOrCreate())
         : await client.registerAnonymousDevice(locale: client.acceptLanguage);
     await persistDeviceToken(reg.token);
   }

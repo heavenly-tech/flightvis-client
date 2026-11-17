@@ -16,14 +16,20 @@ class PasskeyAuth {
 
   void bindClient(FlightVisClient client) => _client = client;
 
-  Future<PilotProfile> login() async {
+  Future<PilotProfile> login(String email) async {
     final client = _client;
     if (client == null) {
       throw FlightVisException('API client not ready');
     }
-    final optionsJson = await client.passkeyLoginOptions();
-    final request = AuthenticateRequestType.fromJsonString(jsonEncode(optionsJson));
+    final begin = await client.passkeyLoginBegin(email);
+    final nonce = begin['nonce'] as String?;
+    final publicKey = begin['publicKey'];
+    if (nonce == null || publicKey == null) {
+      throw FlightVisException('passkey begin failed');
+    }
+    final request = AuthenticateRequestType.fromJsonString(jsonEncode(publicKey));
     final credential = await _authenticator.authenticate(request);
-    return client.passkeyLoginVerify(credential.toJsonString());
+    final credMap = jsonDecode(credential.toJsonString()) as Map<String, dynamic>;
+    return client.passkeyLoginFinish(nonce: nonce, credential: credMap);
   }
 }

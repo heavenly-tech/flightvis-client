@@ -13,9 +13,17 @@ void main() {
       expect(checkin.token, 'v1.demo.9.sig');
     });
 
-    test('parses magic link', () {
+    test('parses legacy magic path', () {
       final link = FlightDeepLink.parseIncoming(
         Uri.parse('https://flight.heavenly.cl/auth/magic/abc123'),
+      );
+      expect(link, isA<MagicLinkDeepLink>());
+      expect((link! as MagicLinkDeepLink).token, 'abc123');
+    });
+
+    test('parses server magic consume URL (C-5)', () {
+      final link = FlightDeepLink.parseIncoming(
+        Uri.parse('https://flight.heavenly.cl/api/club/auth/magic?token=abc123'),
       );
       expect(link, isA<MagicLinkDeepLink>());
       expect((link! as MagicLinkDeepLink).token, 'abc123');
@@ -91,15 +99,14 @@ void main() {
     });
   });
 
-  group('launch extras', () {
-    test('builds check-in from slug+token extras', () {
-      final link = FlightDeepLink.parseIncoming(
+  test('ignores untrusted extras without deep link path (C-4)', () {
+    expect(
+      FlightDeepLink.parseIncoming(
         Uri.parse('https://flight.heavenly.cl/'),
         extras: {'slug': 'my-club', 'token': 'v1.x'},
-      );
-      expect(link, isA<CheckinDeepLink>());
-      expect((link! as CheckinDeepLink).clubSlug, 'my-club');
-    });
+      ),
+      isNull,
+    );
   });
 
   test('parseCheckinScan accepts URL, intent string, or raw token', () {

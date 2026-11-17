@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../app_config.dart';
+import 'flight_vis_api_paths.dart';
 
 class FlightVisException implements Exception {
   FlightVisException(this.message, {this.statusCode, this.body});
@@ -137,6 +138,22 @@ class DeviceRegistration {
   }
 }
 
+class MyFlightSummary {
+  MyFlightSummary({required this.id, required this.tail, required this.status});
+
+  final String id;
+  final String tail;
+  final String status;
+
+  bool get isActive => status == 'active';
+
+  factory MyFlightSummary.fromJson(Map<String, dynamic> json) => MyFlightSummary(
+        id: json['id'] as String,
+        tail: json['tail'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+      );
+}
+
 class StartFlightResult {
   StartFlightResult({
     required this.id,
@@ -204,14 +221,6 @@ class FlightVisClient {
 
   Uri _uri(String path) => Uri.parse('${AppConfig.normalizeBaseUrl(baseUrl)}$path');
 
-  String _scoped(String legacyPath, String scopedTail) {
-    final slug = _clubSlug;
-    if (slug != null && slug.isNotEmpty) {
-      return '/api/clubs/${Uri.encodeComponent(slug)}/$scopedTail';
-    }
-    return legacyPath;
-  }
-
   Map<String, String> _headers({bool jsonBody = false}) {
     final headers = <String, String>{
       if (jsonBody) 'Content-Type': 'application/json',
@@ -261,13 +270,18 @@ class FlightVisClient {
   }
 
   /// Login then enrich profile from `GET /api/club/me` (`licenseNo`).
-  Future<PilotProfile> login(String email, String password) async {
+  Future<PilotProfile> login(
+    String email,
+    String password, {
+    String? installId,
+  }) async {
     final response = await _http.post(
-      _uri('/api/club/login'),
+      _uri(FlightVisApiPaths.clubLogin),
       headers: _headers(jsonBody: true),
       body: jsonEncode({
         'email': email.trim(),
         'password': password,
+        if (installId != null && installId.isNotEmpty) 'installId': installId,
       }),
     );
     if (response.statusCode != 200) _throwForError(response);
@@ -280,7 +294,7 @@ class FlightVisClient {
   }
 
   Future<PilotProfile?> meProfile() async {
-    final response = await _http.get(_uri('/api/club/me'), headers: _headers());
+    final response = await _http.get(_uri(FlightVisApiPaths.clubMe), headers: _headers());
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
     final pilot = body['pilot'];
@@ -288,10 +302,11 @@ class FlightVisClient {
     return PilotProfile.fromJson(pilot as Map<String, dynamic>);
   }
 
-  Future<void> logout() async {
+  Future<void> logout({String? installId}) async {
     final response = await _http.post(
-      _uri('/api/club/logout'),
-      headers: _headers(),
+      _uri(FlightVisApiPaths.clubLogout),
+      headers: _headers(jsonBody: installId != null),
+      body: installId == null ? null : jsonEncode({'installId': installId}),
     );
     if (response.statusCode != 200) _throwForError(response);
     _sessionId = null;
@@ -299,27 +314,37 @@ class FlightVisClient {
 
   Future<ClubSummary> fetchClub(String slug) async {
     final response = await _http.get(
-      _uri('/api/clubs/${Uri.encodeComponent(slug)}'),
+      _uri(FlightVisApiPaths.clubBySlug(slug)),
       headers: _headers(),
     );
+    if (response.statusCode == 404) {
+      return ClubSummary(slug: slug, name: slug);
+    }
     if (response.statusCode != 200) _throwForError(response);
     return ClubSummary.fromJson(_decodeJson(response));
   }
 
-  Future<void> sendMagicLink(String email) async {
+  Future<void> sendMagicLink(String email, {String? locale}) async {
     final response = await _http.post(
-      _uri('/api/auth/magic/send'),
+      _uri(FlightVisApiPaths.authMagicLink),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'email': email.trim()}),
+      body: jsonEncode({
+        'email': email.trim(),
+        if (locale != null && locale.isNotEmpty) 'locale': locale,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
   }
 
   Future<PilotProfile> completeMagicLink(String token) async {
-    final response = await _http.post(
-      _uri('/api/auth/magic/complete'),
-      headers: _headers(jsonBody: true),
-      body: jsonEncode({'token': token.trim()}),
+    final response = await _http.get(
+      _uri(FlightVisApiPaths.authMagicConsume).replace(
+        queryParameters: {'token': token.trim()},
+      ),
+      headers: {
+        ..._headers(),
+        'Accept': 'application/json',
+      },
     );
     if (response.statusCode != 200) _throwForError(response);
     final session = _sessionFromResponse(response);
@@ -334,21 +359,24 @@ class FlightVisClient {
     throw FlightVisException('magic link login failed');
   }
 
-  Future<Map<String, dynamic>> passkeyLoginOptions() async {
+  Future<Map<String, dynamic>> passkeyLoginBegin(String email) async {
     final response = await _http.post(
-      _uri('/api/auth/passkey/login/options'),
+      _uri(FlightVisApiPaths.webauthnLoginBegin),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'rpId': passkeyRpId}),
+      body: jsonEncode({'email': email.trim()}),
     );
     if (response.statusCode != 200) _throwForError(response);
     return _decodeJson(response);
   }
 
-  Future<PilotProfile> passkeyLoginVerify(String credentialJson) async {
+  Future<PilotProfile> passkeyLoginFinish({
+    required String nonce,
+    required Map<String, dynamic> credential,
+  }) async {
     final response = await _http.post(
-      _uri('/api/auth/passkey/login/verify'),
+      _uri(FlightVisApiPaths.webauthnLoginFinish),
       headers: _headers(jsonBody: true),
-      body: credentialJson,
+      body: jsonEncode({'nonce': nonce, 'credential': credential}),
     );
     if (response.statusCode != 200) _throwForError(response);
     final session = _sessionFromResponse(response);
@@ -370,7 +398,7 @@ class FlightVisClient {
       _clubSlug = clubSlug;
     }
     final response = await _http.post(
-      _uri(_scoped('/api/checkin', 'checkin')),
+      _uri(FlightVisApiPaths.checkin),
       headers: _headers(jsonBody: true),
       body: jsonEncode({'token': kioskToken.trim()}),
     );
@@ -384,7 +412,7 @@ class FlightVisClient {
   }
 
   Future<List<TailOption>> tails() async {
-    final response = await _http.get(_uri(_scoped('/api/me/tails', 'me/tails')), headers: _headers());
+    final response = await _http.get(_uri(FlightVisApiPaths.meTails), headers: _headers());
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
     final list = (body['tails'] as List<dynamic>? ?? [])
@@ -400,7 +428,7 @@ class FlightVisClient {
     bool showPilotNamePublic = false,
   }) async {
     final response = await _http.post(
-      _uri(_scoped('/api/flights', 'flights')),
+      _uri(FlightVisApiPaths.flights),
       headers: _headers(jsonBody: true),
       body: jsonEncode({
         'tail': tail,
@@ -418,7 +446,7 @@ class FlightVisClient {
     String? locale,
   }) async {
     final response = await _http.post(
-      _uri('/api/devices/anonymous'),
+      _uri(FlightVisApiPaths.devicesAnonymous),
       headers: _headers(jsonBody: true),
       body: jsonEncode({
         'label': label,
@@ -430,21 +458,50 @@ class FlightVisClient {
   }
 
   /// Logged-in pilot device (`POST /api/me/devices` or club-scoped).
-  Future<DeviceRegistration> registerDevice({String label = 'Android'}) async {
+  Future<DeviceRegistration> registerDevice({
+    String label = 'Android',
+    required String installId,
+    String? model,
+  }) async {
     final response = await _http.post(
-      _uri(_scoped('/api/me/devices', 'me/devices')),
+      _uri(FlightVisApiPaths.meDevices),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'label': label}),
+      body: jsonEncode({
+        'label': label,
+        'installId': installId,
+        if (model != null && model.isNotEmpty) 'model': model,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
     return DeviceRegistration.fromJson(_decodeJson(response));
   }
 
-  Future<void> endFlight(String flightId) async {
-    final response = await _http.post(
-      _uri(_scoped('/api/flights/$flightId/end', 'flights/$flightId/end')),
+  Future<List<MyFlightSummary>> myFlights() async {
+    final response = await _http.get(
+      _uri(FlightVisApiPaths.meFlights),
       headers: _headers(),
     );
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    return (body['flights'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(MyFlightSummary.fromJson)
+        .toList();
+  }
+
+  /// Returns true if [flightId] is still `active` on the server (session required).
+  Future<bool> isFlightActiveOnServer(String flightId) async {
+    final flights = await myFlights();
+    return flights.any((f) => f.id == flightId && f.isActive);
+  }
+
+  /// Ends flight; treats 409/404 as already ended (C-3).
+  Future<void> endFlight(String flightId) async {
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.flightEnd(flightId)),
+      headers: _headers(),
+    );
+    if (response.statusCode == 409 || response.statusCode == 404) return;
     if (response.statusCode != 200) _throwForError(response);
   }
 

@@ -60,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _passkey() async {
+    final l10n = context.pilotL10n;
     setState(() {
       _busy = true;
       _error = null;
@@ -68,7 +69,15 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       widget.repo.refreshBaseUrl();
       widget.repo.syncClubFromPrefs();
-      final pilot = await _passkeyAuth.login();
+      final email = _email.text.trim();
+      if (email.isEmpty) {
+        setState(() {
+          _error = l10n.pilotEmailLabel;
+          _busy = false;
+        });
+        return;
+      }
+      final pilot = await _passkeyAuth.login(email);
       await _afterPilot(pilot);
     } on FlightVisException catch (e) {
       setState(() {
@@ -93,7 +102,10 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       widget.repo.refreshBaseUrl();
-      await widget.repo.client.sendMagicLink(email);
+      await widget.repo.client.sendMagicLink(
+        email,
+        locale: widget.repo.client.acceptLanguage,
+      );
       setState(() {
         _busy = false;
         _info = context.pilotL10n.pilotMagicLinkSent;

@@ -13,19 +13,14 @@ class LaunchIntentBridge {
     try {
       final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('getLaunchDeepLink');
       if (raw == null) return null;
-      final extras = raw['extras'] as Map<dynamic, dynamic>?;
-      final extrasMap = extras?.map(
-        (key, value) => MapEntry(key.toString(), value?.toString() ?? ''),
-      );
       final uriStr = raw['uri'] as String?;
       if (uriStr != null && uriStr.isNotEmpty) {
         final uri = Uri.tryParse(uriStr);
         if (uri != null) {
-          final parsed = FlightDeepLink.parseIncoming(uri, extras: extrasMap);
-          if (parsed != null) return parsed;
+          return FlightDeepLink.parseIncoming(uri);
         }
       }
-      return FlightDeepLink.parseIncoming(Uri(), extras: extrasMap);
+      return null;
     } on MissingPluginException {
       return null;
     } on PlatformException {

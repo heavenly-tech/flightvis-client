@@ -163,7 +163,19 @@ class _FlightVisAppState extends State<FlightVisApp> {
       }
     }
 
-    final activeFlight = widget.repo.prefs.activeFlightId();
+    var activeFlight = widget.repo.prefs.activeFlightId();
+    if (activeFlight != null && session != null) {
+      try {
+        final stillActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
+        if (!stillActive) {
+          await widget.repo.prefs.setActiveFlightId(null);
+          activeFlight = null;
+        }
+      } catch (_) {
+        await widget.repo.prefs.setActiveFlightId(null);
+        activeFlight = null;
+      }
+    }
     if (!mounted) return;
     setState(() {
       _pilot = pilot;
