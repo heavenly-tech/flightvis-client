@@ -27,6 +27,11 @@ void main() {
     app.main();
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
+    if (find.text('Continue').evaluate().isNotEmpty) {
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+    }
+
     await saveScreenshot(binding, '01-guest-hub');
 
     await tester.tap(find.text('Iniciar sesión'));
