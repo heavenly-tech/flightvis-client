@@ -119,7 +119,7 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
                     items: _tails
                         .map((t) => DropdownMenuItem(
                               value: t.tail,
-                              child: Text('${t.tail} (${t.typeCode})'),
+                              child: Text(l10n.pilotTailTypeFormat(t.tail, t.typeCode)),
                             ))
                         .toList(),
                     onChanged: (v) => setState(() => _selectedTail = v),

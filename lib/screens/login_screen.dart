@@ -134,7 +134,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
     return Scaffold(
-      appBar: AppBar(title: const Text('flight_vis')),
+      appBar: AppBar(title: Text(l10n.appName)),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(

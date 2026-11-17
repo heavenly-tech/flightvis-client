@@ -5,7 +5,7 @@ import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/screens/login_screen.dart';
 import 'package:flight_vis/screens/pairing_screen.dart';
 import 'package:flight_vis/screens/checkin_screen.dart';
-import 'package:flight_vis/screens/permissions_screen.dart';
+import 'package:flight_vis/screens/permissions_onboarding_screen.dart';
 import 'package:flight_vis/screens/tail_picker_screen.dart';
 import 'package:flight_vis/screens/tracking_screen.dart';
 import 'package:flight_vis/services/tracking_service.dart';
@@ -90,10 +90,31 @@ void main() {
   });
 
   testWidgets('permissions golden', (tester) async {
+    final repo = await _repo();
     await _golden(
       tester,
-      PermissionsScreen(onContinue: () {}),
+      PermissionsOnboardingScreen(repo: repo, onComplete: () {}),
       '04-permissions',
+    );
+  });
+
+  testWidgets('login golden (EN sample)', (tester) async {
+    final repo = await _repo();
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.pumpWidget(
+      PilotAppShell(
+        home: LoginScreen(
+          repo: repo,
+          onLoggedIn: () {},
+          onContinueAsGuest: () {},
+        ),
+        locale: const Locale('en'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('../docs/screenshots/01-login-options-en.png'),
     );
   });
 

@@ -176,12 +176,21 @@ class FlightVisClient {
   String? _sessionId;
   String? _deviceToken;
   String? _clubSlug;
+  String? _acceptLanguage;
 
   String? get sessionId => _sessionId;
   String? get deviceToken => _deviceToken;
 
   void setSessionId(String? value) => _sessionId = value;
   void setDeviceToken(String? value) => _deviceToken = value;
+  void setAcceptLanguage(String? tag) {
+    if (tag == null || tag.trim().isEmpty) {
+      _acceptLanguage = null;
+    } else {
+      _acceptLanguage = tag.trim();
+    }
+  }
+
   void setClubSlug(String? value) {
     if (value == null || value.trim().isEmpty) {
       _clubSlug = null;
@@ -191,6 +200,7 @@ class FlightVisClient {
   }
 
   String? get clubSlug => _clubSlug;
+  String? get acceptLanguage => _acceptLanguage;
 
   Uri _uri(String path) => Uri.parse('${AppConfig.normalizeBaseUrl(baseUrl)}$path');
 
@@ -211,6 +221,9 @@ class FlightVisClient {
     }
     if (_deviceToken != null && _deviceToken!.isNotEmpty) {
       headers['Authorization'] = 'Bearer $_deviceToken';
+    }
+    if (_acceptLanguage != null && _acceptLanguage!.isNotEmpty) {
+      headers['Accept-Language'] = _acceptLanguage!;
     }
     return headers;
   }
@@ -400,11 +413,17 @@ class FlightVisClient {
   }
 
   /// Guest device registration (`POST /api/devices/anonymous`).
-  Future<DeviceRegistration> registerAnonymousDevice({String label = 'Android'}) async {
+  Future<DeviceRegistration> registerAnonymousDevice({
+    String label = 'Android',
+    String? locale,
+  }) async {
     final response = await _http.post(
       _uri('/api/devices/anonymous'),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'label': label}),
+      body: jsonEncode({
+        'label': label,
+        if (locale != null && locale.isNotEmpty) 'locale': locale,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
     return DeviceRegistration.fromJson(_decodeJson(response));

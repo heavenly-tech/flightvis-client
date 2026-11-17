@@ -27,7 +27,7 @@ class CheckinExpiryFormat {
         DateTime(atClub.year, atClub.month, atClub.day, atClub.hour, atClub.minute),
       );
     }
-    return DateFormat('d MMM HH:mm').format(
+    return DateFormat('dd/MM/yyyy HH:mm').format(
       DateTime(atClub.year, atClub.month, atClub.day, atClub.hour, atClub.minute),
     );
   }

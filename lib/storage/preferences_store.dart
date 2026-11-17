@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_config.dart';
+import '../services/locale_preferences.dart';
 
 class PreferencesStore {
   PreferencesStore(this._prefs);
@@ -15,6 +16,8 @@ class PreferencesStore {
   static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
 
   final SharedPreferences _prefs;
+
+  LocalePreferences get locale => LocalePreferences(_prefs);
 
   static Future<PreferencesStore> open() async {
     final prefs = await SharedPreferences.getInstance();

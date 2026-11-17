@@ -11,6 +11,7 @@ import 'checkin_screen.dart';
 import 'hidden_settings_screen.dart';
 import 'pairing_screen.dart';
 import 'tail_picker_screen.dart';
+import '../widgets/language_picker_sheet.dart';
 
 class HomeHubScreen extends StatefulWidget {
   const HomeHubScreen({
@@ -20,6 +21,7 @@ class HomeHubScreen extends StatefulWidget {
     required this.onRequestLogin,
     required this.onLogout,
     this.pilot,
+    this.onLocaleChanged,
   });
 
   final AppRepository repo;
@@ -27,6 +29,7 @@ class HomeHubScreen extends StatefulWidget {
   final void Function(String flightId, String tailLabel) onStartFlight;
   final VoidCallback onRequestLogin;
   final VoidCallback onLogout;
+  final VoidCallback? onLocaleChanged;
 
   @override
   State<HomeHubScreen> createState() => _HomeHubScreenState();
@@ -62,7 +65,10 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => HiddenSettingsScreen(repo: widget.repo),
+          builder: (_) => HiddenSettingsScreen(
+            repo: widget.repo,
+            onLocaleChanged: widget.onLocaleChanged,
+          ),
         ),
       );
     }
@@ -127,9 +133,18 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
       appBar: AppBar(
         title: GestureDetector(
           onTap: _openHidden,
-          child: const Text('flight_vis'),
+          child: Text(l10n.appName),
         ),
         actions: [
+          IconButton(
+            onPressed: () => showLanguagePickerSheet(
+              context: context,
+              repo: widget.repo,
+              onChanged: () => widget.onLocaleChanged?.call(),
+            ),
+            icon: const Icon(Icons.language),
+            tooltip: l10n.pilotLanguageTitle,
+          ),
           if (loggedIn)
             IconButton(
               onPressed: widget.onLogout,

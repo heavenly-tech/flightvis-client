@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">flight_vis</string>
+    <string name="tracking_notification_channel_name">Seguimiento en vuelo</string>
+    <string name="tracking_notification_text">Transmitiendo posición del vuelo</string>
+    <string name="location_permission_rationale">flight_vis necesita ubicación en segundo plano para transmitir su vuelo.</string>
+</resources>

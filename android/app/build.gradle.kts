@@ -28,6 +28,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        resourceConfigurations += listOf("es", "en")
     }
 
     signingConfigs {
@@ -50,6 +51,8 @@ android {
 
     lint {
         disable.add("NullSafeMutableLiveData")
+        fatal += setOf("HardcodedText", "MissingTranslation")
+        checkReleaseBuilds = true
     }
 }
 

@@ -73,7 +73,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
   Future<void> _submitRaw(String raw) async {
     final payload = FlightDeepLink.parseCheckinScan(raw);
     if (payload == null) {
-      setState(() => _error = 'Invalid check-in code');
+      setState(() => _error = context.pilotL10n.pilotCheckInInvalidCode);
       return;
     }
     await _submitToken(payload.token, clubSlug: payload.clubSlug ?? widget.initialClubSlug);

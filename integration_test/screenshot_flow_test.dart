@@ -9,6 +9,29 @@ import 'package:flight_vis/main.dart' as app;
 const _checkinUrl =
     'https://flight.heavenly.cl/c/demo-club/q/v1.club1.999999.abcdef0123456789abcdef0123456789';
 
+Future<void> _advancePermissionsIfNeeded(WidgetTester tester) async {
+  const labels = [
+    'Continuar',
+    'Conceder ubicación',
+    'Continuar a segundo plano',
+    'Conceder notificaciones',
+    'Abrir ajustes de batería',
+    'Listo para volar',
+  ];
+  for (var round = 0; round < 8; round++) {
+    var tapped = false;
+    for (final label in labels) {
+      if (find.text(label).evaluate().isNotEmpty) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle(const Duration(seconds: 2));
+        tapped = true;
+        break;
+      }
+    }
+    if (!tapped) break;
+  }
+}
+
 Future<void> saveScreenshot(IntegrationTestWidgetsFlutterBinding binding, String name) async {
   await binding.convertFlutterSurfaceToImage();
   final bytes = await binding.takeScreenshot(name);
@@ -27,10 +50,7 @@ void main() {
     app.main();
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
-    if (find.text('Continue').evaluate().isNotEmpty) {
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle(const Duration(seconds: 2));
-    }
+    await _advancePermissionsIfNeeded(tester);
 
     await saveScreenshot(binding, '01-guest-hub');
 

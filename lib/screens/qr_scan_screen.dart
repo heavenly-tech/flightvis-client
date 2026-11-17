@@ -2,6 +2,8 @@ import 'package:app_settings/app_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../l10n/pilot_l10n.dart';
+
 typedef QrScanCallback = void Function(String rawValue);
 
 class QrScanScreen extends StatefulWidget {
@@ -41,6 +43,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: MobileScanner(
@@ -53,11 +56,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
             children: [
               const Icon(Icons.videocam_off_outlined, size: 72),
               const SizedBox(height: 12),
-              const Text('Camera unavailable'),
+              Text(l10n.pilotQrCameraUnavailable),
               const SizedBox(height: 12),
               FilledButton.tonal(
                 onPressed: () => AppSettings.openAppSettings(type: AppSettingsType.settings),
-                child: const Text('Open settings'),
+                child: Text(l10n.pilotQrOpenSettings),
               ),
             ],
           ),

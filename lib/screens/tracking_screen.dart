@@ -64,7 +64,9 @@ class _TrackingScreenState extends State<TrackingScreen> {
       await widget.tracking.start();
       setState(() => _active = true);
     } on PlatformException {
-      setState(() => _error = 'Could not start GPS — check location permissions.');
+      if (mounted) {
+        setState(() => _error = context.pilotL10n.pilotGpsStartFailed);
+      }
     }
   }
 
@@ -76,6 +78,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   Future<void> _endFlight() async {
     setState(() => _error = null);
+    final l10n = context.pilotL10n;
+    final signedIn =
+        widget.repo.client.sessionId != null && widget.repo.client.sessionId!.isNotEmpty;
+    if (signedIn && mounted) {
+      final save = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l10n.pilotSaveToHistoryTitle),
+          content: Text(l10n.pilotSaveToHistoryBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.pilotSaveToHistoryNo),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.pilotSaveToHistoryYes),
+            ),
+          ],
+        ),
+      );
+      if (save == null) return;
+      // Server personal-history API not wired yet; choice is recorded for future use.
+    }
     try {
       await widget.tracking.stop();
       await widget.repo.client.endFlight(widget.flightId);

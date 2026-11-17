@@ -22,6 +22,25 @@ class PilotAppShell extends StatelessWidget {
       navigatorKey: navigatorKey,
       title: 'flight_vis',
       locale: locale,
+      localeListResolutionCallback: (deviceLocales, supportedLocales) {
+        if (locale != null) return locale;
+        final devices = deviceLocales;
+        if (devices == null || devices.isEmpty) {
+          return const Locale('es', 'CL');
+        }
+        for (final device in devices) {
+          if (device.languageCode == 'en') {
+            return supportedLocales.firstWhere(
+              (l) => l.languageCode == 'en',
+              orElse: () => const Locale('en'),
+            );
+          }
+          if (device.languageCode == 'es') {
+            return Locale('es', device.countryCode ?? 'CL');
+          }
+        }
+        return const Locale('es', 'CL');
+      },
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1B4D89)),
       ),

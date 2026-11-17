@@ -20,6 +20,12 @@ jobs:
       - name: flutter pub get
         run: flutter pub get
 
+      - name: Verify ARB key parity
+        run: dart run tool/verify_arb_keys.dart
+
+      - name: Check hardcoded UI strings
+        run: dart run tool/check_hardcoded_ui_strings.dart
+
       - name: flutter analyze
         run: flutter analyze
 
@@ -155,8 +161,7 @@ jobs:
             echo "Installing CI release APK smoke check"
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-            RELEASE_APK="$(find build/ci-artifacts -name app-release.apk | head -1)"
-            test -n "$RELEASE_APK" && test -f "$RELEASE_APK"
+            RELEASE_APK="$(head -1 apk-locations.txt)"
             adb install -r "$RELEASE_APK"
 
             flutter build apk --debug \

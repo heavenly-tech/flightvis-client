@@ -1,4 +1,7 @@
+import 'package:flutter/widgets.dart';
+
 import '../api/flight_vis_client.dart';
+import '../services/locale_preferences.dart';
 import '../storage/preferences_store.dart';
 import '../storage/secure_store.dart';
 
@@ -13,6 +16,8 @@ class AppRepository {
   final SecureStore secure;
   final PreferencesStore prefs;
   final FlightVisClient client;
+
+  LocalePreferences get localePrefs => prefs.locale;
 
   static Future<AppRepository> create({
     SecureStore? secure,
@@ -30,7 +35,15 @@ class AppRepository {
           deviceToken: deviceToken,
           clubSlug: preferences.activeClubSlug(),
         );
-    return AppRepository(secure: secureStore, prefs: preferences, client: api);
+    final repo = AppRepository(secure: secureStore, prefs: preferences, client: api);
+    final device = WidgetsBinding.instance.platformDispatcher.locale;
+    final resolved = repo.localePrefs.resolveLocale(device);
+    repo.client.setAcceptLanguage(repo.localePrefs.apiLocaleTag(resolved));
+    return repo;
+  }
+
+  void syncApiLocale(Locale locale) {
+    client.setAcceptLanguage(localePrefs.apiLocaleTag(locale));
   }
 
   void syncClubFromPrefs() {
@@ -69,7 +82,7 @@ class AppRepository {
     }
     final reg = preferPilotRegistration && client.sessionId != null
         ? await client.registerDevice()
-        : await client.registerAnonymousDevice();
+        : await client.registerAnonymousDevice(locale: client.acceptLanguage);
     await persistDeviceToken(reg.token);
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import 'qr_scan_screen.dart';
 
@@ -17,10 +18,11 @@ class _PairingScreenState extends State<PairingScreen> {
   final _pasteController = TextEditingController();
 
   Future<void> _saveToken(String token) async {
+    final l10n = context.pilotL10n;
     if (token.length < 32) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device token looks too short.')),
+          SnackBar(content: Text(l10n.pilotDeviceTokenTooShort)),
         );
       }
       return;
@@ -37,16 +39,15 @@ class _PairingScreenState extends State<PairingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
     return Scaffold(
-      appBar: AppBar(title: const Text('Device pairing')),
+      appBar: AppBar(title: Text(l10n.pilotPairingTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Pair this phone with your pilot account using the one-time token from the club website (My devices → new device QR).',
-            ),
+            Text(l10n.pilotPairingIntro),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: () async {
@@ -54,7 +55,7 @@ class _PairingScreenState extends State<PairingScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => QrScanScreen(
-                      title: 'Scan pairing QR',
+                      title: l10n.pilotScanPairingQr,
                       onScanned: (_) {},
                     ),
                   ),
@@ -63,20 +64,20 @@ class _PairingScreenState extends State<PairingScreen> {
                 });
               },
               icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Scan pairing QR'),
+              label: Text(l10n.pilotScanPairingQr),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _pasteController,
-              decoration: const InputDecoration(
-                labelText: 'Or paste device token',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.pilotPasteDeviceToken,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 12),
             FilledButton.tonal(
               onPressed: () => _saveToken(_pasteController.text),
-              child: const Text('Save token'),
+              child: Text(l10n.pilotSaveDeviceToken),
             ),
           ],
         ),

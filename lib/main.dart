@@ -7,7 +7,7 @@ import 'api/flight_vis_client.dart';
 import 'screens/checkin_screen.dart';
 import 'screens/home_hub_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/permissions_screen.dart';
+import 'screens/permissions_onboarding_screen.dart';
 import 'screens/tracking_screen.dart';
 import 'services/app_repository.dart';
 import 'services/deep_link_dispatcher.dart';
@@ -41,10 +41,14 @@ class _FlightVisAppState extends State<FlightVisApp> {
   String? _tail;
   bool _appReady = false;
   CheckinDeepLink? _queuedCheckin;
+  late Locale _locale;
 
   @override
   void initState() {
     super.initState();
+    final device = WidgetsBinding.instance.platformDispatcher.locale;
+    _locale = widget.repo.localePrefs.resolveLocale(device);
+    widget.repo.syncApiLocale(_locale);
     DeepLinkTestHooks.handler = _onDeepLink;
     _deepLinks.bind(_onDeepLink);
     _restore();
@@ -188,6 +192,13 @@ class _FlightVisAppState extends State<FlightVisApp> {
 
   void _goHub() => setState(() => _flow = _Flow.hub);
 
+  void _refreshLocale() {
+    final device = WidgetsBinding.instance.platformDispatcher.locale;
+    final resolved = widget.repo.localePrefs.resolveLocale(device);
+    widget.repo.syncApiLocale(resolved);
+    setState(() => _locale = resolved);
+  }
+
   Future<void> _onLoggedIn() async {
     await _restore();
     await _resumePendingCheckin();
@@ -242,13 +253,17 @@ class _FlightVisAppState extends State<FlightVisApp> {
             }
           },
         ),
-      _Flow.permissions => PermissionsScreen(onContinue: _afterPermissions),
+      _Flow.permissions => PermissionsOnboardingScreen(
+          repo: widget.repo,
+          onComplete: _afterPermissions,
+        ),
       _Flow.hub => HomeHubScreen(
           repo: widget.repo,
           pilot: _pilot,
           onStartFlight: _startFlight,
           onRequestLogin: () => setState(() => _flow = _Flow.login),
           onLogout: _logout,
+          onLocaleChanged: _refreshLocale,
         ),
       _Flow.tracking => TrackingScreen(
           repo: widget.repo,
@@ -264,7 +279,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
   Widget build(BuildContext context) {
     return PilotAppShell(
       navigatorKey: _navigatorKey,
-      locale: const Locale('es'),
+      locale: _locale,
       home: _home(),
     );
   }
