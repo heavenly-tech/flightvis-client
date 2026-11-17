@@ -75,7 +75,6 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
         visibility: _visibility,
         showPilotNamePublic: _showPilotNamePublic,
       );
-      await widget.repo.prefs.setCheckinExpiresAtMs(null);
       if (mounted) widget.onFlightStarted(result, tail);
     } on FlightVisException catch (e) {
       setState(() {

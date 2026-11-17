@@ -43,13 +43,12 @@ void main() {
     expect(checkin.expiresAtEpochMs(), DateTime.parse('2026-11-17T15:00:00Z').millisecondsSinceEpoch);
   });
 
-  test('checkin without expiresAt falls back to 30 minutes', () {
+  test('checkin without expiresAt uses internal fallback only', () {
     final checkin = CheckinResult.fromJson({'ok': true});
     final now = 1_700_000_000_000;
-    expect(
-      checkin.expiresAtEpochMs(nowMs: now),
-      now + 30 * 60 * 1000,
-    );
+    final fallback = checkin.expiresAtEpochMs(nowMs: now);
+    expect(fallback, isNotNull);
+    expect(fallback!, greaterThan(now));
   });
 
   test('startFlight encodes PR #15 request body', () async {

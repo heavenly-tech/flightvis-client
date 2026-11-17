@@ -7,13 +7,23 @@ import '../l10n/app_localizations.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../state/checkin_gate.dart';
+import '../util/checkin_expiry_format.dart';
+import '../util/flight_deep_link.dart';
 import 'qr_scan_screen.dart';
 
 class CheckinScreen extends StatefulWidget {
-  const CheckinScreen({super.key, required this.repo, required this.onCheckedIn});
+  const CheckinScreen({
+    super.key,
+    required this.repo,
+    required this.onCheckedIn,
+    this.initialScan,
+    this.initialClubSlug,
+  });
 
   final AppRepository repo;
   final VoidCallback onCheckedIn;
+  final String? initialScan;
+  final String? initialClubSlug;
 
   @override
   State<CheckinScreen> createState() => _CheckinScreenState();
@@ -32,6 +42,11 @@ class _CheckinScreenState extends State<CheckinScreen> {
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+    if (widget.initialScan != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _submitRaw(widget.initialScan!);
+      });
+    }
   }
 
   @override
@@ -46,26 +61,33 @@ class _CheckinScreenState extends State<CheckinScreen> {
         nowMs: DateTime.now().millisecondsSinceEpoch,
       );
 
-  String _countdownText(AppLocalizations l10n) {
-    final remaining = _gate.remaining();
-    if (remaining == null) {
-      return l10n.pilotCheckInSuccess;
-    }
-    if (remaining <= Duration.zero) {
-      return l10n.pilotCheckInExpired;
-    }
-    return l10n.pilotCheckInValidFor(remaining.inMinutes, remaining.inSeconds % 60);
+  String _successText(AppLocalizations l10n) {
+    final expiresMs = widget.repo.prefs.checkinExpiresAtMs();
+    if (expiresMs == null) return l10n.pilotCheckInSuccess;
+    final until = CheckinExpiryFormat.formatFromEpochMs(expiresMs);
+    return l10n.pilotCheckInValidUntil(until);
   }
 
-  Future<void> _submitToken(String token) async {
+  Future<void> _submitRaw(String raw) async {
+    final payload = FlightDeepLink.parseCheckinScan(raw);
+    if (payload == null) {
+      setState(() => _error = 'Invalid check-in code');
+      return;
+    }
+    await _submitToken(payload.token, clubSlug: payload.clubSlug ?? widget.initialClubSlug);
+  }
+
+  Future<void> _submitToken(String token, {String? clubSlug}) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final result = await widget.repo.client.checkin(token);
+      widget.repo.syncClubFromPrefs();
+      final result = await widget.repo.client.checkin(token, clubSlug: clubSlug);
       final expiresMs = result.expiresAtEpochMs();
       await widget.repo.prefs.setCheckinExpiresAtMs(expiresMs);
+      await widget.repo.applyCheckinClub(result, fallbackSlug: clubSlug);
       if (mounted) {
         setState(() {
           _busy = false;
@@ -89,7 +111,6 @@ class _CheckinScreenState extends State<CheckinScreen> {
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
     final gate = _gate;
-    final remaining = gate.remaining();
     return Scaffold(
       appBar: AppBar(title: Text(l10n.pilotCheckInTitle)),
       body: Padding(
@@ -101,16 +122,18 @@ class _CheckinScreenState extends State<CheckinScreen> {
             if (_justCheckedIn) ...[
               const SizedBox(height: 16),
               Text(
-                _countdownText(l10n),
+                _successText(l10n),
                 style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(height: 8),
               FilledButton(onPressed: widget.onCheckedIn, child: Text(l10n.pilotContinue)),
             ],
-            if (!_justCheckedIn && gate.canStartFlight && remaining != null) ...[
+            if (!_justCheckedIn && gate.canStartFlight && gate.expiresAtMs != null) ...[
               const SizedBox(height: 16),
               Text(
-                l10n.pilotCheckInValidFor(remaining.inMinutes, remaining.inSeconds % 60),
+                l10n.pilotCheckInValidUntil(
+                  CheckinExpiryFormat.formatFromEpochMs(gate.expiresAtMs!),
+                ),
                 style: const TextStyle(color: Colors.green),
               ),
               const SizedBox(height: 8),
@@ -130,7 +153,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             ),
             const SizedBox(height: 8),
             FilledButton.tonal(
-              onPressed: _busy ? null : () => _submitToken(_pasteController.text),
+              onPressed: _busy ? null : () => _submitRaw(_pasteController.text),
               child: Text(l10n.pilotSubmitPastedToken),
             ),
             const Spacer(),
@@ -147,7 +170,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                           ),
                         ),
                       ).then((value) {
-                        if (value is String) _submitToken(value);
+                        if (value is String) _submitRaw(value);
                       });
                     },
               icon: const Icon(Icons.qr_code_scanner),

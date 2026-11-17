@@ -37,6 +37,22 @@
   "disclosureMessage": "This app collects location and activity data in the background and sends it to the configured server.",
   "configurationMessage": "Apply new configuration?",
   "pilotSignInTitle": "Pilot sign in",
+  "pilotSignInIntro": "Use a passkey, magic link, or password. You can also continue without signing in.",
+  "pilotSignInPasskey": "Sign in with passkey",
+  "pilotSignInMagicLink": "Send magic link",
+  "pilotSignInPasswordToggle": "Use password instead",
+  "pilotMagicLinkSent": "If that email is registered, we sent a sign-in link.",
+  "pilotContinueAsGuest": "Continue without signing in",
+  "pilotHubGuestMode": "Guest mode — tracking works; sign in to sync history.",
+  "pilotHubActiveClub": "Club: {name}",
+  "@pilotHubActiveClub": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "pilotHubNoClubYet": "Scan club check-in QR to select your club.",
+  "pilotPendingApproval": "Your pilot account is not approved yet.",
+  "pilotSignOut": "Sign out",
   "pilotSignInButton": "Sign in",
   "pilotEmailLabel": "Email",
   "pilotPasswordLabel": "Password",
@@ -47,7 +63,14 @@
     }
   },
   "pilotHubCheckInTitle": "Club check-in",
-  "pilotHubCheckInSubtitle": "Scan the club screen QR (valid ~30 min to start)",
+  "pilotHubCheckInSubtitle": "Scan the club screen QR (valid until the time the server shows)",
+  "pilotCheckInValidUntil": "Check-in valid until {time}",
+  "@pilotCheckInValidUntil": {
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "pilotCheckInExpiredRescan": "Scan the club QR again to fly.",
   "pilotHubFlightTitle": "Flight details",
   "pilotHubFlightSubtitle": "Pick your tail and visibility, then start",
   "pilotHubPairingTitle": "Device pairing",
@@ -93,5 +116,25 @@
   },
   "pilotBroadcasting": "Broadcasting position",
   "pilotBroadcastingPaused": "Broadcasting paused",
-  "pilotDeviceTokenMissing": "Device token missing — pair your device first."
+  "pilotDeviceTokenMissing": "Device token missing — pair your device first.",
+  "permOnboardingTitle": "Permissions to fly",
+  "permIntroBody": "To broadcast your position in flight, flight_vis needs background location, notifications, and unrestricted battery.",
+  "permFineTitle": "Precise location",
+  "permFineBody": "First allow location while using the app.",
+  "permFineAction": "Grant location",
+  "permBackgroundTitle": "Allow all the time",
+  "permBackgroundBody": "On the next system screen, choose Allow all the time so tracking continues with the screen off.",
+  "permBackgroundAction": "Continue to background",
+  "permNotifTitle": "Notifications",
+  "permNotifBody": "Android needs notifications to show the foreground tracking service.",
+  "permNotifAction": "Grant notifications",
+  "permBatteryTitle": "Unrestricted battery",
+  "permBatteryBody": "Exclude flight_vis from battery optimization so Android does not stop tracking.",
+  "permBatteryAction": "Open battery settings",
+  "permContinue": "Continue",
+  "permFinish": "Ready to fly",
+  "permWarningTitle": "Missing permissions to track",
+  "permWarningBackground": "You must enable Allow all the time for location.",
+  "permWarningFix": "Fix",
+  "permStartBlocked": "Cannot start tracking without background location."
 }

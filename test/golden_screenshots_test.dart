@@ -47,7 +47,7 @@ Future<AppRepository> _repo() async {
 
 Future<void> _golden(WidgetTester tester, Widget home, String name) async {
   await tester.binding.setSurfaceSize(const Size(390, 844));
-  await tester.pumpWidget(PilotAppShell(home: home));
+  await tester.pumpWidget(PilotAppShell(home: home, locale: const Locale('es')));
   await tester.pumpAndSettle();
   await expectLater(
     find.byType(MaterialApp),
@@ -62,8 +62,12 @@ void main() {
     final repo = await _repo();
     await _golden(
       tester,
-      LoginScreen(repo: repo, onLoggedIn: () {}),
-      '01-login',
+      LoginScreen(
+        repo: repo,
+        onLoggedIn: () {},
+        onContinueAsGuest: () {},
+      ),
+      '01-login-options',
     );
   });
 

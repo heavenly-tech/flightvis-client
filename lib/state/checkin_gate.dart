@@ -21,8 +21,7 @@ class CheckinGate {
     return Duration(milliseconds: diff);
   }
 
-  /// After a successful POST /api/checkin the server does not return expiry;
-  /// assume the club default (30 minutes unless configured server-side).
+  /// When the server omits `expiresAt`, use [AppConfig.defaultCheckinValidMinutes] (not for display).
   static int defaultExpiresAtMs(int nowMs) =>
       nowMs + AppConfig.defaultCheckinValidMinutes * 60 * 1000;
 

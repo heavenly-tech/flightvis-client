@@ -37,6 +37,22 @@
   "disclosureMessage": "Esta aplicación recopila datos de ubicación y actividad en segundo plano y los envía al servidor configurado.",
   "configurationMessage": "¿Aplicar la nueva configuración?",
   "pilotSignInTitle": "Acceso piloto",
+  "pilotSignInIntro": "Use passkey, enlace mágico o contraseña. También puede continuar sin iniciar sesión.",
+  "pilotSignInPasskey": "Iniciar con passkey",
+  "pilotSignInMagicLink": "Enviar enlace mágico",
+  "pilotSignInPasswordToggle": "Usar contraseña",
+  "pilotMagicLinkSent": "Si el correo está registrado, le enviamos un enlace de acceso.",
+  "pilotContinueAsGuest": "Continuar sin iniciar sesión",
+  "pilotHubGuestMode": "Modo invitado — el tracking funciona; inicie sesión para guardar historial.",
+  "pilotHubActiveClub": "Club: {name}",
+  "@pilotHubActiveClub": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "pilotHubNoClubYet": "Escanee el QR de check-in del club para elegir el club.",
+  "pilotPendingApproval": "Su cuenta de piloto aún no está aprobada.",
+  "pilotSignOut": "Cerrar sesión",
   "pilotSignInButton": "Iniciar sesión",
   "pilotEmailLabel": "Correo",
   "pilotPasswordLabel": "Contraseña",
@@ -47,7 +63,14 @@
     }
   },
   "pilotHubCheckInTitle": "Check-in club",
-  "pilotHubCheckInSubtitle": "Escanee el QR de la pantalla del club (~30 min para volar)",
+  "pilotHubCheckInSubtitle": "Escanee el QR de la pantalla del club",
+  "pilotCheckInValidUntil": "Check-in válido hasta {time}",
+  "@pilotCheckInValidUntil": {
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "pilotCheckInExpiredRescan": "Escanee de nuevo el QR del club para volar.",
   "pilotHubFlightTitle": "Detalles del vuelo",
   "pilotHubFlightSubtitle": "Elija matrícula y visibilidad, luego comience",
   "pilotHubPairingTitle": "Vincular dispositivo",
@@ -94,5 +117,25 @@
   "pilotBroadcasting": "Transmitiendo posición",
   "pilotBroadcastingPaused": "Transmisión pausada",
   "pilotDeviceTokenMissing": "Falta el token del dispositivo — vincúlelo primero.",
+  "permOnboardingTitle": "Permisos para volar",
+  "permIntroBody": "Para transmitir su posición durante el vuelo, flight_vis necesita ubicación en segundo plano, notificaciones y batería sin restricciones.",
+  "permFineTitle": "Ubicación precisa",
+  "permFineBody": "Primero conceda acceso a la ubicación mientras usa la app. Es el primer paso para el GPS en vuelo.",
+  "permFineAction": "Conceder ubicación",
+  "permBackgroundTitle": "Permitir todo el tiempo",
+  "permBackgroundBody": "En la siguiente pantalla del sistema, elija «Permitir todo el tiempo» para que el tracking continúe con la pantalla apagada.",
+  "permBackgroundAction": "Continuar a segundo plano",
+  "permNotifTitle": "Notificaciones",
+  "permNotifBody": "Android necesita notificaciones para mostrar el servicio en primer plano mientras transmite.",
+  "permNotifAction": "Conceder notificaciones",
+  "permBatteryTitle": "Batería sin restricciones",
+  "permBatteryBody": "Excluya flight_vis de la optimización de batería para que Android no detenga el tracking.",
+  "permBatteryAction": "Abrir ajustes de batería",
+  "permContinue": "Continuar",
+  "permFinish": "Listo para volar",
+  "permWarningTitle": "Faltan permisos para transmitir",
+  "permWarningBackground": "Debe activar «Permitir todo el tiempo» en ubicación.",
+  "permWarningFix": "Corregir",
+  "permStartBlocked": "No puede comenzar el tracking sin ubicación en segundo plano.",
   "@@locale": "es"
 }

@@ -9,14 +9,17 @@ class PilotAppShell extends StatelessWidget {
     super.key,
     required this.home,
     this.locale,
+    this.navigatorKey,
   });
 
   final Widget home;
   final Locale? locale;
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'flight_vis',
       locale: locale,
       theme: ThemeData(

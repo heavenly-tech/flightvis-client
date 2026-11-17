@@ -28,8 +28,18 @@ class AppRepository {
           baseUrl: preferences.baseUrl(),
           sessionId: sessionId,
           deviceToken: deviceToken,
+          clubSlug: preferences.activeClubSlug(),
         );
     return AppRepository(secure: secureStore, prefs: preferences, client: api);
+  }
+
+  void syncClubFromPrefs() {
+    client.setClubSlug(prefs.activeClubSlug());
+  }
+
+  Future<void> setActiveClub({required String slug, String? name}) async {
+    await prefs.setActiveClub(slug: slug, name: name);
+    client.setClubSlug(slug);
   }
 
   Future<void> persistSession() async {
@@ -48,5 +58,33 @@ class AppRepository {
 
   void refreshBaseUrl() {
     client.baseUrl = prefs.baseUrl();
+  }
+
+  /// Ensures a bearer token exists (anonymous guest device by default).
+  Future<void> ensureDeviceRegistered({bool preferPilotRegistration = false}) async {
+    final existing = await secure.readDeviceToken();
+    if (existing != null && existing.length >= 32) {
+      client.setDeviceToken(existing);
+      return;
+    }
+    final reg = preferPilotRegistration && client.sessionId != null
+        ? await client.registerDevice()
+        : await client.registerAnonymousDevice();
+    await persistDeviceToken(reg.token);
+  }
+
+  Future<void> applyCheckinClub(CheckinResult result, {String? fallbackSlug}) async {
+    final slug = result.clubSlug ?? fallbackSlug;
+    var name = result.clubName;
+    if (slug != null) {
+      if (name == null || name.isEmpty) {
+        try {
+          name = (await client.fetchClub(slug)).name;
+        } catch (_) {
+          name = slug;
+        }
+      }
+      await setActiveClub(slug: slug, name: name);
+    }
   }
 }

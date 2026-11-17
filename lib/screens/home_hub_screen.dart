@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../api/flight_vis_client.dart';
 import '../l10n/pilot_l10n.dart';
+import '../util/checkin_expiry_format.dart';
 import '../services/app_repository.dart';
+import '../state/checkin_gate.dart';
 import 'checkin_screen.dart';
 import 'hidden_settings_screen.dart';
 import 'pairing_screen.dart';
@@ -11,14 +16,16 @@ class HomeHubScreen extends StatefulWidget {
   const HomeHubScreen({
     super.key,
     required this.repo,
-    required this.pilotName,
     required this.onStartFlight,
+    required this.onRequestLogin,
     required this.onLogout,
+    this.pilot,
   });
 
   final AppRepository repo;
-  final String pilotName;
+  final PilotProfile? pilot;
   final void Function(String flightId, String tailLabel) onStartFlight;
+  final VoidCallback onRequestLogin;
   final VoidCallback onLogout;
 
   @override
@@ -27,6 +34,26 @@ class HomeHubScreen extends StatefulWidget {
 
 class _HomeHubScreenState extends State<HomeHubScreen> {
   int _secretTaps = 0;
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  CheckinGate get _gate => CheckinGate(
+        expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
 
   void _openHidden() {
     _secretTaps++;
@@ -41,9 +68,61 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
     }
   }
 
+  Widget? _checkinBanner(BuildContext context) {
+    final l10n = context.pilotL10n;
+    final gate = _gate;
+    if (!gate.hasCheckin) return null;
+    if (gate.isExpired) {
+      return Card(
+        color: Theme.of(context).colorScheme.errorContainer,
+        child: ListTile(
+          leading: const Icon(Icons.warning_amber),
+          title: Text(l10n.pilotCheckInExpired),
+          subtitle: Text(l10n.pilotCheckInExpiredRescan),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CheckinScreen(
+                repo: widget.repo,
+                onCheckedIn: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    final until = CheckinExpiryFormat.formatFromEpochMs(gate.expiresAtMs!);
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.verified_user),
+            const SizedBox(width: 12),
+            Expanded(child: Text(l10n.pilotCheckInValidUntil(until))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _clubLine(BuildContext context) {
+    final l10n = context.pilotL10n;
+    final name = widget.repo.prefs.activeClubName() ?? widget.repo.prefs.activeClubSlug();
+    if (name != null && name.isNotEmpty) {
+      return l10n.pilotHubActiveClub(name);
+    }
+    return l10n.pilotHubNoClubYet;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
+    final gate = _gate;
+    final pilot = widget.pilot;
+    final loggedIn = pilot != null && pilot.isApproved;
     return Scaffold(
       appBar: AppBar(
         title: GestureDetector(
@@ -51,21 +130,32 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
           child: const Text('flight_vis'),
         ),
         actions: [
-          IconButton(
-            onPressed: () async {
-              await widget.repo.client.logout();
-              await widget.repo.secure.clearAll();
-              widget.onLogout();
-            },
-            icon: const Icon(Icons.logout),
-          ),
+          if (loggedIn)
+            IconButton(
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+              tooltip: l10n.pilotSignOut,
+            )
+          else
+            TextButton(
+              onPressed: widget.onRequestLogin,
+              child: Text(l10n.pilotSignInButton),
+            ),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(l10n.pilotHubSignedInAs(widget.pilotName)),
-          const SizedBox(height: 16),
+          Text(
+            loggedIn ? l10n.pilotHubSignedInAs(pilot.name) : l10n.pilotHubGuestMode,
+          ),
+          const SizedBox(height: 4),
+          Text(_clubLine(context), style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          if (_checkinBanner(context) != null) ...[
+            _checkinBanner(context)!,
+            const SizedBox(height: 12),
+          ],
           _navCard(
             context,
             title: l10n.pilotHubCheckInTitle,
@@ -86,34 +176,38 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
             title: l10n.pilotHubFlightTitle,
             subtitle: l10n.pilotHubFlightSubtitle,
             icon: Icons.flight_takeoff,
-            onTap: () => Navigator.push(
+            enabled: gate.canStartFlight,
+            onTap: gate.canStartFlight
+                ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TailPickerScreen(
+                          repo: widget.repo,
+                          onFlightStarted: (flight, tail) {
+                            Navigator.pop(context);
+                            widget.onStartFlight(flight.id, tail);
+                          },
+                        ),
+                      ),
+                    )
+                : null,
+          ),
+          if (loggedIn)
+            _navCard(
               context,
-              MaterialPageRoute(
-                builder: (_) => TailPickerScreen(
-                  repo: widget.repo,
-                  onFlightStarted: (flight, tail) {
-                    Navigator.pop(context);
-                    widget.onStartFlight(flight.id, tail);
-                  },
+              title: l10n.pilotHubPairingTitle,
+              subtitle: l10n.pilotHubPairingSubtitle,
+              icon: Icons.phonelink_setup,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PairingScreen(
+                    repo: widget.repo,
+                    onPaired: () => Navigator.pop(context),
+                  ),
                 ),
               ),
             ),
-          ),
-          _navCard(
-            context,
-            title: l10n.pilotHubPairingTitle,
-            subtitle: l10n.pilotHubPairingSubtitle,
-            icon: Icons.phonelink_setup,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PairingScreen(
-                  repo: widget.repo,
-                  onPaired: () => Navigator.pop(context),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -124,14 +218,16 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
     required String title,
     required String subtitle,
     required IconData icon,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
+    bool enabled = true,
   }) {
     return Card(
       child: ListTile(
-        leading: Icon(icon),
+        leading: Icon(icon, color: enabled ? null : Theme.of(context).disabledColor),
         title: Text(title),
         subtitle: Text(subtitle),
         trailing: const Icon(Icons.chevron_right),
+        enabled: enabled,
         onTap: onTap,
       ),
     );

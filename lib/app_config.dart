@@ -5,8 +5,8 @@ class AppConfig {
     defaultValue: 'https://flight.heavenly.cl',
   );
 
-  /// Default club check-in validity (minutes) when the server does not return it.
-  static const defaultCheckinValidMinutes = 30;
+  /// Fallback when the server omits `expiresAt` (club-configured; not shown in UI).
+  static const defaultCheckinValidMinutes = 12 * 60;
 
   static String normalizeBaseUrl(String raw) {
     var url = raw.trim();

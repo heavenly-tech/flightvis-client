@@ -4,13 +4,25 @@ import 'dart:io';
 /// Minimal club API mock for emulator integration screenshots (CI).
 Future<void> main() async {
   const session = 'ci-mock-session';
-  var checkedIn = false;
+  const clubSlug = 'demo-club';
+  const clubName = 'Club Demo';
+  int? checkinExpiresAtMs;
+  String? activeFlightId;
+  const deviceToken =
+      'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0';
 
   final server = await HttpServer.bind(InternetAddress.anyIPv4, int.parse(
     Platform.environment['MOCK_PORT'] ?? '18080',
   ));
   // ignore: avoid_print
   print('mock flight_vis listening on ${server.port}');
+
+  bool checkinValid() {
+    if (checkinExpiresAtMs == null) return false;
+    return DateTime.now().millisecondsSinceEpoch < checkinExpiresAtMs!;
+  }
+
+  bool isClubScoped(String path, String tail) => path == '/api/clubs/$clubSlug/$tail';
 
   await for (final request in server) {
     final path = request.uri.path;
@@ -23,6 +35,70 @@ Future<void> main() async {
       }
       request.response.write(jsonEncode(body));
       await request.response.close();
+    }
+
+    if (method == 'POST' && path == '/api/devices/anonymous') {
+      await jsonResponse(200, {
+        'id': 'dev-ci',
+        'token': deviceToken,
+      });
+      continue;
+    }
+
+    if (method == 'POST' && (path == '/api/me/devices' || isClubScoped(path, 'me/devices'))) {
+      await jsonResponse(200, {
+        'id': 'dev-ci',
+        'token': deviceToken,
+        'label': 'Android',
+      });
+      continue;
+    }
+
+    if (method == 'GET' && path == '/api/clubs/$clubSlug') {
+      await jsonResponse(200, {'slug': clubSlug, 'name': clubName});
+      continue;
+    }
+
+    if (method == 'POST' && path == '/api/auth/magic/send') {
+      await jsonResponse(200, {'ok': true});
+      continue;
+    }
+
+    if (method == 'POST' && path == '/api/auth/magic/complete') {
+      await jsonResponse(200, {
+        'ok': true,
+        'pilot': {
+          'id': 'p1',
+          'name': 'Demo Pilot',
+          'email': 'pilot@demo.test',
+          'status': 'approved',
+          'role': 'pilot',
+        },
+      }, cookie: session);
+      continue;
+    }
+
+    if (method == 'POST' && path == '/api/auth/passkey/login/options') {
+      await jsonResponse(200, {
+        'challenge': 'dGVzdA',
+        'timeout': 60000,
+        'rpId': 'flight.heavenly.cl',
+        'userVerification': 'preferred',
+      });
+      continue;
+    }
+
+    if (method == 'POST' && path == '/api/auth/passkey/login/verify') {
+      await jsonResponse(200, {
+        'pilot': {
+          'id': 'p1',
+          'name': 'Demo Pilot',
+          'email': 'pilot@demo.test',
+          'status': 'approved',
+          'role': 'pilot',
+        },
+      }, cookie: session);
+      continue;
     }
 
     if (method == 'POST' && path == '/api/club/login') {
@@ -64,17 +140,18 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/checkin') {
-      checkedIn = true;
-      final expires = DateTime.now().toUtc().add(const Duration(minutes: 30));
+    if (method == 'POST' && (path == '/api/checkin' || isClubScoped(path, 'checkin'))) {
+      final expires = DateTime.now().toUtc().add(const Duration(hours: 12));
+      checkinExpiresAtMs = expires.millisecondsSinceEpoch;
       await jsonResponse(200, {
         'ok': true,
         'expiresAt': expires.toIso8601String(),
+        'club': {'slug': clubSlug, 'name': clubName},
       });
       continue;
     }
 
-    if (method == 'GET' && path == '/api/me/tails') {
+  if (method == 'GET' && (path == '/api/me/tails' || isClubScoped(path, 'me/tails'))) {
       await jsonResponse(200, {
         'tails': [
           {'id': 'a1', 'tail': 'N12345', 'type_code': 'C172'},
@@ -83,21 +160,27 @@ Future<void> main() async {
       continue;
     }
 
-    if (method == 'POST' && path == '/api/flights') {
-      if (!checkedIn) {
+    if (method == 'POST' && (path == '/api/flights' || isClubScoped(path, 'flights'))) {
+      if (!checkinValid()) {
         await jsonResponse(403, {'error': 'check-in required'});
         continue;
       }
-      checkedIn = false;
+      if (activeFlightId != null) {
+        await jsonResponse(409, {'error': 'flight already active'});
+        continue;
+      }
+      activeFlightId = 'flight-ci-1';
       await jsonResponse(200, {
-        'id': 'flight-ci-1',
+        'id': activeFlightId,
         'visibility': 'club',
         'showPilotNamePublic': false,
       });
       continue;
     }
 
-    if (method == 'POST' && path.startsWith('/api/flights/') && path.endsWith('/end')) {
+    final endMatch = RegExp(r'^/api/(clubs/[^/]+/)?flights/([^/]+)/end$').firstMatch(path);
+    if (method == 'POST' && endMatch != null) {
+      activeFlightId = null;
       await jsonResponse(200, {'ok': true});
       continue;
     }
@@ -113,7 +196,7 @@ Future<void> main() async {
     }
 
     request.response.statusCode = 404;
-    request.response.write('not found');
+    request.response.write('not found: $path');
     await request.response.close();
   }
 }

@@ -8,6 +8,9 @@ class PreferencesStore {
   static const baseUrlKey = 'fv_base_url';
   static const checkinExpiresAtKey = 'fv_checkin_expires_at_ms';
   static const activeFlightIdKey = 'fv_active_flight_id';
+  static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
+  static const activeClubSlugKey = 'fv_active_club_slug';
+  static const activeClubNameKey = 'fv_active_club_name';
 
   final SharedPreferences _prefs;
 
@@ -39,11 +42,34 @@ class PreferencesStore {
 
   String? activeFlightId() => _prefs.getString(activeFlightIdKey);
 
+  bool permissionsOnboardingComplete() =>
+      _prefs.getBool(permissionsOnboardingKey) ?? false;
+
+  Future<void> setPermissionsOnboardingComplete(bool value) =>
+      _prefs.setBool(permissionsOnboardingKey, value);
+
   Future<void> setActiveFlightId(String? id) async {
     if (id == null) {
       await _prefs.remove(activeFlightIdKey);
     } else {
       await _prefs.setString(activeFlightIdKey, id);
+    }
+  }
+
+  String? activeClubSlug() => _prefs.getString(activeClubSlugKey);
+
+  String? activeClubName() => _prefs.getString(activeClubNameKey);
+
+  Future<void> setActiveClub({String? slug, String? name}) async {
+    if (slug == null || slug.isEmpty) {
+      await _prefs.remove(activeClubSlugKey);
+    } else {
+      await _prefs.setString(activeClubSlugKey, slug);
+    }
+    if (name == null || name.isEmpty) {
+      await _prefs.remove(activeClubNameKey);
+    } else {
+      await _prefs.setString(activeClubNameKey, name);
     }
   }
 }

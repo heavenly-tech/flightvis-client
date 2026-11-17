@@ -3,7 +3,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// Keystore-backed secrets: device bearer token and optional session id.
 class SecureStore {
   SecureStore({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = storage ??
+            const FlutterSecureStorage(
+              aOptions: AndroidOptions(),
+            );
 
   static const deviceTokenKey = 'fv_device_token';
   static const sessionCookieKey = 'fv_club_session';
