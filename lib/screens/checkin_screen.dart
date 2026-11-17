@@ -18,10 +18,12 @@ class CheckinScreen extends StatefulWidget {
     required this.onCheckedIn,
     this.initialScan,
     this.initialClubSlug,
+    this.onLoginRequired,
   });
 
   final AppRepository repo;
   final VoidCallback onCheckedIn;
+  final VoidCallback? onLoginRequired;
   final String? initialScan;
   final String? initialClubSlug;
 
@@ -95,6 +97,13 @@ class _CheckinScreenState extends State<CheckinScreen> {
         });
       }
     } on FlightVisException catch (e) {
+      if (e.statusCode == 401 && widget.onLoginRequired != null) {
+        await widget.repo.prefs.setPendingCheckin(
+          slug: clubSlug ?? widget.repo.prefs.pendingCheckinSlug(),
+          token: token,
+        );
+        widget.onLoginRequired!();
+      }
       setState(() {
         _error = e.message;
         _busy = false;

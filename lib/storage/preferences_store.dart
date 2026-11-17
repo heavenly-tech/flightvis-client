@@ -11,6 +11,8 @@ class PreferencesStore {
   static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
   static const activeClubSlugKey = 'fv_active_club_slug';
   static const activeClubNameKey = 'fv_active_club_name';
+  static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
+  static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
 
   final SharedPreferences _prefs;
 
@@ -59,6 +61,25 @@ class PreferencesStore {
   String? activeClubSlug() => _prefs.getString(activeClubSlugKey);
 
   String? activeClubName() => _prefs.getString(activeClubNameKey);
+
+  String? pendingCheckinSlug() => _prefs.getString(pendingCheckinSlugKey);
+
+  String? pendingCheckinToken() => _prefs.getString(pendingCheckinTokenKey);
+
+  Future<void> setPendingCheckin({String? slug, String? token}) async {
+    if (slug == null || slug.isEmpty) {
+      await _prefs.remove(pendingCheckinSlugKey);
+    } else {
+      await _prefs.setString(pendingCheckinSlugKey, slug);
+    }
+    if (token == null || token.isEmpty) {
+      await _prefs.remove(pendingCheckinTokenKey);
+    } else {
+      await _prefs.setString(pendingCheckinTokenKey, token);
+    }
+  }
+
+  Future<void> clearPendingCheckin() => setPendingCheckin(slug: null, token: null);
 
   Future<void> setActiveClub({String? slug, String? name}) async {
     if (slug == null || slug.isEmpty) {

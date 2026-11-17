@@ -39,16 +39,22 @@ class _FlightVisAppState extends State<FlightVisApp> {
   PilotProfile? _pilot;
   String? _flightId;
   String? _tail;
+  bool _appReady = false;
+  CheckinDeepLink? _queuedCheckin;
 
   @override
   void initState() {
     super.initState();
+    DeepLinkTestHooks.handler = _onDeepLink;
     _deepLinks.bind(_onDeepLink);
     _restore();
   }
 
   @override
   void dispose() {
+    if (DeepLinkTestHooks.handler == _onDeepLink) {
+      DeepLinkTestHooks.handler = null;
+    }
     _deepLinks.dispose();
     super.dispose();
   }
@@ -62,26 +68,68 @@ class _FlightVisAppState extends State<FlightVisApp> {
         await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
         if (mounted) {
           setState(() => _pilot = pilot);
-          _goHub();
+          await _resumePendingCheckin();
+          if (_queuedCheckin == null) _goHub();
         }
       } catch (_) {}
       return;
     }
     if (link is CheckinDeepLink) {
-      widget.repo.client.setClubSlug(link.clubSlug);
-      final ctx = _navigatorKey.currentContext;
-      if (ctx == null) return;
-      if (!mounted) return;
-      await Navigator.of(ctx).push(
-        MaterialPageRoute(
-          builder: (_) => CheckinScreen(
-            repo: widget.repo,
-            initialScan: link.token,
-            initialClubSlug: link.clubSlug,
-            onCheckedIn: () => Navigator.pop(ctx),
-          ),
+      await _rememberPendingCheckin(link);
+      if (!_appReady) {
+        _queuedCheckin = link;
+        return;
+      }
+      await _presentCheckinDeepLink(link);
+    }
+  }
+
+  Future<void> _rememberPendingCheckin(CheckinDeepLink link) async {
+    await widget.repo.prefs.setPendingCheckin(slug: link.clubSlug, token: link.token);
+    widget.repo.client.setClubSlug(link.clubSlug);
+  }
+
+  Future<void> _presentCheckinDeepLink(CheckinDeepLink link) async {
+    if (!mounted) return;
+    if (_flow == _Flow.tracking) return;
+
+    if (_flow == _Flow.permissions) {
+      _queuedCheckin = link;
+      return;
+    }
+
+    await _openCheckinScreen(link);
+  }
+
+  Future<void> _openCheckinScreen(CheckinDeepLink link) async {
+    final ctx = _navigatorKey.currentContext;
+    if (ctx == null || !mounted) return;
+    await Navigator.of(ctx).push(
+      MaterialPageRoute(
+        builder: (_) => CheckinScreen(
+          repo: widget.repo,
+          initialScan: link.token,
+          initialClubSlug: link.clubSlug,
+          onCheckedIn: () async {
+            await widget.repo.prefs.clearPendingCheckin();
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
+          onLoginRequired: () {
+            if (ctx.mounted) setState(() => _flow = _Flow.login);
+          },
         ),
-      );
+      ),
+    );
+  }
+
+  Future<void> _resumePendingCheckin() async {
+    final slug = widget.repo.prefs.pendingCheckinSlug();
+    final token = widget.repo.prefs.pendingCheckinToken();
+    if (slug == null || token == null) return;
+    final link = CheckinDeepLink(clubSlug: slug, token: token);
+    _queuedCheckin = null;
+    if (_pilot != null && _pilot!.isApproved) {
+      await _presentCheckinDeepLink(link);
     }
   }
 
@@ -119,6 +167,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
         _flightId = activeFlight;
         _tail = _tail ?? '—';
         _flow = _Flow.tracking;
+        _appReady = true;
         return;
       }
       if (!widget.repo.prefs.permissionsOnboardingComplete()) {
@@ -126,18 +175,31 @@ class _FlightVisAppState extends State<FlightVisApp> {
       } else {
         _flow = _Flow.hub;
       }
+      _appReady = true;
     });
+
+    final queued = _queuedCheckin;
+    if (queued != null) {
+      await _presentCheckinDeepLink(queued);
+    } else if (widget.repo.prefs.pendingCheckinSlug() != null) {
+      await _resumePendingCheckin();
+    }
   }
 
   void _goHub() => setState(() => _flow = _Flow.hub);
 
-  void _onLoggedIn() {
-    _restore();
+  Future<void> _onLoggedIn() async {
+    await _restore();
+    await _resumePendingCheckin();
   }
 
   void _afterPermissions() async {
     await widget.repo.prefs.setPermissionsOnboardingComplete(true);
     _goHub();
+    final queued = _queuedCheckin;
+    if (queued != null) {
+      await _presentCheckinDeepLink(queued);
+    }
   }
 
   void _startFlight(String id, String tail) async {
@@ -171,7 +233,14 @@ class _FlightVisAppState extends State<FlightVisApp> {
       _Flow.login => LoginScreen(
           repo: widget.repo,
           onLoggedIn: _onLoggedIn,
-          onContinueAsGuest: _goHub,
+          onContinueAsGuest: () async {
+            _goHub();
+            final slug = widget.repo.prefs.pendingCheckinSlug();
+            final token = widget.repo.prefs.pendingCheckinToken();
+            if (slug != null && token != null) {
+              await _openCheckinScreen(CheckinDeepLink(clubSlug: slug, token: token));
+            }
+          },
         ),
       _Flow.permissions => PermissionsScreen(onContinue: _afterPermissions),
       _Flow.hub => HomeHubScreen(

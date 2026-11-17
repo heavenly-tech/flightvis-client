@@ -1,37 +1,59 @@
-# flight_vis (Android pilot tracker)
+# flight_vis (Android pilot app)
 
-Flutter Android client for [heavenly-tech/flight_vis](https://github.com/heavenly-tech/flight_vis) club operations: pilot login, device pairing, kiosk check-in, tail selection, and live tracking via the Traccar Client SDK (`/api/osmand`).
+Club check-in, flight tracking, and pilot login for [heavenly-tech/flight_vis](https://github.com/heavenly-tech/flight_vis).
 
-Derived from [traccar/traccar-client](https://github.com/traccar/traccar-client); see [NOTICE](NOTICE).
+## App Links (`flight.heavenly.cl`)
 
-## Configuration
+The release app verifies against Digital Asset Links on the server.
 
-Default server URL: `https://flight.heavenly.cl`
+| Path | Purpose |
+|------|---------|
+| `/c/{slug}/q/{token}` | Club QR check-in (multi-club) |
+| `/auth/magic/{token}` | Email magic-link login |
 
-Override at build time:
+`AndroidManifest.xml` uses `android:autoVerify="true"` for `https://flight.heavenly.cl` with `pathPrefix` `/c/` and `/auth/magic/`. There are no custom URI schemes; the web fallback page may launch `intent://…#Intent;scheme=https;package=cl.heavenly.flightvis;…` which the app resolves to the same HTTPS paths.
+
+### Signing certificate SHA-256 for `assetlinks.json`
+
+The server team needs the app’s **release** and (for sideload/testing) **debug** signing cert SHA-256 fingerprints.
+
+**Release APK / Play App Signing**
+
+If you build with `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/release.keystore`):
 
 ```bash
-flutter build apk --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+keytool -list -v -keystore android/release.keystore -alias YOUR_KEY_ALIAS
 ```
 
-Tap the app title seven times on the home hub to change the server URL at runtime.
+Enter the keystore password when prompted. Copy the **SHA-256** line under `Certificate fingerprints`.
 
-## Local development
+**Gradle signing report (all variants on a dev machine)**
+
+```bash
+cd android && ./gradlew signingReport
+```
+
+Look for `SHA-256` under `release` and `debug` config blocks.
+
+**Debug keystore (local emulator / unsigned CI APK)**
+
+Default Android debug keystore:
+
+```bash
+keytool -list -v \
+  -keystore ~/.android/debug.keystore \
+  -alias androiddebugkey \
+  -storepass android -keypass android
+```
+
+Publish fingerprints in `https://flight.heavenly.cl/.well-known/assetlinks.json` for package name `cl.heavenly.flightvis`.
+
+## Development
 
 ```bash
 flutter pub get
 flutter analyze
 flutter test
-flutter run
 ```
 
-## CI secrets (release signing)
-
-Optional GitHub Actions secrets:
-
-- `FLIGHTVIS_KEYSTORE_BASE64`
-- `FLIGHTVIS_KEYSTORE_PASSWORD`
-- `FLIGHTVIS_KEY_ALIAS`
-- `FLIGHTVIS_KEY_PASSWORD`
-
-If absent, CI builds a debug-signed release APK and notes that in the job summary.
+Emulator screenshot flow (CI): `integration_test/screenshot_flow_test.dart` and `integration_test/deep_link_checkin_test.dart`.
