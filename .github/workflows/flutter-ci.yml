@@ -116,12 +116,20 @@ jobs:
           set -euo pipefail
           APK=build/app/outputs/flutter-apk/app-release.apk
           APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
-          if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner not found under Android SDK build-tools"
-            exit 1
+          OUT=""
+          if [ -n "$APKSIGNER" ]; then
+            set +e
+            OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
+            set -e
           fi
-          "$APKSIGNER" verify --print-certs "$APK" | tee build/app-release.cert-sha256.txt
-          FINGERPRINT="$(grep -m1 'SHA-256' build/app-release.cert-sha256.txt | awk '{print $2}')"
+          echo "$OUT" > build/app-release.cert-sha256.txt
+          FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}')"
+          if [ -z "$FINGERPRINT" ]; then
+            cd android
+            ./gradlew :app:signingReport --no-daemon 2>&1 | tee ../build/app-release.cert-sha256.txt
+            cd ..
+            FINGERPRINT="$(grep -m1 'SHA-256:' build/app-release.cert-sha256.txt | sed 's/.*SHA-256: *//')"
+          fi
           if [ -z "$FINGERPRINT" ]; then
             echo "::error::Could not parse signing certificate SHA-256"
             exit 1
