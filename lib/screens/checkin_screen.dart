@@ -45,17 +45,26 @@ class _CheckinScreenState extends State<CheckinScreen> {
         nowMs: DateTime.now().millisecondsSinceEpoch,
       );
 
+  String _countdownText() {
+    final remaining = _gate.remaining();
+    if (remaining == null) {
+      return 'Check-in successful.';
+    }
+    if (remaining <= Duration.zero) {
+      return 'Check-in expired.';
+    }
+    return 'Check-in valid for ${remaining.inMinutes}m ${remaining.inSeconds % 60}s.';
+  }
+
   Future<void> _submitToken(String token) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      await widget.repo.client.checkin(token);
-      final expires = CheckinGate.defaultExpiresAtMs(
-        DateTime.now().millisecondsSinceEpoch,
-      );
-      await widget.repo.prefs.setCheckinExpiresAtMs(expires);
+      final result = await widget.repo.client.checkin(token);
+      final expiresMs = result.expiresAtEpochMs();
+      await widget.repo.prefs.setCheckinExpiresAtMs(expiresMs);
       if (mounted) {
         setState(() {
           _busy = false;
@@ -92,7 +101,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             if (_justCheckedIn) ...[
               const SizedBox(height: 16),
               Text(
-                'Check-in successful. Valid for about ${AppConfig.defaultCheckinValidMinutes} minutes.',
+                _countdownText(),
                 style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(height: 8),

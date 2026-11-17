@@ -15,6 +15,7 @@ class FlightVisException implements Exception {
   String toString() => message;
 }
 
+/// Pilot profile from login (no `licenseNo`) or `/api/club/me` (includes `licenseNo`).
 class PilotProfile {
   PilotProfile({
     required this.id,
@@ -41,7 +42,7 @@ class PilotProfile {
         licenseNo: json['licenseNo'] as String?,
       );
 
-  bool get isApproved => status.toLowerCase() == 'approved';
+  bool get isApproved => status == 'approved';
 }
 
 class TailOption {
@@ -49,6 +50,7 @@ class TailOption {
 
   final String id;
   final String tail;
+  /// Server field `type_code` (snake_case) per PR #15.
   final String typeCode;
 
   factory TailOption.fromJson(Map<String, dynamic> json) => TailOption(
@@ -56,6 +58,33 @@ class TailOption {
         tail: json['tail'] as String,
         typeCode: json['type_code'] as String,
       );
+}
+
+class CheckinResult {
+  CheckinResult({required this.ok, this.expiresAtUtc});
+
+  final bool ok;
+  final DateTime? expiresAtUtc;
+
+  factory CheckinResult.fromJson(Map<String, dynamic> json) {
+    final raw = json['expiresAt'] as String?;
+    DateTime? expires;
+    if (raw != null && raw.isNotEmpty) {
+      expires = DateTime.parse(raw).toUtc();
+    }
+    return CheckinResult(
+      ok: json['ok'] == true,
+      expiresAtUtc: expires,
+    );
+  }
+
+  int? expiresAtEpochMs({int? nowMs}) {
+    if (expiresAtUtc != null) {
+      return expiresAtUtc!.millisecondsSinceEpoch;
+    }
+    final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    return now + AppConfig.defaultCheckinValidMinutes * 60 * 1000;
+  }
 }
 
 class StartFlightResult {
@@ -146,18 +175,32 @@ class FlightVisClient {
     throw FlightVisException(error, statusCode: response.statusCode, body: body);
   }
 
+  /// Login then enrich profile from `GET /api/club/me` (`licenseNo`).
   Future<PilotProfile> login(String email, String password) async {
     final response = await _http.post(
       _uri('/api/club/login'),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'email': email.trim(), 'password': password}),
+      body: jsonEncode({
+        'email': email.trim(),
+        'password': password,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
     final session = _sessionFromResponse(response);
     if (session != null) _sessionId = session;
-    final pilot = PilotProfile.fromJson(body['pilot'] as Map<String, dynamic>);
-    return pilot;
+    final loginPilot = PilotProfile.fromJson(body['pilot'] as Map<String, dynamic>);
+    final me = await meProfile();
+    return me ?? loginPilot;
+  }
+
+  Future<PilotProfile?> meProfile() async {
+    final response = await _http.get(_uri('/api/club/me'), headers: _headers());
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    final pilot = body['pilot'];
+    if (pilot == null) return null;
+    return PilotProfile.fromJson(pilot as Map<String, dynamic>);
   }
 
   Future<void> logout() async {
@@ -169,26 +212,18 @@ class FlightVisClient {
     _sessionId = null;
   }
 
-  Future<PilotProfile?> me() async {
-    final response = await _http.get(_uri('/api/club/me'), headers: _headers());
-    if (response.statusCode != 200) _throwForError(response);
-    final body = _decodeJson(response);
-    final pilot = body['pilot'];
-    if (pilot == null) return null;
-    return PilotProfile.fromJson(pilot as Map<String, dynamic>);
-  }
-
-  Future<void> checkin(String kioskToken) async {
+  Future<CheckinResult> checkin(String kioskToken) async {
     final response = await _http.post(
       _uri('/api/checkin'),
       headers: _headers(jsonBody: true),
       body: jsonEncode({'token': kioskToken.trim()}),
     );
     if (response.statusCode != 200) _throwForError(response);
-    final body = _decodeJson(response);
-    if (body['ok'] != true) {
-      throw FlightVisException('check-in failed', body: body);
+    final result = CheckinResult.fromJson(_decodeJson(response));
+    if (!result.ok) {
+      throw FlightVisException('check-in failed');
     }
+    return result;
   }
 
   Future<List<TailOption>> tails() async {

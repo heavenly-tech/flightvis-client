@@ -51,7 +51,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
     }
     PilotProfile? pilot;
     try {
-      pilot = await widget.repo.client.me();
+      pilot = await widget.repo.client.meProfile();
     } catch (_) {
       pilot = null;
     }

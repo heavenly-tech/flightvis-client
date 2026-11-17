@@ -66,7 +66,11 @@ Future<void> main() async {
 
     if (method == 'POST' && path == '/api/checkin') {
       checkedIn = true;
-      await jsonResponse(200, {'ok': true});
+      final expires = DateTime.now().toUtc().add(const Duration(minutes: 30));
+      await jsonResponse(200, {
+        'ok': true,
+        'expiresAt': expires.toIso8601String(),
+      });
       continue;
     }
 
