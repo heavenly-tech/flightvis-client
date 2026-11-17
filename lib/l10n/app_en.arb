@@ -76,8 +76,8 @@
   "pilotVisibilityPublic": "Public",
   "pilotShowPilotNamePublic": "Show pilot name on public map",
   "pilotSelectTail": "Select a tail.",
-  "pilotStart": "Start",
-  "pilotStop": "Stop",
+  "pilotStart": "Start tracking",
+  "pilotStop": "Finish tracking",
   "pilotTrackingTitle": "In flight",
   "pilotTailLine": "Tail: {tail}",
   "@pilotTailLine": {

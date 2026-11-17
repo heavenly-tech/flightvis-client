@@ -66,12 +66,12 @@ void main() {
 
     await saveScreenshot(binding, '04-flight-details');
 
-    await tester.tap(find.text('Start'));
+    await tester.tap(find.text('Start tracking'));
     await tester.pumpAndSettle(const Duration(seconds: 4));
 
     await saveScreenshot(binding, '05-broadcasting');
 
-    expect(find.text('Stop'), findsOneWidget);
+    expect(find.text('Finish tracking'), findsOneWidget);
     await saveScreenshot(binding, '06-stop');
   });
 }

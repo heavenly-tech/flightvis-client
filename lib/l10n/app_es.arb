@@ -76,8 +76,8 @@
   "pilotVisibilityPublic": "Público",
   "pilotShowPilotNamePublic": "Mostrar nombre en mapa público",
   "pilotSelectTail": "Seleccione una matrícula.",
-  "pilotStart": "Comenzar",
-  "pilotStop": "Terminar",
+  "pilotStart": "Comenzar tracking",
+  "pilotStop": "Finalizar tracking",
   "pilotTrackingTitle": "En vuelo",
   "pilotTailLine": "Matrícula: {tail}",
   "@pilotTailLine": {
