@@ -17,9 +17,22 @@ The release app verifies against Digital Asset Links on the server.
 
 The server team needs the app’s **release** and (for sideload/testing) **debug** signing cert SHA-256 fingerprints.
 
+### CI release keystore (GitHub Actions)
+
+Production builds (`push` to `main` or `v*` tags) **fail** unless these repository secrets are set:
+
+| Secret | Purpose |
+|--------|---------|
+| `FLIGHTVIS_KEYSTORE_BASE64` | Base64-encoded release `.jks` / `.keystore` |
+| `FLIGHTVIS_KEYSTORE_PASSWORD` | Keystore password |
+| `FLIGHTVIS_KEY_ALIAS` | Key alias inside the store |
+| `FLIGHTVIS_KEY_PASSWORD` | Private key password |
+
+Use **one stable release keystore forever**. Rotating it breaks Android App Links until `assetlinks.json` is updated with the new certificate SHA-256. Pull-request CI may produce a **debug-signed** APK artifact named `flight-vis-android-debugsigned-<sha>`; do not ship that build. Release runs upload `build/app-release.cert-sha256` (from `apksigner verify --print-certs`) for the server team.
+
 **Release APK / Play App Signing**
 
-If you build with `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/release.keystore`):
+If you build with the `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/release.keystore`):
 
 ```bash
 keytool -list -v -keystore android/release.keystore -alias YOUR_KEY_ALIAS

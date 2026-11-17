@@ -17,6 +17,18 @@ jobs:
         with:
           channel: stable
 
+      - name: Determine signing policy
+        id: signing_policy
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && {
+            [ "${{ github.ref }}" = "refs/heads/main" ] || \
+            echo "${{ github.ref }}" | grep -q '^refs/tags/v'
+          ; }; then
+            echo "require_release_keystore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "require_release_keystore=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: flutter pub get
         run: flutter pub get
 
@@ -32,7 +44,26 @@ jobs:
       - name: flutter test
         run: flutter test
 
-      - name: Decode release keystore (optional)
+      - name: Validate release signing secrets
+        if: steps.signing_policy.outputs.require_release_keystore == 'true'
+        env:
+          FLIGHTVIS_KEYSTORE_BASE64: ${{ secrets.FLIGHTVIS_KEYSTORE_BASE64 }}
+          FLIGHTVIS_KEYSTORE_PASSWORD: ${{ secrets.FLIGHTVIS_KEYSTORE_PASSWORD }}
+          FLIGHTVIS_KEY_ALIAS: ${{ secrets.FLIGHTVIS_KEY_ALIAS }}
+          FLIGHTVIS_KEY_PASSWORD: ${{ secrets.FLIGHTVIS_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in FLIGHTVIS_KEYSTORE_BASE64 FLIGHTVIS_KEYSTORE_PASSWORD FLIGHTVIS_KEY_ALIAS FLIGHTVIS_KEY_PASSWORD; do
+            eval "val=\$$name"
+            if [ -z "$val" ]; then
+              echo "::error::Missing GitHub secret $name (required on main and version tags)"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ]
+
+      - name: Decode release keystore
         id: keystore
         env:
           FLIGHTVIS_KEYSTORE_BASE64: ${{ secrets.FLIGHTVIS_KEYSTORE_BASE64 }}
@@ -40,6 +71,7 @@ jobs:
           FLIGHTVIS_KEY_ALIAS: ${{ secrets.FLIGHTVIS_KEY_ALIAS }}
           FLIGHTVIS_KEY_PASSWORD: ${{ secrets.FLIGHTVIS_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           if [ -n "$FLIGHTVIS_KEYSTORE_BASE64" ]; then
             echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/release.keystore
             cat > android/key.properties <<EOF
@@ -50,6 +82,10 @@ jobs:
           EOF
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
+            if [ "${{ steps.signing_policy.outputs.require_release_keystore }}" = "true" ]; then
+              echo "::error::Release keystore decode failed on protected ref"
+              exit 1
+            fi
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -66,9 +102,33 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           VERSION_NAME=${VERSION%%+*}
           VERSION_CODE=${VERSION##*+}
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            RELEASE_SIGNED=true
+          else
+            RELEASE_SIGNED=false
+          fi
           cat > build/app-release.json <<EOF
-          {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}"}
+          {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}","releaseSigned":$RELEASE_SIGNED}
           EOF
+
+      - name: Extract APK signing certificate SHA-256
+        id: cert
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under Android SDK build-tools"
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK" | tee build/app-release.cert-sha256.txt
+          FINGERPRINT="$(grep -m1 'SHA-256' build/app-release.cert-sha256.txt | awk '{print $2}')"
+          if [ -z "$FINGERPRINT" ]; then
+            echo "::error::Could not parse signing certificate SHA-256"
+            exit 1
+          fi
+          echo "$FINGERPRINT" > build/app-release.cert-sha256
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
 
       - name: Verify release artifact bundle
         run: |
@@ -76,16 +136,19 @@ jobs:
           test -s build/app/outputs/flutter-apk/app-release.apk
           test -f build/app-release.apk.sha256
           test -f build/app-release.json
+          test -s build/app-release.cert-sha256
           echo "release bundle OK"
 
       - name: Job summary
         run: |
           if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            echo "### APK signed with release keystore (FLIGHTVIS_KEYSTORE_* secrets)" >> $GITHUB_STEP_SUMMARY
+            echo "### APK signed with release keystore" >> "$GITHUB_STEP_SUMMARY"
+            echo "Signing cert SHA-256: \`${{ steps.cert.outputs.fingerprint }}\`" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "### APK signed with debug key (no FLIGHTVIS_KEYSTORE_* secrets)" >> $GITHUB_STEP_SUMMARY
+            echo "### APK debug-signed (PR only — not for App Links / publish)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Signing cert SHA-256: \`${{ steps.cert.outputs.fingerprint }}\`" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "Artifacts: app-release.apk, app-release.apk.sha256, app-release.json" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts: app-release.apk, app-release.apk.sha256, app-release.json, app-release.cert-sha256" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Golden UI screenshots (widget tests)
         run: flutter test test/golden_screenshots_test.dart
@@ -93,11 +156,12 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: flight-vis-android-${{ github.sha }}
+          name: ${{ steps.keystore.outputs.signed == 'true' && format('flight-vis-android-{0}', github.sha) || format('flight-vis-android-debugsigned-{0}', github.sha) }}
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app-release.apk.sha256
             build/app-release.json
+            build/app-release.cert-sha256
             docs/screenshots/
 
       - name: Attach to GitHub Release on version tags
@@ -108,6 +172,7 @@ jobs:
             build/app/outputs/flutter-apk/app-release.apk
             build/app-release.apk.sha256
             build/app-release.json
+            build/app-release.cert-sha256
 
   emulator-screenshots:
     runs-on: ubuntu-latest
