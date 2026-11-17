@@ -120,7 +120,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: flight-vis-android-${{ github.sha }}
-          path: build/ci-artifacts
+          path: .
+
+      - name: Locate release APK for emulator
+        run: |
+          find . -name app-release.apk > apk-locations.txt
+          cat apk-locations.txt
+          test -s apk-locations.txt
 
       - name: Start mock flight_vis API
         run: |
