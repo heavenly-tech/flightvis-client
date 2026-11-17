@@ -235,21 +235,28 @@ jobs:
           echo "mock API failed to start"
           exit 1
 
+      - name: Verify mock API on host
+        run: |
+          echo "flightvis-ci: GET /api/ci-health on 127.0.0.1"
+          curl -sf http://127.0.0.1:18080/api/ci-health
+
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           arch: x86_64
           target: google_apis
-          emulator-boot-timeout: 1800
+          emulator-boot-timeout: 1200
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
-          disable-animations: true
+          # Built-in animation disable uses adb settings and flakes after boot (adb exit 224).
+          disable-animations: false
           script: |
-            set -eux
+            set -e
             adb wait-for-device
             adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-
-            echo "flightvis-ci: probing mock from runner (127.0.0.1)"
-            curl -sf http://127.0.0.1:18080/api/ci-health
+            sleep 5
+            adb shell settings put global window_animation_scale 0 || true
+            adb shell settings put global transition_animation_scale 0 || true
+            adb shell settings put global animator_duration_scale 0 || true
 
             DART_DEFINES="--dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true"
 
