@@ -119,7 +119,6 @@ class _FlightVisAppState extends State<FlightVisApp> {
           initialClubSlug: link.clubSlug,
           onCheckedIn: () async {
             await widget.repo.prefs.clearPendingCheckin();
-            if (ctx.mounted) Navigator.pop(ctx);
           },
           onLoginRequired: () {
             if (ctx.mounted) setState(() => _flow = _Flow.login);

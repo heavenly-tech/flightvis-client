@@ -67,6 +67,12 @@ class _CheckinScreenState extends State<CheckinScreen> {
         nowMs: DateTime.now().millisecondsSinceEpoch,
       );
 
+  void _continueAfterCheckin() {
+    widget.onCheckedIn();
+    if (!mounted) return;
+    Navigator.maybePop(context);
+  }
+
   String _successText(AppLocalizations l10n) {
     final expiresMs = widget.repo.prefs.checkinExpiresAtMs();
     if (expiresMs == null) return l10n.pilotCheckInSuccess;
@@ -142,7 +148,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 8),
               FilledButton(
                 key: FlightVisTestKeys.checkinContinue,
-                onPressed: widget.onCheckedIn,
+                onPressed: _continueAfterCheckin,
                 child: Text(l10n.pilotContinue),
               ),
             ],
@@ -157,7 +163,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 8),
               FilledButton(
                 key: FlightVisTestKeys.checkinContinue,
-                onPressed: widget.onCheckedIn,
+                onPressed: _continueAfterCheckin,
                 child: Text(l10n.pilotContinue),
               ),
             ],

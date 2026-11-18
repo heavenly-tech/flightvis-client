@@ -97,7 +97,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
             MaterialPageRoute(
               builder: (_) => CheckinScreen(
                 repo: widget.repo,
-                onCheckedIn: () => Navigator.pop(context),
+                onCheckedIn: () {},
               ),
             ),
           ),
@@ -190,7 +190,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
               MaterialPageRoute(
                 builder: (_) => CheckinScreen(
                   repo: widget.repo,
-                  onCheckedIn: () => Navigator.pop(context),
+                  onCheckedIn: () {},
                 ),
               ),
             ),

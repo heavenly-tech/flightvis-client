@@ -83,41 +83,19 @@ Future<void> waitForTappable(
 }
 
 Future<void> leaveCheckinForHub(WidgetTester tester) async {
-  final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
   await tapWhenFound(
     tester,
     find.byKey(FlightVisTestKeys.checkinContinue),
     label: 'check-in continue',
     timeout: const Duration(seconds: 25),
   );
-  await pumpFrames(tester, total: const Duration(seconds: 2));
-
-  var end = DateTime.now().add(const Duration(seconds: 25));
-  while (DateTime.now().isBefore(end)) {
-    await tester.pump(const Duration(milliseconds: 200));
-    if (checkinRoute.evaluate().isEmpty) {
-      ciLog('hub: check-in route dismissed after continue');
-      return;
-    }
-  }
-
-  ciLog('hub: continue did not pop route; trying pageBack');
-  await tester.pageBack();
-  await pumpFrames(tester, total: const Duration(seconds: 2));
-
-  end = DateTime.now().add(const Duration(seconds: 15));
-  while (DateTime.now().isBefore(end)) {
-    await tester.pump(const Duration(milliseconds: 200));
-    if (checkinRoute.evaluate().isEmpty) {
-      ciLog('hub: check-in route dismissed after pageBack');
-      return;
-    }
-  }
-
-  throw TestFailure(
-    'Check-in route still visible after continue and pageBack '
-    '(hub widgets stay mounted under the route; use checkinScreen key)',
+  await waitForTappable(
+    tester,
+    find.byKey(FlightVisTestKeys.hubFlightDetails),
+    label: 'hub flight details after check-in',
+    timeout: const Duration(seconds: 45),
   );
+  ciLog('hub: ready after check-in continue');
 }
 
 Future<void> waitForAnyFound(
