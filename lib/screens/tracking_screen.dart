@@ -160,7 +160,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     return Scaffold(
       key: FlightVisTestKeys.trackingScreen,
       appBar: AppBar(title: Text(l10n.pilotTrackingTitle)),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -182,7 +182,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
-            const Spacer(),
+            const SizedBox(height: 32),
             FilledButton(
               key: FlightVisTestKeys.trackingStop,
               style: FilledButton.styleFrom(
