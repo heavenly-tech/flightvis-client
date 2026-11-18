@@ -70,10 +70,11 @@ fi
 if [ "$1" = "--install" ]; then
   shift
   missing=()
+  channel_args=()
   for pkg in "$@"; do
     case "$pkg" in
-      --channel=*)
-        missing+=("$pkg")
+      --channel=*|--sdk_root=*|--verbose)
+        channel_args+=("$pkg")
         ;;
       *)
         if _sdk_pkg_installed "$pkg"; then
@@ -87,7 +88,7 @@ if [ "$1" = "--install" ]; then
   if [ "${#missing[@]}" -eq 0 ]; then
     exit 0
   fi
-  _run_sdkmanager_with_retry --install "${missing[@]}"
+  _run_sdkmanager_with_retry --install "${missing[@]}" "${channel_args[@]}"
   exit $?
 fi
 
