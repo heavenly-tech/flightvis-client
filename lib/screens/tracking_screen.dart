@@ -135,6 +135,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
     try {
       await widget.tracking.stop();
+      if (AppConfig.screenshotTest) {
+        await widget.repo.prefs.setActiveFlightId(null);
+        if (mounted) widget.onStopped();
+        return;
+      }
       await widget.repo.client.endFlight(widget.flightId);
       await widget.repo.prefs.setActiveFlightId(null);
       if (mounted) widget.onStopped();
