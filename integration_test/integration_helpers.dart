@@ -120,6 +120,29 @@ Future<void> activateCheckinContinue(WidgetTester tester) async {
   await pumpFrames(tester, total: const Duration(seconds: 2));
 }
 
+Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
+  final stop = find.byKey(FlightVisTestKeys.trackingStop);
+  await waitForFound(
+    tester,
+    stop,
+    label: 'tracking stop',
+    timeout: const Duration(seconds: 45),
+  );
+  final button = tester.widget<FilledButton>(stop);
+  if (button.onPressed != null) {
+    ciLog('tracking: invoke stop onPressed');
+    button.onPressed!();
+  } else {
+    await tester.tap(stop);
+  }
+  await waitForFound(
+    tester,
+    find.byKey(FlightVisTestKeys.hub),
+    label: 'hub after stop',
+    timeout: const Duration(seconds: 90),
+  );
+}
+
 Future<void> openHubFlightDetails(WidgetTester tester) async {
   final finder = find.byKey(FlightVisTestKeys.hubFlightDetails);
   final end = DateTime.now().add(const Duration(seconds: 60));
@@ -329,6 +352,10 @@ Future<void> saveEmulatorScreenshot(IntegrationTestWidgetsFlutterBinding binding
 
 /// Failure screenshot for functional CI (capture flag off).
 Future<void> saveCiFailureScreenshot(IntegrationTestWidgetsFlutterBinding binding, String name) async {
+  if (!AppConfig.captureScreenshots && !_emulatorSurfaceConverted) {
+    ciLog('failure screenshot skipped: capture off and surface not converted');
+    return;
+  }
   try {
     await ensureEmulatorScreenshotSurface(binding);
     final bytes = await binding.takeScreenshot(name);

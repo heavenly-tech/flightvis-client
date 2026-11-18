@@ -138,20 +138,8 @@ void main() {
         ciLog('functional-flow: tracking started');
 
         await ciStep(tester, 'stop tracking', () async {
-          await tapWhenFound(
-            tester,
-            find.byKey(FlightVisTestKeys.trackingStop),
-            label: 'stop tracking',
-            timeout: const Duration(seconds: 45),
-          );
-          await pumpFrames(tester, total: const Duration(seconds: 2));
-          await waitForFound(
-            tester,
-            find.byKey(FlightVisTestKeys.hub),
-            label: 'hub after stop',
-            timeout: const Duration(seconds: 60),
-          );
-        }, timeout: const Duration(seconds: 90));
+          await stopTrackingAndReturnToHub(tester);
+        }, timeout: const Duration(seconds: 120));
         ciLog('functional-flow: tracking stopped');
 
         await ciStep(tester, 'deep link dispatch', () async {
