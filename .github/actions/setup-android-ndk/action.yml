@@ -12,7 +12,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+        SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
         echo "root=$SDK" >> "$GITHUB_OUTPUT"
         echo "FLIGHTVIS_ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
 
@@ -31,13 +31,15 @@ runs:
         set -euo pipefail
         SDK="${FLIGHTVIS_ANDROID_SDK_ROOT}"
         NDK_VERSION="${{ inputs.ndk-version }}"
-        NDK_DIR="$SDK/ndk/$NDK_VERSION"
         export ANDROID_SDK_ROOT="$SDK"
         export ANDROID_HOME="$SDK"
+        NDK_DIR="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+
         if [ -f "$NDK_DIR/source.properties" ]; then
-          echo "flightvis-ci: NDK $NDK_VERSION already at $NDK_DIR"
+          echo "flightvis-ci: NDK $NDK_VERSION already at $NDK_DIR (skip sdkmanager)"
           exit 0
         fi
+
         SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
         if [ ! -x "$SDKMANAGER" ]; then
           SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1 || true)"
@@ -46,17 +48,16 @@ runs:
           echo "::error::sdkmanager not found under $SDK"
           exit 1
         fi
+
+        yes | "$SDKMANAGER" --licenses >/dev/null || true
+
         for attempt in 1 2 3; do
           if [ -f "$NDK_DIR/source.properties" ]; then
             echo "flightvis-ci: NDK $NDK_VERSION present at $NDK_DIR"
             exit 0
           fi
           echo "flightvis-ci: sdkmanager install ndk;$NDK_VERSION (attempt $attempt/3)"
-          set +e
-          set +o pipefail
-          yes | "$SDKMANAGER" --install "ndk;$NDK_VERSION"
-          set -o pipefail
-          set -e
+          "$SDKMANAGER" --install "ndk;$NDK_VERSION" || true
           if [ -f "$NDK_DIR/source.properties" ]; then
             echo "flightvis-ci: NDK installed at $NDK_DIR"
             exit 0
