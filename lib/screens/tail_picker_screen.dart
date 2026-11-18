@@ -4,6 +4,7 @@ import '../api/flight_vis_client.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../state/checkin_gate.dart';
+import '../ci_test_keys.dart';
 
 class TailPickerScreen extends StatefulWidget {
   const TailPickerScreen({
@@ -93,6 +94,7 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
     );
     final blockMsg = checkinBlockMessage(l10n, gate.startBlock());
     return Scaffold(
+      key: FlightVisTestKeys.tailPicker,
       appBar: AppBar(title: Text(l10n.pilotFlightDetailsTitle)),
       body: _loading && _tails.isEmpty
           ? const Center(child: CircularProgressIndicator())
@@ -153,6 +155,7 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
                     ),
                   const Spacer(),
                   FilledButton(
+                    key: FlightVisTestKeys.tailStart,
                     onPressed: gate.canStartFlight && !_loading ? _start : null,
                     child: Text(l10n.pilotStart),
                   ),

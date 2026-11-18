@@ -14,6 +14,7 @@ import 'services/app_repository.dart';
 import 'services/deep_link_dispatcher.dart';
 import 'services/tracking_lifecycle.dart';
 import 'services/tracking_service.dart';
+import 'ci_test_keys.dart';
 
 Future<AppRepository> createAppRepository() => AppRepository.create();
 
@@ -280,6 +281,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
   Widget _home() {
     return switch (_flow) {
       _Flow.loading => const Scaffold(
+          key: FlightVisTestKeys.appLoading,
           body: Center(child: CircularProgressIndicator()),
         ),
       _Flow.login => LoginScreen(

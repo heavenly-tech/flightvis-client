@@ -11,6 +11,7 @@ import '../state/checkin_gate.dart';
 import '../util/checkin_expiry_format.dart';
 import '../util/flight_deep_link.dart';
 import 'qr_scan_screen.dart';
+import '../ci_test_keys.dart';
 
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({
@@ -138,7 +139,11 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 style: TextStyle(color: Theme.of(context).colorScheme.primary),
               ),
               const SizedBox(height: 8),
-              FilledButton(onPressed: widget.onCheckedIn, child: Text(l10n.pilotContinue)),
+              FilledButton(
+                key: FlightVisTestKeys.checkinContinue,
+                onPressed: widget.onCheckedIn,
+                child: Text(l10n.pilotContinue),
+              ),
             ],
             if (!_justCheckedIn && gate.canStartFlight && gate.expiresAtMs != null) ...[
               const SizedBox(height: 16),
@@ -149,7 +154,11 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 style: const TextStyle(color: Colors.green),
               ),
               const SizedBox(height: 8),
-              FilledButton(onPressed: widget.onCheckedIn, child: Text(l10n.pilotContinue)),
+              FilledButton(
+                key: FlightVisTestKeys.checkinContinue,
+                onPressed: widget.onCheckedIn,
+                child: Text(l10n.pilotContinue),
+              ),
             ],
             if (_error != null) ...[
               const SizedBox(height: 12),

@@ -124,42 +124,53 @@ jobs:
 
       - name: Extract APK signing certificate SHA-256
         id: cert
-        env:
-          FLIGHTVIS_KEY_ALIAS: ${{ secrets.FLIGHTVIS_KEY_ALIAS }}
-          FLIGHTVIS_KEYSTORE_PASSWORD: ${{ secrets.FLIGHTVIS_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           APK=build/app/outputs/flutter-apk/app-release.apk
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -1)"
-            OUT=""
-            if [ -n "$APKSIGNER" ]; then
-              set +e
-              OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
-              set -e
-            fi
-            echo "$OUT" | tee build/app-release.cert-sha256.txt
-            FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}' || true)"
-            if [ -z "$FINGERPRINT" ]; then
-              keytool -list -v \
-                -keystore android/app/release.keystore \
-                -alias "$FLIGHTVIS_KEY_ALIAS" \
-                -storepass "$FLIGHTVIS_KEYSTORE_PASSWORD" 2>&1 | tee build/app-release.cert-sha256.txt
-              FINGERPRINT="$(grep -m1 -E 'SHA-?256:' build/app-release.cert-sha256.txt | sed -E 's/.*SHA-?256: *//' || true)"
-            fi
-          else
-            keytool -list -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -alias androiddebugkey \
-              -storepass android -keypass android 2>&1 | tee build/app-release.cert-sha256.txt
-            FINGERPRINT="$(grep -m1 -E 'SHA-?256:' build/app-release.cert-sha256.txt | sed -E 's/.*SHA-?256: *//' || true)"
-          fi
-          if [ -z "$FINGERPRINT" ]; then
-            echo "::error::Could not parse signing certificate SHA-256"
+          APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -path '*/apksigner' -type f 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found under Android SDK build-tools"
             exit 1
           fi
+          OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
+          echo "$OUT" > build/app-release.cert-sha256.txt
+          DIGEST="$(echo "$OUT" | grep -m1 'Signer #1 certificate SHA-256 digest:' | sed 's/^.*digest:[[:space:]]*//')"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not parse Signer #1 SHA-256 digest from apksigner output"
+            exit 1
+          fi
+          FINGERPRINT="$(DIGEST="$DIGEST" python3 -c "import os,sys;h=os.environ['DIGEST'].replace(':','').strip().upper();(len(h)!=64 or any(c not in '0123456789ABCDEF' for c in h)) and sys.exit(1);print(':'.join(h[i:i+2] for i in range(0,len(h),2)))")"
           echo "$FINGERPRINT" > build/app-release.cert-sha256
           echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+
+      - name: Assert release certificate matches App Links pin
+        if: steps.keystore.outputs.signed == 'true'
+        env:
+          ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+          ANDROID_CERT_SHA256_SECRET: ${{ secrets.ANDROID_CERT_SHA256 }}
+          ACTUAL_FINGERPRINT: ${{ steps.cert.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          EXPECTED="${ANDROID_CERT_SHA256:-}"
+          if [ -z "$EXPECTED" ]; then
+            EXPECTED="${ANDROID_CERT_SHA256_SECRET:-}"
+          fi
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::Release-signed build requires vars.ANDROID_CERT_SHA256 or secrets.ANDROID_CERT_SHA256"
+            exit 1
+          fi
+          normalize() {
+            DIGEST="$1" python3 -c "import os;h=os.environ['DIGEST'].replace(':','').strip().upper();print(':'.join(h[i:i+2] for i in range(0,len(h),2)))"
+          }
+          EXPECTED_N="$(normalize "$EXPECTED")"
+          ACTUAL_N="$(normalize "$ACTUAL_FINGERPRINT")"
+          if [ "$EXPECTED_N" != "$ACTUAL_N" ]; then
+            echo "::error::APK cert SHA-256 mismatch (expected App Links pin)"
+            echo "Expected: $EXPECTED_N"
+            echo "Actual:   $ACTUAL_N"
+            exit 1
+          fi
+          echo "Release certificate matches expected App Links SHA-256"
 
       - name: Verify release artifact bundle
         run: |
@@ -301,17 +312,49 @@ jobs:
           target: google_apis
           avd-name: test
           force-avd-creation: false
-          cores: 2
+          cores: 1
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -memory 3072
           disable-animations: false
           script: |
+            set -euo pipefail
+            collect_emulator_diagnostics() {
+              mkdir -p ci-emulator-diagnostics
+              adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
+              adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+              adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
+              adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
+            }
             adb wait-for-device
             adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
             for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
             adb shell pm path android
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
+            set +e
+            flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 10m --no-uninstall --reporter expanded
+            TEST_EXIT=$?
+            set -e
+            if [ "$TEST_EXIT" -ne 0 ]; then
+              collect_emulator_diagnostics
+              exit "$TEST_EXIT"
+            fi
+
+      - name: Collect emulator diagnostics (host fallback)
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p ci-emulator-diagnostics
+          adb exec-out screencap -p > ci-emulator-diagnostics/host-screen.png 2>/dev/null || true
+          adb logcat -d > ci-emulator-diagnostics/host-logcat.txt 2>/dev/null || true
+          adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/host-meminfo.txt 2>/dev/null || true
+
+      - name: Upload emulator test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-emulator-tests-diagnostics-${{ github.sha }}
+          path: ci-emulator-diagnostics/
+          if-no-files-found: ignore
 
       - name: Cleanup emulator and mock API
         if: always()
@@ -385,20 +428,52 @@ jobs:
           target: google_apis
           avd-name: test
           force-avd-creation: false
-          cores: 2
+          cores: 1
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -memory 3072
           disable-animations: false
           script: |
+            set -euo pipefail
+            collect_emulator_diagnostics() {
+              mkdir -p ci-emulator-diagnostics
+              adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
+              adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+              adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
+              adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
+            }
             adb wait-for-device
             adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
             for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
             adb shell pm path android
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
+            set +e
+            flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 12m --no-uninstall --reporter expanded
+            TEST_EXIT=$?
+            set -e
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
             ls -la docs/emulator-screenshots || true
+            if [ "$TEST_EXIT" -ne 0 ]; then
+              collect_emulator_diagnostics
+              exit "$TEST_EXIT"
+            fi
+
+      - name: Collect emulator diagnostics (host fallback)
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p ci-emulator-diagnostics
+          adb exec-out screencap -p > ci-emulator-diagnostics/host-screen.png 2>/dev/null || true
+          adb logcat -d > ci-emulator-diagnostics/host-logcat.txt 2>/dev/null || true
+          adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/host-meminfo.txt 2>/dev/null || true
+
+      - name: Upload emulator screenshot diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-emulator-screenshots-diagnostics-${{ github.sha }}
+          path: ci-emulator-diagnostics/
+          if-no-files-found: ignore
 
       - name: Cleanup emulator and mock API
         if: always()

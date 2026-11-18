@@ -9,6 +9,7 @@ import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
+import '../ci_test_keys.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({
@@ -152,6 +153,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
     return Scaffold(
+      key: FlightVisTestKeys.trackingScreen,
       appBar: AppBar(title: Text(l10n.pilotTrackingTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -177,6 +179,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ],
             const Spacer(),
             FilledButton(
+              key: FlightVisTestKeys.trackingStop,
               style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error,
                 foregroundColor: Theme.of(context).colorScheme.onError,

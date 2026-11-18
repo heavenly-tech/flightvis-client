@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/flight_permissions.dart';
+import '../ci_test_keys.dart';
 
 enum _PermStep { intro, fine, background, notifications, battery, done }
 
@@ -80,6 +81,7 @@ class _PermissionsOnboardingScreenState extends State<PermissionsOnboardingScree
     };
 
     return Scaffold(
+      key: FlightVisTestKeys.permissionsScreen,
       appBar: AppBar(title: Text(l10n.permOnboardingTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -91,6 +93,7 @@ class _PermissionsOnboardingScreenState extends State<PermissionsOnboardingScree
             Text(body, style: const TextStyle(fontSize: 16, height: 1.45)),
             const Spacer(),
             FilledButton(
+              key: FlightVisTestKeys.permissionsPrimary,
               onPressed: _busy ? null : _advance,
               child: _busy
                   ? const SizedBox(

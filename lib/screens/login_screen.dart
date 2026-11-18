@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/flight_vis_client.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
+import '../ci_test_keys.dart';
 import '../services/passkey_auth.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -212,6 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
             const Spacer(),
             if (widget.onContinueAsGuest != null)
               TextButton(
+                key: FlightVisTestKeys.loginGuest,
                 onPressed: _busy ? null : widget.onContinueAsGuest,
                 child: Text(l10n.pilotContinueAsGuest),
               ),

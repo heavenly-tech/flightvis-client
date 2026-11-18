@@ -14,6 +14,7 @@ import 'hidden_settings_screen.dart';
 import 'pairing_screen.dart';
 import 'tail_picker_screen.dart';
 import '../widgets/language_picker_sheet.dart';
+import '../ci_test_keys.dart';
 
 class HomeHubScreen extends StatefulWidget {
   const HomeHubScreen({
@@ -135,6 +136,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
     final pilot = widget.pilot;
     final loggedIn = pilot != null && pilot.isApproved;
     return Scaffold(
+      key: FlightVisTestKeys.hub,
       appBar: AppBar(
         title: GestureDetector(
           onTap: _openHidden,
@@ -158,6 +160,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
             )
           else
             TextButton(
+              key: FlightVisTestKeys.hubSignIn,
               onPressed: widget.onRequestLogin,
               child: Text(l10n.pilotSignInButton),
             ),
@@ -178,6 +181,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
           ],
           _navCard(
             context,
+            key: FlightVisTestKeys.hubCheckIn,
             title: l10n.pilotHubCheckInTitle,
             subtitle: l10n.pilotHubCheckInSubtitle,
             icon: Icons.qr_code_2,
@@ -193,6 +197,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
           ),
           _navCard(
             context,
+            key: FlightVisTestKeys.hubFlightDetails,
             title: l10n.pilotHubFlightTitle,
             subtitle: l10n.pilotHubFlightSubtitle,
             icon: Icons.flight_takeoff,
@@ -235,6 +240,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
 
   Widget _navCard(
     BuildContext context, {
+    Key? key,
     required String title,
     required String subtitle,
     required IconData icon,
@@ -243,6 +249,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
   }) {
     return Card(
       child: ListTile(
+        key: key,
         leading: Icon(icon, color: enabled ? null : Theme.of(context).disabledColor),
         title: Text(title),
         subtitle: Text(subtitle),

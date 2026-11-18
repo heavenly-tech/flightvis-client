@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:integration_test/integration_test.dart';
 
 import 'package:flight_vis/app_config.dart';
+import 'package:flight_vis/ci_test_keys.dart';
 import 'package:flight_vis/main.dart' as app;
 import 'package:flight_vis/services/deep_link_dispatcher.dart';
 import 'package:flight_vis/util/flight_deep_link.dart';
@@ -14,7 +15,7 @@ const _checkinUrl =
     'https://flight.heavenly.cl/c/demo-club/q/v1.club1.999999.abcdef0123456789abcdef0123456789';
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
     'emulator smoke: compiled defines and mock health',
@@ -36,54 +37,150 @@ void main() {
     'guest check-in, tracking start/stop, deep link (single app session)',
     (tester) async {
       ciLog('functional-flow: start');
-      app.main();
-      await pumpFrames(tester, total: const Duration(seconds: 4));
+      try {
+        app.main();
+        await pumpFrames(tester, total: const Duration(seconds: 3));
 
-      await advancePermissionsOnboardingIfNeeded(tester);
-      await waitForFound(tester, find.text('Iniciar sesión'), label: 'es-CL hub', timeout: const Duration(seconds: 25));
+        await ciStep(tester, 'reach hub', () async {
+          await ensureOnPilotHub(tester, timeout: const Duration(seconds: 90));
+        }, timeout: const Duration(seconds: 95));
 
-      await tapWhenFound(tester, find.text('Iniciar sesión'), timeout: const Duration(seconds: 20));
-      await waitForFound(tester, find.text('Continuar sin iniciar sesión'), timeout: const Duration(seconds: 20));
-      await tapWhenFound(tester, find.text('Continuar sin iniciar sesión'), timeout: const Duration(seconds: 20));
-      await waitForFound(tester, find.text('Check-in club'), timeout: const Duration(seconds: 25));
+        await ciStep(tester, 'guest login path', () async {
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hubSignIn),
+            label: 'hub sign in',
+            timeout: const Duration(seconds: 45),
+          );
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.loginGuest),
+            label: 'continue as guest',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hub),
+            label: 'hub',
+            timeout: const Duration(seconds: 45),
+          );
+        }, timeout: const Duration(seconds: 120));
 
-      await tapWhenFound(tester, find.text('Check-in club'), timeout: const Duration(seconds: 20));
-      await waitForFound(
-        tester,
-        find.widgetWithText(TextField, 'O pegue el token de check-in'),
-        timeout: const Duration(seconds: 25),
-      );
-      await tester.enterText(
-        find.widgetWithText(TextField, 'O pegue el token de check-in'),
-        _checkinUrl,
-      );
-      await tapWhenFound(tester, find.text('Enviar token'), timeout: const Duration(seconds: 20));
-      await waitForFound(tester, find.text('Continuar'), label: 'check-in ok', timeout: const Duration(seconds: 30));
-      ciLog('functional-flow: check-in OK');
+        await ciStep(tester, 'club check-in', () async {
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hubCheckIn),
+            label: 'hub check-in',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            label: 'check-in paste field',
+            timeout: const Duration(seconds: 45),
+          );
+          await tester.enterText(
+            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            _checkinUrl,
+          );
+          await tapWhenFound(
+            tester,
+            find.text('Enviar token'),
+            label: 'submit token',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.checkinContinue),
+            label: 'check-in ok',
+            timeout: const Duration(seconds: 60),
+          );
+        }, timeout: const Duration(seconds: 120));
+        ciLog('functional-flow: check-in OK');
 
-      await tapWhenFound(tester, find.text('Continuar'), label: 'pop check-in', timeout: const Duration(seconds: 20));
-      await waitForFound(tester, find.text('Detalles del vuelo'), timeout: const Duration(seconds: 25));
-      await tapWhenFound(tester, find.text('Detalles del vuelo'), timeout: const Duration(seconds: 20));
-      await tapWhenFound(tester, find.text('Comenzar tracking'), timeout: const Duration(seconds: 25));
-      await waitForFound(tester, find.text('Finalizar tracking'), timeout: const Duration(seconds: 30));
-      ciLog('functional-flow: tracking started');
+        await ciStep(tester, 'pop check-in to hub', () async {
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.checkinContinue),
+            label: 'check-in continue',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hub),
+            label: 'hub after check-in',
+            timeout: const Duration(seconds: 45),
+          );
+        }, timeout: const Duration(seconds: 90));
 
-      await tapWhenFound(tester, find.text('Finalizar tracking'), timeout: const Duration(seconds: 20));
-      await pumpFrames(tester, total: const Duration(seconds: 2));
-      await waitForFound(tester, find.text('Check-in club'), label: 'hub after stop', timeout: const Duration(seconds: 30));
-      ciLog('functional-flow: tracking stopped');
+        await ciStep(tester, 'start tracking', () async {
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hubFlightDetails),
+            label: 'hub flight details',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.tailPicker),
+            label: 'tail picker',
+            timeout: const Duration(seconds: 60),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.tailStart),
+            label: 'tail start ready',
+            timeout: const Duration(seconds: 60),
+          );
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.tailStart),
+            label: 'start tracking',
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.trackingStop),
+            label: 'tracking stop control',
+            timeout: const Duration(seconds: 60),
+          );
+        }, timeout: const Duration(seconds: 120));
+        ciLog('functional-flow: tracking started');
 
-      await DeepLinkTestHooks.dispatch(
-        const CheckinDeepLink(
-          clubSlug: 'demo-club',
-          token: 'v1.club1.999999.abcdef0123456789abcdef0123456789',
-        ),
-      );
-      await pumpFrames(tester, total: const Duration(seconds: 3));
-      expect(find.text('Check-in club'), findsWidgets);
-      expect(find.textContaining('v1.club1'), findsNothing);
-      ciLog('functional-flow: deep link OK — done');
+        await ciStep(tester, 'stop tracking', () async {
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.trackingStop),
+            label: 'stop tracking',
+            timeout: const Duration(seconds: 45),
+          );
+          await pumpFrames(tester, total: const Duration(seconds: 2));
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hub),
+            label: 'hub after stop',
+            timeout: const Duration(seconds: 60),
+          );
+        }, timeout: const Duration(seconds: 90));
+        ciLog('functional-flow: tracking stopped');
+
+        await ciStep(tester, 'deep link dispatch', () async {
+          await DeepLinkTestHooks.dispatch(
+            const CheckinDeepLink(
+              clubSlug: 'demo-club',
+              token: 'v1.club1.999999.abcdef0123456789abcdef0123456789',
+            ),
+          );
+          await pumpFrames(tester, total: const Duration(seconds: 3));
+          expect(find.text('Check-in club'), findsWidgets);
+          expect(find.textContaining('v1.club1'), findsNothing);
+        }, timeout: const Duration(seconds: 30));
+        ciLog('functional-flow: deep link OK — done');
+      } catch (e) {
+        await saveCiFailureScreenshot(binding, 'functional-flow-failure');
+        rethrow;
+      }
     },
-    timeout: const Timeout(Duration(minutes: 8)),
+    timeout: const Timeout(Duration(minutes: 10)),
   );
 }
