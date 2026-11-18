@@ -10,7 +10,7 @@ adb_has_booted_device() {
 }
 
 adb_server_cleanup() {
-  timeout 10 adb kill-server 2>/dev/null || timeout 10 pkill -9 -f adb 2>/dev/null || true
+  timeout 10 adb kill-server 2>/dev/null || timeout 10 pkill -9 -x adb 2>/dev/null || true
 }
 
 _emulator_bin() {
@@ -71,17 +71,25 @@ emulator_delete_test_avd_if_present() {
   fi
 }
 
-emulator_host_stale_cleanup() {
-  echo "flightvis-ci: clearing stale emulator/adb locks"
-  emulator_delete_test_avd_if_present
-  adb_server_cleanup
-  timeout 10 pkill -9 -f qemu-system-x86_64 2>/dev/null || true
-  timeout 10 pkill -9 -f qemu-system-x86 2>/dev/null || true
-  timeout 10 pkill -9 -f 'emulator.*-avd' 2>/dev/null || true
+emulator_clear_avd_locks() {
   local avd_home="${ANDROID_AVD_HOME:-${HOME}/.android/avd}"
   if [ -d "$avd_home" ]; then
     find "$avd_home" -name '*.lock' -delete 2>/dev/null || true
   fi
+}
+
+emulator_stale_process_cleanup() {
+  adb_server_cleanup
+  timeout 10 pkill -9 -x qemu-system-x86_64 2>/dev/null || true
+  timeout 10 pkill -9 -x qemu-system-x86 2>/dev/null || true
+  timeout 10 pkill -9 -x emulator 2>/dev/null || true
+  emulator_clear_avd_locks
+}
+
+emulator_host_stale_cleanup() {
+  echo "flightvis-ci: clearing stale emulator/adb locks"
+  emulator_delete_test_avd_if_present
+  emulator_stale_process_cleanup
   timeout 10 adb start-server 2>/dev/null || true
   timeout 10 adb devices -l 2>/dev/null || true
 }
@@ -142,15 +150,17 @@ emulator_job_cleanup() {
     kill "$(cat mock_server.pid)" 2>/dev/null || true
   fi
   timeout 15 adb -s emulator-5554 emu kill 2>/dev/null || timeout 15 adb emu kill 2>/dev/null || true
-  timeout 10 pkill -f mock_flight_vis_server.dart 2>/dev/null || true
-  timeout 10 pkill -9 -f qemu-system 2>/dev/null || true
+  timeout 10 pkill -f '[m]ock_flight_vis_server.dart' 2>/dev/null || true
+  timeout 10 pkill -9 -x qemu-system-x86_64 2>/dev/null || true
+  timeout 10 pkill -9 -x qemu-system-x86 2>/dev/null || true
+  timeout 10 pkill -9 -x emulator 2>/dev/null || true
   adb_server_cleanup
   if [ -f android/gradlew ]; then
     timeout 60 android/gradlew --stop 2>/dev/null || true
   fi
-  timeout 10 pkill -9 -f GradleDaemon 2>/dev/null || true
-  timeout 10 pkill -9 -f KotlinCompileDaemon 2>/dev/null || true
+  timeout 10 pkill -9 -f '[G]radleDaemon' 2>/dev/null || true
+  timeout 10 pkill -9 -f '[K]otlinCompileDaemon' 2>/dev/null || true
   timeout 10 pkill -9 -f '[d]art ' 2>/dev/null || true
-  timeout 10 pkill -9 -f dartvm 2>/dev/null || true
+  timeout 10 pkill -9 -x dartvm 2>/dev/null || true
   collect_emulator_avd_logs
 }
