@@ -161,9 +161,14 @@ class _FlightVisAppState extends State<FlightVisApp> {
       widget.repo.client.setDeviceToken(token);
     }
     try {
-      await widget.repo.ensureDeviceRegistered(
+      final register = widget.repo.ensureDeviceRegistered(
         preferPilotRegistration: session != null,
       );
+      if (AppConfig.screenshotTest) {
+        await register.timeout(const Duration(seconds: 20));
+      } else {
+        await register;
+      }
     } catch (_) {}
 
     PilotProfile? pilot;

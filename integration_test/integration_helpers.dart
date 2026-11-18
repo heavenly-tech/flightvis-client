@@ -1,5 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+
+import 'package:flight_vis/app_config.dart';
 
 /// CI progress markers (visible in `flutter test` / logcat).
 void ciLog(String step) {
@@ -45,6 +50,20 @@ Future<void> tapWhenFound(
   await waitForFound(tester, finder, label: label, timeout: timeout);
   await tester.tap(finder);
   await pumpFrames(tester);
+}
+
+Future<void> saveEmulatorScreenshot(IntegrationTestWidgetsFlutterBinding binding, String name) async {
+  if (!AppConfig.captureScreenshots) return;
+  await binding.convertFlutterSurfaceToImage();
+  final bytes = await binding.takeScreenshot(name);
+  if (bytes.isEmpty) return;
+  // ignore: avoid_slow_async_io
+  final dir = Directory('/sdcard/Download/flightvis-emulator');
+  if (!dir.existsSync()) {
+    dir.createSync(recursive: true);
+  }
+  // ignore: avoid_slow_async_io
+  File('${dir.path}/$name.png').writeAsBytesSync(bytes);
 }
 
 /// Skips permissions UI when screenshot build flags are active.

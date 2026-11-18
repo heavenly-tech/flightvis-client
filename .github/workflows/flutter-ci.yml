@@ -205,9 +205,9 @@ jobs:
             build/app-release.json
             build/app-release.cert-sha256
 
-  emulator-screenshots:
+  emulator-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -215,6 +215,8 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - uses: gradle/actions/setup-gradle@v4
 
       - name: flutter pub get
         run: flutter pub get
@@ -236,27 +238,127 @@ jobs:
           exit 1
 
       - name: Verify mock API on host
-        run: |
-          echo "flightvis-ci: GET /api/ci-health on 127.0.0.1"
-          curl -sf http://127.0.0.1:18080/api/ci-health
+        run: curl -sf http://127.0.0.1:18080/api/ci-health
+
+      - uses: ./.github/actions/avd-cache-kvm
+        id: avd
+
+      - name: Prebuild debug APK (functional)
+        run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
+
+      - name: Create AVD snapshot (cache miss)
+        if: steps.avd.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          avd-name: test
+          force-avd-creation: false
+          cores: 2
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          disable-animations: false
+          script: adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done' && adb shell pm path android && echo "flightvis-ci: AVD snapshot seed"
 
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           arch: x86_64
           target: google_apis
-          emulator-boot-timeout: 1200
+          avd-name: test
+          force-avd-creation: false
+          cores: 2
+          emulator-boot-timeout: 900
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
-          # Built-in animation disable uses adb settings and flakes after boot (adb exit 224).
           disable-animations: false
           script: |
             adb wait-for-device
             adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
-            for i in $(seq 1 60); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: package manager ready"; adb shell pm path android; break; fi; sleep 5; done
-            adb shell settings put global window_animation_scale 0 || true
-            adb shell settings put global transition_animation_scale 0 || true
-            adb shell settings put global animator_duration_scale 0 || true
-            flutter test integration_test/ci_emulator_suite.dart --dart-define-from-file=tool/ci_emulator_defines.json
+            for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
+            adb shell pm path android
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            timeout 16m flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
+
+      - name: Stop mock server
+        if: always()
+        run: kill "$(cat mock_server.pid)" 2>/dev/null || true
+
+  emulator-screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Start mock flight_vis API
+        run: |
+          dart run tool/mock_flight_vis_server.dart &
+          echo $! > mock_server.pid
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://127.0.0.1:18080/api/devices/anonymous \
+              -H 'Content-Type: application/json' \
+              -d '{"name":"CI"}'; then
+              echo "mock API ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mock API failed to start"
+          exit 1
+
+      - name: Verify mock API on host
+        run: curl -sf http://127.0.0.1:18080/api/ci-health
+
+      - uses: ./.github/actions/avd-cache-kvm
+        id: avd
+
+      - name: Prebuild debug APK (screenshots)
+        run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
+
+      - name: Create AVD snapshot (cache miss)
+        if: steps.avd.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          avd-name: test
+          force-avd-creation: false
+          cores: 2
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          disable-animations: false
+          script: adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done' && adb shell pm path android && echo "flightvis-ci: AVD snapshot seed"
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          avd-name: test
+          force-avd-creation: false
+          cores: 2
+          emulator-boot-timeout: 900
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          disable-animations: false
+          script: |
+            adb wait-for-device
+            adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
+            for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
+            adb shell pm path android
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            timeout 16m flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
             ls -la docs/emulator-screenshots || true

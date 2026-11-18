@@ -2,6 +2,9 @@
 class AppConfig {
   static const screenshotTest = bool.fromEnvironment('FLIGHTVIS_SCREENSHOT_TEST');
 
+  /// `convertFlutterSurfaceToImage` can hang on CI emulators; off by default.
+  static const captureScreenshots = bool.fromEnvironment('FLIGHTVIS_CAPTURE_SCREENSHOTS');
+
   static const defaultBaseUrl = String.fromEnvironment(
     'FLIGHTVIS_BASE_URL',
     defaultValue: 'https://flight.heavenly.cl',
