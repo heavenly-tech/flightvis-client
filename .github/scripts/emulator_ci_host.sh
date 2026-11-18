@@ -110,10 +110,11 @@ emulator_ensure_host_sdk_for_runner() {
   fi
   if [ ! -f "$sdkmgr.orig" ]; then
     cp "$sdkmgr" "$sdkmgr.orig"
-    cp "${WORKSPACE}/.github/scripts/sdkmanager_host.sh" "$sdkmgr"
-    chmod +x "$sdkmgr"
-    echo "flightvis-ci: installed sdkmanager host shim at $sdkmgr"
+    echo "flightvis-ci: backed up sdkmanager to sdkmanager.orig"
   fi
+  cp "${WORKSPACE}/.github/scripts/sdkmanager_host.sh" "$sdkmgr"
+  chmod +x "$sdkmgr"
+  echo "flightvis-ci: refreshed sdkmanager host shim at $sdkmgr"
   local packages=(
     platform-tools
     "build-tools;37.0.0"
