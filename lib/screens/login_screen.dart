@@ -6,7 +6,7 @@ import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../ci_test_keys.dart';
 import '../services/passkey_auth.dart';
-import '../util/club_registration_url.dart';
+import '../util/account_signup_url.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -121,25 +121,17 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _openClubRegistration() async {
+  Future<void> _openAccountSignup() async {
     final l10n = context.pilotL10n;
     setState(() {
       _error = null;
       _info = null;
     });
     widget.repo.refreshBaseUrl();
-    widget.repo.syncClubFromPrefs();
-    final slug = ClubRegistrationUrl.resolveClubSlug(
-      activeClubSlug: widget.repo.prefs.activeClubSlug(),
-      clientClubSlug: widget.repo.client.clubSlug,
-    );
-    final uri = ClubRegistrationUrl.build(
-      serverBaseUrl: widget.repo.prefs.baseUrl(),
-      clubSlug: slug,
-    );
+    final uri = AccountSignupUrl.build(serverBaseUrl: widget.repo.prefs.baseUrl());
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      setState(() => _error = l10n.pilotRegisterOpenFailed);
+      setState(() => _error = l10n.pilotCreateAccountOpenFailed);
     }
   }
 
@@ -186,12 +178,12 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 12),
             OutlinedButton(
               key: FlightVisTestKeys.loginRegister,
-              onPressed: _busy ? null : _openClubRegistration,
-              child: Text(l10n.pilotRegisterButton),
+              onPressed: _busy ? null : _openAccountSignup,
+              child: Text(l10n.pilotCreateAccountButton),
             ),
             const SizedBox(height: 8),
             Text(
-              l10n.pilotRegisterApprovalNote,
+              l10n.pilotCreateAccountNote,
               key: FlightVisTestKeys.loginRegisterNote,
               style: Theme.of(context).textTheme.bodySmall,
             ),

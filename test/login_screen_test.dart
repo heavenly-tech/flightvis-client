@@ -40,7 +40,7 @@ void main() {
     );
   }
 
-  testWidgets('login shows register action and approval note', (tester) async {
+  testWidgets('login shows create account action and magic link note', (tester) async {
     final repo = await mockRepo();
     await tester.pumpWidget(
       PilotAppShell(
@@ -51,10 +51,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(FlightVisTestKeys.loginRegister), findsOneWidget);
     expect(find.byKey(FlightVisTestKeys.loginRegisterNote), findsOneWidget);
-    expect(find.text('Registrarse'), findsOneWidget);
-    expect(
-      find.textContaining('aprobado por un administrador'),
-      findsOneWidget,
-    );
+    expect(find.text('Crear cuenta'), findsOneWidget);
+    expect(find.textContaining('enlace para entrar'), findsOneWidget);
   });
 }
