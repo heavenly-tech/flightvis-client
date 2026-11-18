@@ -146,6 +146,7 @@ void main() {
         }, timeout: const Duration(seconds: 180));
         await saveEmulatorScreenshot(binding, '06-broadcasting');
 
+        await pumpFrames(tester, total: const Duration(seconds: 1));
         expect(find.byKey(FlightVisTestKeys.trackingStop), findsOneWidget);
         ciLog('screenshots: done');
       } catch (e) {

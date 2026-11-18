@@ -129,17 +129,28 @@ Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
     timeout: const Duration(seconds: 45),
   );
   final button = tester.widget<FilledButton>(stop);
-  if (button.onPressed != null) {
-    ciLog('tracking: invoke stop onPressed');
-    button.onPressed!();
-  } else {
-    await tester.tap(stop);
-  }
+  await tester.runAsync(() async {
+    if (button.onPressed != null) {
+      ciLog('tracking: invoke stop onPressed');
+      button.onPressed!();
+    } else {
+      await tester.tap(stop);
+    }
+    // _endFlight posts HTTP + setState; run under runAsync so the test binding schedules it.
+    await Future<void>.delayed(const Duration(seconds: 1));
+  });
+  await pumpFrames(tester, total: const Duration(seconds: 2));
+  await waitForAbsent(
+    tester,
+    find.byKey(FlightVisTestKeys.trackingScreen),
+    label: 'tracking screen after stop',
+    timeout: const Duration(seconds: 90),
+  );
   await waitForFound(
     tester,
     find.byKey(FlightVisTestKeys.hub),
     label: 'hub after stop',
-    timeout: const Duration(seconds: 90),
+    timeout: const Duration(seconds: 30),
   );
 }
 
