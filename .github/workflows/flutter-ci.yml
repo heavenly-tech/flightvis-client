@@ -306,6 +306,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Self-hosted host disk cleanup
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_disk_cleanup
+          exit 0
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -449,6 +459,16 @@ jobs:
       FLIGHTVIS_EMULATOR_TARGET: google_apis
     steps:
       - uses: actions/checkout@v4
+
+      - name: Self-hosted host disk cleanup
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_disk_cleanup
+          exit 0
 
       - uses: subosito/flutter-action@v2
         with:

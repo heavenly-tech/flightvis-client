@@ -4,6 +4,94 @@ set -euo pipefail
 
 WORKSPACE="${GITHUB_WORKSPACE:-$PWD}"
 DIAG_DIR="${WORKSPACE}/ci-emulator-diagnostics"
+PROTECTED_SDK_ROOT="/home/ghrunner/android-sdk"
+
+_flightvis_df_log() {
+  local label="$1"
+  echo "flightvis-ci: df -h ($label)"
+  df -h / /tmp "${HOME:-/home/ghrunner}" 2>&1 || true
+  if [ -d "$PROTECTED_SDK_ROOT" ]; then
+    df -h "$PROTECTED_SDK_ROOT" 2>&1 || true
+  fi
+}
+
+# Reclaim ghrunner disk on omarchibald-android-emu (CI runs as ghrunner; never touch android-sdk).
+emulator_host_disk_cleanup() {
+  mkdir -p "$DIAG_DIR"
+  local log="$DIAG_DIR/host-disk-cleanup.txt"
+  {
+    echo "flightvis-ci: host disk cleanup $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    _flightvis_df_log before
+  } | tee "$log"
+
+  emulator_stale_process_cleanup
+
+  local avd_home="${ANDROID_AVD_HOME:-${HOME}/.android/avd}"
+  if [ -d "$avd_home" ]; then
+    echo "flightvis-ci: removing AVD snapshots under $avd_home (-no-snapshot runs)" | tee -a "$log"
+    find "$avd_home" -type d -name snapshots 2>/dev/null | while read -r snapdir; do
+      echo "  rm -rf $snapdir" | tee -a "$log"
+      rm -rf "$snapdir" 2>/dev/null || true
+    done
+    find "$avd_home" -type f \( -name '*.img.qcow2' -o -name 'cache.img.qcow2' -o -name 'userdata-qemu.img.qcow2' \) -mtime +3 -delete 2>/dev/null || true
+  fi
+
+  if [ -d "${HOME}/.android/cache" ]; then
+    echo "flightvis-ci: pruning ~/.android/cache" | tee -a "$log"
+    find "${HOME}/.android/cache" -type f -mtime +2 -delete 2>/dev/null || true
+  fi
+
+  if [ -f "${WORKSPACE}/android/gradlew" ]; then
+    echo "flightvis-ci: gradlew --stop" | tee -a "$log"
+    timeout 90 "${WORKSPACE}/android/gradlew" --stop 2>/dev/null || true
+  fi
+  timeout 10 pkill -9 -f '[G]radleDaemon' 2>/dev/null || true
+  timeout 10 pkill -9 -f '[K]otlinCompileDaemon' 2>/dev/null || true
+
+  local gradle_caches="${HOME}/.gradle/caches"
+  if [ -d "$gradle_caches" ]; then
+    echo "flightvis-ci: pruning Gradle transforms-* caches" | tee -a "$log"
+    find "$gradle_caches" -maxdepth 1 -type d -name 'transforms-*' 2>/dev/null | while read -r d; do
+      rm -rf "$d" 2>/dev/null || true
+    done
+    echo "flightvis-ci: pruning Gradle build-cache-* older than 7d" | tee -a "$log"
+    find "$gradle_caches" -maxdepth 1 -type d -name 'build-cache-*' -mtime +7 2>/dev/null | while read -r d; do
+      rm -rf "$d" 2>/dev/null || true
+    done
+  fi
+
+  if [ -d "${HOME}/.gradle/daemon" ]; then
+    echo "flightvis-ci: pruning old Gradle daemon logs and stale daemons" | tee -a "$log"
+    find "${HOME}/.gradle/daemon" -type f -name '*.log' -mtime +7 -delete 2>/dev/null || true
+    find "${HOME}/.gradle/daemon" -mindepth 1 -maxdepth 1 -type d -mtime +14 2>/dev/null | while read -r d; do
+      rm -rf "$d" 2>/dev/null || true
+    done
+  fi
+
+  local pub="${PUB_CACHE:-${HOME}/.pub-cache}"
+  if [ -d "$pub" ]; then
+    echo "flightvis-ci: trimming pub-cache temp and stale artifacts" | tee -a "$log"
+    rm -rf "${pub}/_temp" 2>/dev/null || true
+    mkdir -p "${pub}/_temp"
+    find "$pub" -type f \( -name '*.tar.gz' -o -name '*.zip' \) -mtime +14 -delete 2>/dev/null || true
+    find "$pub" -type d -name '.cache' -mtime +7 2>/dev/null | while read -r d; do
+      rm -rf "$d" 2>/dev/null || true
+    done
+  fi
+
+  local runner_root="${RUNNER_ROOT:-/home/ghrunner/actions-runner}"
+  if [ -d "${runner_root}/_work/_temp" ]; then
+    echo "flightvis-ci: pruning stale ${runner_root}/_work/_temp entries" | tee -a "$log"
+    find "${runner_root}/_work/_temp" -mindepth 1 -maxdepth 1 -mtime +1 2>/dev/null | while read -r d; do
+      rm -rf "$d" 2>/dev/null || true
+    done
+  fi
+
+  {
+    _flightvis_df_log after
+    echo "flightvis-ci: host disk cleanup done"
+  } | tee -a "$log"
+}
 
 adb_has_booted_device() {
   timeout 10 adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'
