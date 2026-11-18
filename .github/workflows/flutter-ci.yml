@@ -58,6 +58,9 @@ jobs:
       - name: Check hardcoded UI strings
         run: dart run tool/check_hardcoded_ui_strings.dart
 
+      - name: Check Spanish copy (no voseo)
+        run: dart run tool/check_spanish_voseo.dart
+
       - name: flutter analyze
         run: flutter analyze
 

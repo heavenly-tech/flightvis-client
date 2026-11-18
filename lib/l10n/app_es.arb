@@ -40,7 +40,7 @@
   "pilotSignInIntro": "Use passkey, enlace mágico o contraseña. También puede continuar sin iniciar sesión.",
   "pilotSignInPasskey": "Iniciar con passkey",
   "pilotCreateAccountButton": "Crear cuenta",
-  "pilotCreateAccountNote": "Creá tu cuenta con tu correo; te mandamos un enlace para entrar.",
+  "pilotCreateAccountNote": "Crea tu cuenta con tu correo; te enviaremos un enlace para entrar.",
   "pilotCreateAccountOpenFailed": "No se pudo abrir el registro en el navegador.",
   "pilotSignInMagicLink": "Enviar enlace mágico",
   "pilotSignInPasswordToggle": "Usar contraseña",
