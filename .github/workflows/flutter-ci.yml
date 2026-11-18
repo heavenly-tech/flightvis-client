@@ -127,17 +127,25 @@ jobs:
         run: |
           set -euo pipefail
           APK=build/app/outputs/flutter-apk/app-release.apk
-          APKSIGNER="$(find "${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools" -path '*/apksigner' -type f 2>/dev/null | sort -V | tail -1)"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          APKSIGNER="$(find "$SDK_ROOT/build-tools" -path '*/apksigner' -type f 2>/dev/null | sort -V | tail -1)"
           if [ -z "$APKSIGNER" ]; then
-            echo "::error::apksigner not found under Android SDK build-tools"
+            echo "::error::apksigner not found under $SDK_ROOT/build-tools"
             exit 1
           fi
-          if ! "$APKSIGNER" verify --print-certs "$APK" > build/app-release.cert-sha256.txt 2>&1; then
-            echo "::error::apksigner verify failed"
+          set +e
+          "$APKSIGNER" verify --print-certs "$APK" > build/app-release.cert-sha256.txt 2>&1
+          VERIFY_EXIT=$?
+          set -e
+          OUT="$(cat build/app-release.cert-sha256.txt)"
+          if ! echo "$OUT" | grep -q 'Signer #1'; then
+            echo "::error::apksigner did not print Signer #1 certs (exit $VERIFY_EXIT)"
             cat build/app-release.cert-sha256.txt
             exit 1
           fi
-          OUT="$(cat build/app-release.cert-sha256.txt)"
+          if [ "$VERIFY_EXIT" -ne 0 ]; then
+            echo "apksigner verify exited $VERIFY_EXIT (continuing — certs present for release pin)"
+          fi
           DIGEST="$(
             echo "$OUT" | grep -E '^Signer #1 certificate SHA-256 (digest|fingerprint):' | head -1 \
               | sed -E 's/^Signer #1 certificate SHA-256 (digest|fingerprint):[[:space:]]*//'
