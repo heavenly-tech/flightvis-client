@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$FLIGHTVIS_KEYSTORE_BASE64" ]; then
-            echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/release.keystore
+            echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
             cat > android/key.properties <<EOF
           storePassword=$FLIGHTVIS_KEYSTORE_PASSWORD
           keyPassword=$FLIGHTVIS_KEY_PASSWORD
@@ -142,7 +142,7 @@ jobs:
             FINGERPRINT="$(echo "$OUT" | grep -m1 'SHA-256' | awk '{print $2}' || true)"
             if [ -z "$FINGERPRINT" ]; then
               keytool -list -v \
-                -keystore android/release.keystore \
+                -keystore android/app/release.keystore \
                 -alias "$FLIGHTVIS_KEY_ALIAS" \
                 -storepass "$FLIGHTVIS_KEYSTORE_PASSWORD" 2>&1 | tee build/app-release.cert-sha256.txt
               FINGERPRINT="$(grep -m1 -E 'SHA-?256:' build/app-release.cert-sha256.txt | sed -E 's/.*SHA-?256: *//' || true)"
@@ -184,6 +184,34 @@ jobs:
       - name: Golden UI screenshots (widget tests)
         run: flutter test test/golden_screenshots_test.dart
 
+      - name: Guard artifacts exclude keystores
+        run: |
+          set -euo pipefail
+          fail=0
+          for target in \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app-release.apk.sha256 \
+            build/app-release.json \
+            build/app-release.cert-sha256 \
+            docs/screenshots; do
+            if [ ! -e "$target" ]; then
+              continue
+            fi
+            case "$target" in
+              *.keystore|*.jks)
+                echo "::error::Refusing to upload keystore material: $target"
+                fail=1
+                ;;
+            esac
+            if [ -d "$target" ]; then
+              if find "$target" -type f \( -name '*.keystore' -o -name '*.jks' \) | grep -q .; then
+                echo "::error::Keystore material under upload path: $target"
+                fail=1
+              fi
+            fi
+          done
+          [ "$fail" -eq 0 ]
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -204,6 +232,11 @@ jobs:
             build/app-release.apk.sha256
             build/app-release.json
             build/app-release.cert-sha256
+
+      - name: Remove CI signing material
+        if: always()
+        run: |
+          rm -f android/app/release.keystore android/key.properties
 
   emulator-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

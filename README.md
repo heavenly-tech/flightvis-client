@@ -32,10 +32,10 @@ Use **one stable release keystore forever**. Rotating it breaks Android App Link
 
 **Release APK / Play App Signing**
 
-If you build with the `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/release.keystore`):
+If you build with the `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/app/release.keystore`):
 
 ```bash
-keytool -list -v -keystore android/release.keystore -alias YOUR_KEY_ALIAS
+keytool -list -v -keystore android/app/release.keystore -alias YOUR_KEY_ALIAS
 ```
 
 Enter the keystore password when prompted. Copy the **SHA-256** line under `Certificate fingerprints`.
