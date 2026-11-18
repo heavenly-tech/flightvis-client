@@ -250,26 +250,13 @@ jobs:
           # Built-in animation disable uses adb settings and flakes after boot (adb exit 224).
           disable-animations: false
           script: |
-            set -e
             adb wait-for-device
-            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done;'
-            echo "flightvis-ci: waiting for package manager"
-            for i in $(seq 1 60); do
-              if adb shell pm path android >/dev/null 2>&1; then
-                echo "flightvis-ci: package manager ready (${i}x5s)"
-                break
-              fi
-              sleep 5
-            done
-            adb shell pm path android
-
+            adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
+            for i in $(seq 1 60); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: package manager ready"; adb shell pm path android; break; fi; sleep 5; done
             adb shell settings put global window_animation_scale 0 || true
             adb shell settings put global transition_animation_scale 0 || true
             adb shell settings put global animator_duration_scale 0 || true
-
-            DEFINES="--dart-define-from-file=tool/ci_emulator_defines.json"
-            flutter test integration_test/ci_emulator_suite.dart $DEFINES
-
+            flutter test integration_test/ci_emulator_suite.dart --dart-define-from-file=tool/ci_emulator_defines.json
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
             ls -la docs/emulator-screenshots || true
