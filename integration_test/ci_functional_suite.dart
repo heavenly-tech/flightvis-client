@@ -100,20 +100,14 @@ void main() {
 
         await ciStep(tester, 'pop check-in to hub', () async {
           await leaveCheckinForHub(tester);
-        }, timeout: const Duration(seconds: 90));
+        }, timeout: const Duration(seconds: 60));
 
         await ciStep(tester, 'start tracking', () async {
-          await waitForTappable(
-            tester,
-            find.byKey(FlightVisTestKeys.hubFlightDetails),
-            label: 'hub flight details',
-            timeout: const Duration(seconds: 45),
-          );
           await tapWhenFound(
             tester,
             find.byKey(FlightVisTestKeys.hubFlightDetails),
             label: 'hub flight details',
-            timeout: const Duration(seconds: 30),
+            timeout: const Duration(seconds: 45),
           );
           await waitForFound(
             tester,

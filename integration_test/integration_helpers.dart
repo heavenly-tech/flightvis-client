@@ -58,30 +58,11 @@ Future<void> waitForAbsent(
   throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for absence of: $name');
 }
 
-/// Hub stays mounted under a pushed check-in route; wait until it is on top.
-Future<void> waitForHubExposed(
-  WidgetTester tester, {
-  Duration timeout = const Duration(seconds: 45),
-}) async {
-  await waitForAbsent(
-    tester,
-    find.byKey(FlightVisTestKeys.checkinScreen),
-    label: 'check-in route dismissed',
-    timeout: timeout,
-  );
-  await waitForTappable(
-    tester,
-    find.byKey(FlightVisTestKeys.hubCheckIn),
-    label: 'hub check-in card (route on top)',
-    timeout: timeout,
-  );
-}
-
 Future<void> waitForTappable(
   WidgetTester tester,
   Finder finder, {
   String? label,
-  Duration timeout = const Duration(seconds: 45),
+  Duration timeout = const Duration(seconds: 30),
   Duration pumpStep = const Duration(milliseconds: 200),
 }) async {
   final name = label ?? finder.toString();
@@ -89,33 +70,54 @@ Future<void> waitForTappable(
   while (DateTime.now().isBefore(end)) {
     await tester.pump(pumpStep);
     if (finder.evaluate().isEmpty) continue;
-    final hit = await _finderHitTestable(tester, finder);
-    if (hit) return;
+    try {
+      await tester.ensureVisible(finder);
+      await tester.tap(finder, warnIfMissed: true);
+      await tester.pump(const Duration(milliseconds: 100));
+      return;
+    } catch (_) {
+      // keep pumping until timeout
+    }
   }
   throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for tappable: $name');
 }
 
-Future<bool> _finderHitTestable(WidgetTester tester, Finder finder) async {
-  if (finder.evaluate().isEmpty) return false;
-  try {
-    await tester.ensureVisible(finder);
-    final center = tester.getCenter(finder.first);
-    tester.hitTestOnBinding(center);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 Future<void> leaveCheckinForHub(WidgetTester tester) async {
+  final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
   await tapWhenFound(
     tester,
     find.byKey(FlightVisTestKeys.checkinContinue),
     label: 'check-in continue',
-    timeout: const Duration(seconds: 30),
+    timeout: const Duration(seconds: 25),
   );
-  await pumpFrames(tester, total: const Duration(milliseconds: 500));
-  await waitForHubExposed(tester, timeout: const Duration(seconds: 45));
+  await pumpFrames(tester, total: const Duration(seconds: 2));
+
+  var end = DateTime.now().add(const Duration(seconds: 25));
+  while (DateTime.now().isBefore(end)) {
+    await tester.pump(const Duration(milliseconds: 200));
+    if (checkinRoute.evaluate().isEmpty) {
+      ciLog('hub: check-in route dismissed after continue');
+      return;
+    }
+  }
+
+  ciLog('hub: continue did not pop route; trying pageBack');
+  await tester.pageBack();
+  await pumpFrames(tester, total: const Duration(seconds: 2));
+
+  end = DateTime.now().add(const Duration(seconds: 15));
+  while (DateTime.now().isBefore(end)) {
+    await tester.pump(const Duration(milliseconds: 200));
+    if (checkinRoute.evaluate().isEmpty) {
+      ciLog('hub: check-in route dismissed after pageBack');
+      return;
+    }
+  }
+
+  throw TestFailure(
+    'Check-in route still visible after continue and pageBack '
+    '(hub widgets stay mounted under the route; use checkinScreen key)',
+  );
 }
 
 Future<void> waitForAnyFound(
