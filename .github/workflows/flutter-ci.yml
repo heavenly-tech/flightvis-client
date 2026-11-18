@@ -132,11 +132,23 @@ jobs:
             echo "::error::apksigner not found under Android SDK build-tools"
             exit 1
           fi
-          OUT="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
-          echo "$OUT" > build/app-release.cert-sha256.txt
-          DIGEST="$(echo "$OUT" | grep -m1 'Signer #1 certificate SHA-256 digest:' | sed 's/^.*digest:[[:space:]]*//')"
+          if ! "$APKSIGNER" verify --print-certs "$APK" > build/app-release.cert-sha256.txt 2>&1; then
+            echo "::error::apksigner verify failed"
+            cat build/app-release.cert-sha256.txt
+            exit 1
+          fi
+          OUT="$(cat build/app-release.cert-sha256.txt)"
+          DIGEST="$(
+            echo "$OUT" | grep -E '^Signer #1 certificate SHA-256 (digest|fingerprint):' | head -1 \
+              | sed -E 's/^Signer #1 certificate SHA-256 (digest|fingerprint):[[:space:]]*//'
+          )"
           if [ -z "$DIGEST" ]; then
-            echo "::error::Could not parse Signer #1 SHA-256 digest from apksigner output"
+            DIGEST="$(echo "$OUT" | awk -F': ' '/Signer #1 certificate SHA-256/ {print $NF; exit}')"
+          fi
+          DIGEST="${DIGEST//$'\r'/}"
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not parse Signer #1 SHA-256 from apksigner output"
+            head -40 build/app-release.cert-sha256.txt >&2
             exit 1
           fi
           FINGERPRINT="$(DIGEST="$DIGEST" python3 -c "import os,sys;h=os.environ['DIGEST'].replace(':','').strip().upper();(len(h)!=64 or any(c not in '0123456789ABCDEF' for c in h)) and sys.exit(1);print(':'.join(h[i:i+2] for i in range(0,len(h),2)))")"
