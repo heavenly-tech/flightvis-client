@@ -15,7 +15,8 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "cl.heavenly.flightvis"
     compileSdk = 37
-    ndkVersion = flutter.ndkVersion
+    // Pinned to Flutter stable NDK (r28c); CI preinstalls via sdkmanager — must stay in sync.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
