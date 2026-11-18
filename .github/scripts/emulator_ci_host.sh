@@ -94,6 +94,37 @@ emulator_host_stale_cleanup() {
   timeout 10 adb devices -l 2>/dev/null || true
 }
 
+# android-emulator-runner always invokes sdkmanager; on omarchibald-android-emu
+# packages live under /home/ghrunner/android-sdk — install only gaps and retry nets.
+emulator_ensure_host_sdk_for_runner() {
+  local root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/home/ghrunner/android-sdk}}"
+  export ANDROID_SDK_ROOT="$root"
+  export ANDROID_HOME="$root"
+  local api="${FLIGHTVIS_EMULATOR_API:-30}"
+  local arch="${FLIGHTVIS_EMULATOR_ARCH:-x86_64}"
+  local target="${FLIGHTVIS_EMULATOR_TARGET:-google_apis}"
+  local sdkmgr="$root/cmdline-tools/latest/bin/sdkmanager"
+  if [ ! -x "$sdkmgr" ]; then
+    echo "::error::Host SDK cmdline-tools missing at $sdkmgr"
+    exit 1
+  fi
+  if [ ! -f "$sdkmgr.orig" ]; then
+    cp "$sdkmgr" "$sdkmgr.orig"
+    cp "${WORKSPACE}/.github/scripts/sdkmanager_host.sh" "$sdkmgr"
+    chmod +x "$sdkmgr"
+    echo "flightvis-ci: installed sdkmanager host shim at $sdkmgr"
+  fi
+  local packages=(
+    platform-tools
+    "build-tools;37.0.0"
+    "platforms;android-${api}"
+    emulator
+    "system-images;android-${api};${target};${arch}"
+  )
+  echo "flightvis-ci: ensure host SDK packages (api=${api} arch=${arch} target=${target})"
+  "$sdkmgr" --install "${packages[@]}"
+}
+
 emulator_append_sdk_inventory() {
   mkdir -p "$DIAG_DIR"
   {

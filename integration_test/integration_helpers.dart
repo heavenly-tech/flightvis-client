@@ -330,7 +330,7 @@ Future<void> saveEmulatorScreenshot(IntegrationTestWidgetsFlutterBinding binding
 /// Failure screenshot for functional CI (capture flag off).
 Future<void> saveCiFailureScreenshot(IntegrationTestWidgetsFlutterBinding binding, String name) async {
   try {
-    await binding.convertFlutterSurfaceToImage();
+    await ensureEmulatorScreenshotSurface(binding);
     final bytes = await binding.takeScreenshot(name);
     if (bytes.isEmpty) return;
     // ignore: avoid_slow_async_io

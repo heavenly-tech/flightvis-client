@@ -297,6 +297,12 @@ jobs:
       contents: read
     timeout-minutes: 32
     needs: build
+    env:
+      ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
+      ANDROID_HOME: /home/ghrunner/android-sdk
+      FLIGHTVIS_EMULATOR_API: '30'
+      FLIGHTVIS_EMULATOR_ARCH: x86_64
+      FLIGHTVIS_EMULATOR_TARGET: google_apis
     steps:
       - uses: actions/checkout@v4
 
@@ -356,11 +362,12 @@ jobs:
         run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
 
       - name: Emulator host preflight
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
           source .github/scripts/emulator_ci_host.sh
+          emulator_ensure_host_sdk_for_runner
           emulator_host_preflight_checks
           emulator_host_stale_cleanup
 
@@ -431,6 +438,12 @@ jobs:
     timeout-minutes: 38
     continue-on-error: true
     needs: build
+    env:
+      ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
+      ANDROID_HOME: /home/ghrunner/android-sdk
+      FLIGHTVIS_EMULATOR_API: '30'
+      FLIGHTVIS_EMULATOR_ARCH: x86_64
+      FLIGHTVIS_EMULATOR_TARGET: google_apis
     steps:
       - uses: actions/checkout@v4
 
@@ -490,11 +503,12 @@ jobs:
         run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
 
       - name: Emulator host preflight
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           # shellcheck disable=SC1091
           source .github/scripts/emulator_ci_host.sh
+          emulator_ensure_host_sdk_for_runner
           emulator_host_preflight_checks
           emulator_host_stale_cleanup
 
