@@ -437,7 +437,7 @@ jobs:
       contents: read
     timeout-minutes: 38
     continue-on-error: true
-    needs: build
+    needs: [build, emulator-tests]
     env:
       ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
       ANDROID_HOME: /home/ghrunner/android-sdk
