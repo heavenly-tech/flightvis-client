@@ -283,9 +283,12 @@ jobs:
   emulator-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
+    concurrency:
+      group: flightvis-selfhosted-emu-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
-    timeout-minutes: 35
+    timeout-minutes: 32
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -345,36 +348,63 @@ jobs:
       - name: Prebuild debug APK (functional)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
 
-      - name: Require KVM device
+      - name: Emulator host preflight
+        timeout-minutes: 4
         run: |
-          ls -l /dev/kvm
-          test -r /dev/kvm && test -w /dev/kvm
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_preflight_checks
+          emulator_host_stale_cleanup
 
       - uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 28
         with:
           api-level: 30
           arch: ${{ steps.emu_arch.outputs.arch }}
           target: google_apis
           avd-name: test
-          force-avd-creation: false
+          force-avd-creation: true
           cores: 1
+          ram-size: 3072M
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -memory 3072
+          pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -verbose -show-kernel
           disable-animations: false
           script: |
             set -euo pipefail
+            adb_has_booted_device() {
+              timeout 10 adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'
+            }
             collect_emulator_diagnostics() {
               mkdir -p ci-emulator-diagnostics
-              adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
-              adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
-              adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
-              adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
+              timeout 10 adb devices -l > ci-emulator-diagnostics/adb-devices.txt 2>&1 || true
+              if ! adb_has_booted_device; then
+                echo "flightvis-ci: no device; skip in-emulator diagnostics"
+                return 0
+              fi
+              timeout 25 adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
+              timeout 25 adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+              timeout 25 adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
+              timeout 60 adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
             }
-            adb wait-for-device
-            adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
-            for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
-            adb shell pm path android
-            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            timeout 180 adb wait-for-device
+            boot_deadline=$((SECONDS + 120))
+            while true; do
+              booted="$(timeout 20 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              [ "$booted" = "1" ] && break
+              [ "$SECONDS" -ge "$boot_deadline" ] && { echo "::error::boot timeout"; exit 1; }
+              sleep 2
+            done
+            for i in $(seq 1 24); do
+              if timeout 20 adb shell pm path android >/dev/null 2>&1; then
+                echo "flightvis-ci: pm ready"
+                break
+              fi
+              sleep 5
+            done
+            timeout 20 adb shell pm path android
+            timeout 120 adb install -r build/app/outputs/flutter-apk/app-debug.apk
             set +e
             flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 10m --no-uninstall --reporter expanded
             TEST_EXIT=$?
@@ -386,35 +416,45 @@ jobs:
 
       - name: Collect emulator diagnostics (host fallback)
         if: always()
+        timeout-minutes: 4
         continue-on-error: true
         run: |
-          mkdir -p ci-emulator-diagnostics
-          adb exec-out screencap -p > ci-emulator-diagnostics/host-screen.png 2>/dev/null || true
-          adb logcat -d > ci-emulator-diagnostics/host-logcat.txt 2>/dev/null || true
-          adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/host-meminfo.txt 2>/dev/null || true
-
-      - name: Upload emulator test diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flight-vis-emulator-tests-diagnostics-${{ github.sha }}
-          path: ci-emulator-diagnostics/
-          if-no-files-found: ignore
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          collect_host_diagnostics
+          exit 0
 
       - name: Cleanup emulator and mock API
         if: always()
+        timeout-minutes: 5
+        continue-on-error: true
         run: |
-          if [ -f mock_server.pid ]; then kill "$(cat mock_server.pid)" 2>/dev/null || true; fi
-          adb -s emulator-5554 emu kill 2>/dev/null || adb emu kill 2>/dev/null || true
-          pkill -f mock_flight_vis_server.dart 2>/dev/null || true
-          pkill -f qemu-system 2>/dev/null || true
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_job_cleanup
+          exit 0
+
+      - name: Upload emulator CI logs
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-emulator-tests-logs-${{ github.sha }}
+          path: ci-emulator-diagnostics/
+          if-no-files-found: warn
 
   emulator-screenshots:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
+    concurrency:
+      group: flightvis-selfhosted-emu-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
-    timeout-minutes: 40
+    timeout-minutes: 38
     continue-on-error: true
     needs: build
     steps:
@@ -475,42 +515,71 @@ jobs:
       - name: Prebuild debug APK (screenshots)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
 
-      - name: Require KVM device
+      - name: Emulator host preflight
+        timeout-minutes: 4
         run: |
-          ls -l /dev/kvm
-          test -r /dev/kvm && test -w /dev/kvm
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_preflight_checks
+          emulator_host_stale_cleanup
 
       - uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 30
         with:
           api-level: 30
           arch: ${{ steps.emu_arch.outputs.arch }}
           target: google_apis
           avd-name: test
-          force-avd-creation: false
+          force-avd-creation: true
           cores: 1
+          ram-size: 3072M
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -memory 3072
+          pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -verbose -show-kernel
           disable-animations: false
           script: |
             set -euo pipefail
+            adb_has_booted_device() {
+              timeout 10 adb devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'
+            }
             collect_emulator_diagnostics() {
               mkdir -p ci-emulator-diagnostics
-              adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
-              adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
-              adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
-              adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
+              timeout 10 adb devices -l > ci-emulator-diagnostics/adb-devices.txt 2>&1 || true
+              if ! adb_has_booted_device; then
+                echo "flightvis-ci: no device; skip in-emulator diagnostics"
+                return 0
+              fi
+              timeout 25 adb exec-out screencap -p > ci-emulator-diagnostics/screen.png 2>/dev/null || true
+              timeout 25 adb logcat -d > ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+              timeout 25 adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
+              timeout 60 adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
             }
-            adb wait-for-device
-            adb shell 'while [ -z "$(getprop sys.boot_completed)" ]; do sleep 2; done'
-            for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
-            adb shell pm path android
-            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            timeout 180 adb wait-for-device
+            boot_deadline=$((SECONDS + 120))
+            while true; do
+              booted="$(timeout 20 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              [ "$booted" = "1" ] && break
+              [ "$SECONDS" -ge "$boot_deadline" ] && { echo "::error::boot timeout"; exit 1; }
+              sleep 2
+            done
+            for i in $(seq 1 24); do
+              if timeout 20 adb shell pm path android >/dev/null 2>&1; then
+                echo "flightvis-ci: pm ready"
+                break
+              fi
+              sleep 5
+            done
+            timeout 20 adb shell pm path android
+            timeout 120 adb install -r build/app/outputs/flutter-apk/app-debug.apk
             set +e
             flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 12m --no-uninstall --reporter expanded
             TEST_EXIT=$?
             set -e
             mkdir -p docs/emulator-screenshots
-            adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
+            if adb_has_booted_device; then
+              timeout 90 adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
+            fi
             ls -la docs/emulator-screenshots || true
             if [ "$TEST_EXIT" -ne 0 ]; then
               collect_emulator_diagnostics
@@ -519,30 +588,39 @@ jobs:
 
       - name: Collect emulator diagnostics (host fallback)
         if: always()
+        timeout-minutes: 4
         continue-on-error: true
         run: |
-          mkdir -p ci-emulator-diagnostics
-          adb exec-out screencap -p > ci-emulator-diagnostics/host-screen.png 2>/dev/null || true
-          adb logcat -d > ci-emulator-diagnostics/host-logcat.txt 2>/dev/null || true
-          adb shell dumpsys meminfo cl.heavenly.flightvis > ci-emulator-diagnostics/host-meminfo.txt 2>/dev/null || true
-
-      - name: Upload emulator screenshot diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flight-vis-emulator-screenshots-diagnostics-${{ github.sha }}
-          path: ci-emulator-diagnostics/
-          if-no-files-found: ignore
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          collect_host_diagnostics
+          exit 0
 
       - name: Cleanup emulator and mock API
         if: always()
+        timeout-minutes: 5
+        continue-on-error: true
         run: |
-          if [ -f mock_server.pid ]; then kill "$(cat mock_server.pid)" 2>/dev/null || true; fi
-          adb -s emulator-5554 emu kill 2>/dev/null || adb emu kill 2>/dev/null || true
-          pkill -f mock_flight_vis_server.dart 2>/dev/null || true
-          pkill -f qemu-system 2>/dev/null || true
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_job_cleanup
+          exit 0
+
+      - name: Upload emulator CI logs
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-vis-emulator-screenshots-logs-${{ github.sha }}
+          path: ci-emulator-diagnostics/
+          if-no-files-found: warn
 
       - name: Upload emulator screenshots
+        timeout-minutes: 4
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: flight-vis-emulator-screenshots-${{ github.sha }}
