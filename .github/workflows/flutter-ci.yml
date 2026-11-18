@@ -207,7 +207,7 @@ jobs:
 
   emulator-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, android-emulator]
+    runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     permissions:
       contents: read
     timeout-minutes: 35
@@ -225,8 +225,8 @@ jobs:
           ARCH="${{ vars.EMULATOR_ARCH }}"
           if [ -z "$ARCH" ]; then ARCH=x86_64; fi
           case "$ARCH" in
-            x86_64|arm64-v8a) ;;
-            *) echo "::error::EMULATOR_ARCH must be x86_64 or arm64-v8a (got $ARCH)"; exit 1 ;;
+            x86_64) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 on the linux/kvm runner (got $ARCH)"; exit 1 ;;
           esac
           echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
           echo "flightvis-ci: EMULATOR_ARCH=$ARCH"
@@ -256,6 +256,11 @@ jobs:
       - name: Prebuild debug APK (functional)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
 
+      - name: Require KVM device
+        run: |
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -265,7 +270,7 @@ jobs:
           force-avd-creation: false
           cores: 2
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
           disable-animations: false
           script: |
             adb wait-for-device
@@ -285,7 +290,7 @@ jobs:
 
   emulator-screenshots:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, android-emulator]
+    runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     permissions:
       contents: read
     timeout-minutes: 40
@@ -304,8 +309,8 @@ jobs:
           ARCH="${{ vars.EMULATOR_ARCH }}"
           if [ -z "$ARCH" ]; then ARCH=x86_64; fi
           case "$ARCH" in
-            x86_64|arm64-v8a) ;;
-            *) echo "::error::EMULATOR_ARCH must be x86_64 or arm64-v8a (got $ARCH)"; exit 1 ;;
+            x86_64) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 on the linux/kvm runner (got $ARCH)"; exit 1 ;;
           esac
           echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
           echo "flightvis-ci: EMULATOR_ARCH=$ARCH"
@@ -335,6 +340,11 @@ jobs:
       - name: Prebuild debug APK (screenshots)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
 
+      - name: Require KVM device
+        run: |
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -344,7 +354,7 @@ jobs:
           force-avd-creation: false
           cores: 2
           emulator-boot-timeout: 600
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
           disable-animations: false
           script: |
             adb wait-for-device
