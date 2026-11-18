@@ -68,9 +68,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
       );
 
   void _continueAfterCheckin() {
-    widget.onCheckedIn();
     if (!mounted) return;
     Navigator.maybePop(context);
+    widget.onCheckedIn();
   }
 
   String _successText(AppLocalizations l10n) {

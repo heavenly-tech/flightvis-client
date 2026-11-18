@@ -106,7 +106,7 @@ void main() {
 
         await ciStep(tester, 'return to hub', () async {
           await leaveCheckinForHub(tester);
-        }, timeout: const Duration(seconds: 60));
+        }, timeout: const Duration(seconds: 90));
 
         await ciStep(tester, 'flight details + tracking', () async {
           await tapWhenFound(

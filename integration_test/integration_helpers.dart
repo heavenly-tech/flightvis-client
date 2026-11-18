@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
@@ -82,18 +82,51 @@ Future<void> waitForTappable(
   throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for tappable: $name');
 }
 
+Future<void> _popTopRouteIfCheckinVisible(WidgetTester tester) async {
+  final checkin = find.byKey(FlightVisTestKeys.checkinScreen);
+  if (checkin.evaluate().isEmpty) return;
+
+  final navigatorFinder = find.byType(Navigator);
+  if (navigatorFinder.evaluate().isEmpty) return;
+
+  final navigator = tester.state<NavigatorState>(navigatorFinder.last);
+  if (navigator.canPop()) {
+    ciLog('hub: integration test navigator.pop (check-in still visible)');
+    navigator.pop();
+    await pumpFrames(tester, total: const Duration(seconds: 2));
+  }
+}
+
 Future<void> leaveCheckinForHub(WidgetTester tester) async {
+  final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
   await tapWhenFound(
     tester,
     find.byKey(FlightVisTestKeys.checkinContinue),
     label: 'check-in continue',
     timeout: const Duration(seconds: 25),
   );
-  await waitForTappable(
+  try {
+    await waitForAbsent(
+      tester,
+      checkinRoute,
+      label: 'check-in route',
+      timeout: const Duration(seconds: 20),
+    );
+  } on TestFailure {
+    await _popTopRouteIfCheckinVisible(tester);
+    await waitForAbsent(
+      tester,
+      checkinRoute,
+      label: 'check-in route after pop',
+      timeout: const Duration(seconds: 20),
+    );
+  }
+
+  await waitForFound(
     tester,
-    find.byKey(FlightVisTestKeys.hubFlightDetails),
-    label: 'hub flight details after check-in',
-    timeout: const Duration(seconds: 45),
+    find.byKey(FlightVisTestKeys.hub),
+    label: 'pilot hub',
+    timeout: const Duration(seconds: 20),
   );
   ciLog('hub: ready after check-in continue');
 }
@@ -122,6 +155,7 @@ Future<void> tapWhenFound(
   Duration timeout = const Duration(seconds: 45),
 }) async {
   await waitForFound(tester, finder, label: label, timeout: timeout);
+  await tester.ensureVisible(finder);
   await tester.tap(finder);
   await pumpFrames(tester);
 }

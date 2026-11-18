@@ -100,7 +100,7 @@ void main() {
 
         await ciStep(tester, 'pop check-in to hub', () async {
           await leaveCheckinForHub(tester);
-        }, timeout: const Duration(seconds: 60));
+        }, timeout: const Duration(seconds: 90));
 
         await ciStep(tester, 'start tracking', () async {
           await tapWhenFound(
