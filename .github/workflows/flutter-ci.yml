@@ -206,7 +206,10 @@ jobs:
             build/app-release.cert-sha256
 
   emulator-tests:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, android-emulator]
+    permissions:
+      contents: read
     timeout-minutes: 35
     needs: build
     steps:
@@ -216,7 +219,17 @@ jobs:
         with:
           channel: stable
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Resolve emulator CPU arch
+        id: emu_arch
+        run: |
+          ARCH="${{ vars.EMULATOR_ARCH }}"
+          if [ -z "$ARCH" ]; then ARCH=x86_64; fi
+          case "$ARCH" in
+            x86_64|arm64-v8a) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 or arm64-v8a (got $ARCH)"; exit 1 ;;
+          esac
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "flightvis-ci: EMULATOR_ARCH=$ARCH"
 
       - name: flutter pub get
         run: flutter pub get
@@ -240,37 +253,19 @@ jobs:
       - name: Verify mock API on host
         run: curl -sf http://127.0.0.1:18080/api/ci-health
 
-      - uses: ./.github/actions/avd-cache-kvm
-        id: avd
-
       - name: Prebuild debug APK (functional)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
-
-      - name: Create AVD snapshot (cache miss)
-        if: steps.avd.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          arch: x86_64
-          target: google_apis
-          avd-name: test
-          force-avd-creation: false
-          cores: 2
-          emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
-          disable-animations: false
-          script: adb shell pm path android
 
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
-          arch: x86_64
+          arch: ${{ steps.emu_arch.outputs.arch }}
           target: google_apis
           avd-name: test
           force-avd-creation: false
           cores: 2
-          emulator-boot-timeout: 900
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          emulator-boot-timeout: 600
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: false
           script: |
             adb wait-for-device
@@ -278,14 +273,21 @@ jobs:
             for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
             adb shell pm path android
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            timeout 16m flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
+            flutter test integration_test/ci_functional_suite.dart --dart-define-from-file=tool/ci_functional_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
 
-      - name: Stop mock server
+      - name: Cleanup emulator and mock API
         if: always()
-        run: kill "$(cat mock_server.pid)" 2>/dev/null || true
+        run: |
+          if [ -f mock_server.pid ]; then kill "$(cat mock_server.pid)" 2>/dev/null || true; fi
+          adb -s emulator-5554 emu kill 2>/dev/null || adb emu kill 2>/dev/null || true
+          pkill -f mock_flight_vis_server.dart 2>/dev/null || true
+          pkill -f qemu-system 2>/dev/null || true
 
   emulator-screenshots:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, android-emulator]
+    permissions:
+      contents: read
     timeout-minutes: 40
     continue-on-error: true
     needs: build
@@ -296,7 +298,17 @@ jobs:
         with:
           channel: stable
 
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Resolve emulator CPU arch
+        id: emu_arch
+        run: |
+          ARCH="${{ vars.EMULATOR_ARCH }}"
+          if [ -z "$ARCH" ]; then ARCH=x86_64; fi
+          case "$ARCH" in
+            x86_64|arm64-v8a) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 or arm64-v8a (got $ARCH)"; exit 1 ;;
+          esac
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "flightvis-ci: EMULATOR_ARCH=$ARCH"
 
       - name: flutter pub get
         run: flutter pub get
@@ -320,37 +332,19 @@ jobs:
       - name: Verify mock API on host
         run: curl -sf http://127.0.0.1:18080/api/ci-health
 
-      - uses: ./.github/actions/avd-cache-kvm
-        id: avd
-
       - name: Prebuild debug APK (screenshots)
         run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
-
-      - name: Create AVD snapshot (cache miss)
-        if: steps.avd.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          arch: x86_64
-          target: google_apis
-          avd-name: test
-          force-avd-creation: false
-          cores: 2
-          emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
-          disable-animations: false
-          script: adb shell pm path android
 
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
-          arch: x86_64
+          arch: ${{ steps.emu_arch.outputs.arch }}
           target: google_apis
           avd-name: test
           force-avd-creation: false
           cores: 2
-          emulator-boot-timeout: 900
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-metrics
+          emulator-boot-timeout: 600
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: false
           script: |
             adb wait-for-device
@@ -358,14 +352,18 @@ jobs:
             for i in $(seq 1 24); do if adb shell pm path android >/dev/null 2>&1; then echo "flightvis-ci: pm ready"; break; fi; sleep 5; done
             adb shell pm path android
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            timeout 16m flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
+            flutter test integration_test/screenshot_flow_test.dart --dart-define-from-file=tool/ci_screenshot_defines.json -d emulator-5554 --timeout 8m --no-uninstall --reporter expanded
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
             ls -la docs/emulator-screenshots || true
 
-      - name: Stop mock server
+      - name: Cleanup emulator and mock API
         if: always()
-        run: kill "$(cat mock_server.pid)" 2>/dev/null || true
+        run: |
+          if [ -f mock_server.pid ]; then kill "$(cat mock_server.pid)" 2>/dev/null || true; fi
+          adb -s emulator-5554 emu kill 2>/dev/null || adb emu kill 2>/dev/null || true
+          pkill -f mock_flight_vis_server.dart 2>/dev/null || true
+          pkill -f qemu-system 2>/dev/null || true
 
       - name: Upload emulator screenshots
         uses: actions/upload-artifact@v4
