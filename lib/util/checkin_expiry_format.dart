@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -15,11 +16,20 @@ class CheckinExpiryFormat {
 
   static tz.Location get _santiago => tz.getLocation(locationName);
 
+  /// When set (unit tests only), fixes “today” in [America/Santiago] instead of wall clock.
+  @visibleForTesting
+  static DateTime? nowUtcOverride;
+
+  static tz.TZDateTime _nowAtClub() {
+    final utc = nowUtcOverride ?? DateTime.now().toUtc();
+    return tz.TZDateTime.from(utc, _santiago);
+  }
+
   /// UTC instant from server → local label (time only if today in Santiago, else date + time).
   static String formatFromUtc(DateTime expiresAtUtc) {
     final utc = expiresAtUtc.toUtc();
     final atClub = tz.TZDateTime.from(utc, _santiago);
-    final nowClub = tz.TZDateTime.now(_santiago);
+    final nowClub = _nowAtClub();
     final sameDay =
         atClub.year == nowClub.year && atClub.month == nowClub.month && atClub.day == nowClub.day;
     if (sameDay) {
