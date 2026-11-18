@@ -99,38 +99,39 @@ void main() {
         ciLog('functional-flow: check-in OK');
 
         await ciStep(tester, 'pop check-in to hub', () async {
-          await tapWhenFound(
-            tester,
-            find.byKey(FlightVisTestKeys.checkinContinue),
-            label: 'check-in continue',
-            timeout: const Duration(seconds: 45),
-          );
-          await waitForFound(
-            tester,
-            find.byKey(FlightVisTestKeys.hub),
-            label: 'hub after check-in',
-            timeout: const Duration(seconds: 45),
-          );
+          await leaveCheckinForHub(tester);
         }, timeout: const Duration(seconds: 90));
 
         await ciStep(tester, 'start tracking', () async {
-          await tapWhenFound(
+          await waitForTappable(
             tester,
             find.byKey(FlightVisTestKeys.hubFlightDetails),
             label: 'hub flight details',
             timeout: const Duration(seconds: 45),
           );
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.hubFlightDetails),
+            label: 'hub flight details',
+            timeout: const Duration(seconds: 30),
+          );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailPicker),
             label: 'tail picker',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
+          );
+          await waitForAbsent(
+            tester,
+            find.byType(CircularProgressIndicator),
+            label: 'tail list loading',
+            timeout: const Duration(seconds: 45),
           );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailStart),
             label: 'tail start ready',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
           );
           await tapWhenFound(
             tester,

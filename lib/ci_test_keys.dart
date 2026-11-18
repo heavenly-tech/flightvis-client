@@ -6,6 +6,7 @@ abstract final class FlightVisTestKeys {
   static const hub = ValueKey<String>('flightvis_hub');
   static const hubSignIn = ValueKey<String>('flightvis_hub_sign_in');
   static const hubCheckIn = ValueKey<String>('flightvis_hub_check_in');
+  static const checkinScreen = ValueKey<String>('flightvis_checkin_screen');
   static const hubFlightDetails = ValueKey<String>('flightvis_hub_flight_details');
   static const permissionsScreen = ValueKey<String>('flightvis_permissions');
   static const permissionsPrimary = ValueKey<String>('flightvis_permissions_primary');

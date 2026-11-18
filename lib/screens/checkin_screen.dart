@@ -125,6 +125,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final l10n = context.pilotL10n;
     final gate = _gate;
     return Scaffold(
+      key: FlightVisTestKeys.checkinScreen,
       appBar: AppBar(title: Text(l10n.pilotCheckInTitle)),
       body: Padding(
         padding: const EdgeInsets.all(24),

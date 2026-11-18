@@ -42,6 +42,82 @@ Future<void> waitForFound(
   throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for: $name');
 }
 
+Future<void> waitForAbsent(
+  WidgetTester tester,
+  Finder finder, {
+  String? label,
+  Duration timeout = const Duration(seconds: 30),
+  Duration pumpStep = const Duration(milliseconds: 200),
+}) async {
+  final name = label ?? finder.toString();
+  final end = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(end)) {
+    await tester.pump(pumpStep);
+    if (finder.evaluate().isEmpty) return;
+  }
+  throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for absence of: $name');
+}
+
+/// Hub stays mounted under a pushed check-in route; wait until it is on top.
+Future<void> waitForHubExposed(
+  WidgetTester tester, {
+  Duration timeout = const Duration(seconds: 45),
+}) async {
+  await waitForAbsent(
+    tester,
+    find.byKey(FlightVisTestKeys.checkinScreen),
+    label: 'check-in route dismissed',
+    timeout: timeout,
+  );
+  await waitForTappable(
+    tester,
+    find.byKey(FlightVisTestKeys.hubCheckIn),
+    label: 'hub check-in card (route on top)',
+    timeout: timeout,
+  );
+}
+
+Future<void> waitForTappable(
+  WidgetTester tester,
+  Finder finder, {
+  String? label,
+  Duration timeout = const Duration(seconds: 45),
+  Duration pumpStep = const Duration(milliseconds: 200),
+}) async {
+  final name = label ?? finder.toString();
+  final end = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(end)) {
+    await tester.pump(pumpStep);
+    if (finder.evaluate().isEmpty) continue;
+    final hit = await _finderHitTestable(tester, finder);
+    if (hit) return;
+  }
+  throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for tappable: $name');
+}
+
+Future<bool> _finderHitTestable(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) return false;
+  try {
+    await tester.ensureVisible(finder);
+    final center = tester.getCenter(finder.first);
+    tester.hitTestOnBinding(center);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<void> leaveCheckinForHub(WidgetTester tester) async {
+  await tapWhenFound(
+    tester,
+    find.byKey(FlightVisTestKeys.checkinContinue),
+    label: 'check-in continue',
+    timeout: const Duration(seconds: 30),
+  );
+  await pumpFrames(tester, total: const Duration(milliseconds: 500));
+  await waitForHubExposed(tester, timeout: const Duration(seconds: 45));
+}
+
 Future<void> waitForAnyFound(
   WidgetTester tester,
   List<Finder> finders, {
@@ -166,10 +242,31 @@ Future<void> ensureOnPilotHub(
   );
 }
 
+bool _emulatorSurfaceConverted = false;
+
+Future<void> ensureEmulatorScreenshotSurface(
+  IntegrationTestWidgetsFlutterBinding binding,
+) async {
+  if (_emulatorSurfaceConverted) return;
+  ciLog('screenshot: convertFlutterSurfaceToImage (once)');
+  await binding.convertFlutterSurfaceToImage().timeout(
+    const Duration(seconds: 45),
+    onTimeout: () {
+      throw TestFailure('convertFlutterSurfaceToImage timed out after 45s');
+    },
+  );
+  _emulatorSurfaceConverted = true;
+}
+
 Future<void> saveEmulatorScreenshot(IntegrationTestWidgetsFlutterBinding binding, String name) async {
   if (!AppConfig.captureScreenshots) return;
-  await binding.convertFlutterSurfaceToImage();
-  final bytes = await binding.takeScreenshot(name);
+  await ensureEmulatorScreenshotSurface(binding);
+  final bytes = await binding.takeScreenshot(name).timeout(
+    const Duration(seconds: 20),
+    onTimeout: () {
+      throw TestFailure('takeScreenshot($name) timed out after 20s');
+    },
+  );
   if (bytes.isEmpty) return;
   // ignore: avoid_slow_async_io
   final dir = Directory('/sdcard/Download/flightvis-emulator');
@@ -178,6 +275,7 @@ Future<void> saveEmulatorScreenshot(IntegrationTestWidgetsFlutterBinding binding
   }
   // ignore: avoid_slow_async_io
   File('${dir.path}/$name.png').writeAsBytesSync(bytes);
+  ciLog('screenshot: saved $name (${bytes.length} bytes)');
 }
 
 /// Failure screenshot for functional CI (capture flag off).

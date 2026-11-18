@@ -21,6 +21,9 @@ void main() {
       expect(AppConfig.captureScreenshots, isTrue);
       app.main();
       await pumpFrames(tester, total: const Duration(seconds: 3));
+      if (AppConfig.captureScreenshots) {
+        await ensureEmulatorScreenshotSurface(binding);
+      }
 
       try {
         await ciStep(tester, 'reach hub', () async {
@@ -33,15 +36,15 @@ void main() {
             tester,
             find.byKey(FlightVisTestKeys.hubSignIn),
             label: 'hub sign in',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.loginGuest),
             label: 'login screen',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
-        });
+        }, timeout: const Duration(seconds: 60));
         await saveEmulatorScreenshot(binding, '02-login-options');
 
         await ciStep(tester, 'continue as guest', () async {
@@ -49,15 +52,15 @@ void main() {
             tester,
             find.byKey(FlightVisTestKeys.loginGuest),
             label: 'continue as guest',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.hub),
             label: 'hub after guest',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
-        });
+        }, timeout: const Duration(seconds: 60));
         await saveEmulatorScreenshot(binding, '03-hub-after-permissions');
 
         await ciStep(tester, 'open check-in', () async {
@@ -65,15 +68,21 @@ void main() {
             tester,
             find.byKey(FlightVisTestKeys.hubCheckIn),
             label: 'hub check-in',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
+          );
+          await waitForFound(
+            tester,
+            find.byKey(FlightVisTestKeys.checkinScreen),
+            label: 'check-in screen',
+            timeout: const Duration(seconds: 30),
           );
           await waitForFound(
             tester,
             find.widgetWithText(TextField, 'O pegue el token de check-in'),
             label: 'check-in paste field',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
-        });
+        }, timeout: const Duration(seconds: 60));
 
         await ciStep(tester, 'submit check-in', () async {
           await tester.enterText(
@@ -90,61 +99,56 @@ void main() {
             tester,
             find.byKey(FlightVisTestKeys.checkinContinue),
             label: 'check-in success',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
           );
-        });
+        }, timeout: const Duration(seconds: 90));
         await saveEmulatorScreenshot(binding, '04-checkin-success');
 
         await ciStep(tester, 'return to hub', () async {
-          await tapWhenFound(
-            tester,
-            find.byKey(FlightVisTestKeys.checkinContinue),
-            label: 'check-in continue',
-            timeout: const Duration(seconds: 45),
-          );
-          await waitForFound(
-            tester,
-            find.byKey(FlightVisTestKeys.hub),
-            label: 'hub',
-            timeout: const Duration(seconds: 45),
-          );
-        });
+          await leaveCheckinForHub(tester);
+        }, timeout: const Duration(seconds: 90));
 
         await ciStep(tester, 'flight details + tracking', () async {
           await tapWhenFound(
             tester,
             find.byKey(FlightVisTestKeys.hubFlightDetails),
             label: 'hub flight details',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailPicker),
             label: 'tail picker',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
           );
-          await pumpFrames(tester, total: const Duration(seconds: 1));
+          await waitForAbsent(
+            tester,
+            find.byType(CircularProgressIndicator),
+            label: 'tail list loading',
+            timeout: const Duration(seconds: 45),
+          );
+          await pumpFrames(tester, total: const Duration(milliseconds: 500));
           await saveEmulatorScreenshot(binding, '05-flight-details');
 
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailStart),
             label: 'start tracking button',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
           );
           await tapWhenFound(
             tester,
             find.byKey(FlightVisTestKeys.tailStart),
             label: 'start tracking',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 30),
           );
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.trackingStop),
             label: 'tracking stop',
-            timeout: const Duration(seconds: 60),
+            timeout: const Duration(seconds: 45),
           );
-        });
+        }, timeout: const Duration(seconds: 180));
         await saveEmulatorScreenshot(binding, '06-broadcasting');
 
         expect(find.byKey(FlightVisTestKeys.trackingStop), findsOneWidget);
