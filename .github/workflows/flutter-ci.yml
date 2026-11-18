@@ -138,24 +138,18 @@ jobs:
           VERIFY_EXIT=$?
           set -e
           OUT="$(cat build/app-release.cert-sha256.txt)"
-          if ! echo "$OUT" | grep -q 'Signer #1'; then
-            echo "::error::apksigner did not print Signer #1 certs (exit $VERIFY_EXIT)"
+          if ! echo "$OUT" | grep -qi 'SHA-256 digest:'; then
+            echo "::error::apksigner did not print a SHA-256 digest (exit $VERIFY_EXIT)"
             cat build/app-release.cert-sha256.txt
             exit 1
           fi
           if [ "$VERIFY_EXIT" -ne 0 ]; then
             echo "apksigner verify exited $VERIFY_EXIT (continuing — certs present for release pin)"
           fi
-          DIGEST="$(
-            echo "$OUT" | grep -E '^Signer #1 certificate SHA-256 (digest|fingerprint):' | head -1 \
-              | sed -E 's/^Signer #1 certificate SHA-256 (digest|fingerprint):[[:space:]]*//'
-          )"
-          if [ -z "$DIGEST" ]; then
-            DIGEST="$(echo "$OUT" | awk -F': ' '/Signer #1 certificate SHA-256/ {print $NF; exit}')"
-          fi
+          DIGEST="$(echo "$OUT" | grep -i 'certificate SHA-256 digest:' | head -1 | sed -E 's/.*SHA-256 digest:[[:space:]]*//')"
           DIGEST="${DIGEST//$'\r'/}"
           if [ -z "$DIGEST" ]; then
-            echo "::error::Could not parse Signer #1 SHA-256 from apksigner output"
+            echo "::error::Could not parse certificate SHA-256 digest from apksigner output"
             head -40 build/app-release.cert-sha256.txt >&2
             exit 1
           fi
