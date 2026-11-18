@@ -288,7 +288,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-    timeout-minutes: 32
+    timeout-minutes: 48
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -358,7 +358,7 @@ jobs:
           emulator_host_stale_cleanup
 
       - uses: reactivecircus/android-emulator-runner@v2
-        timeout-minutes: 28
+        timeout-minutes: 32
         with:
           api-level: 30
           arch: ${{ steps.emu_arch.outputs.arch }}
@@ -367,10 +367,10 @@ jobs:
           force-avd-creation: true
           cores: 1
           ram-size: 3072M
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
-          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -verbose -show-kernel
-          disable-animations: false
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -camera-back none -accel on -verbose -show-kernel -debug-init -logfile ci-emulator-diagnostics/emulator-qemu.log -logcat-output ci-emulator-diagnostics/emulator-logcat-output.txt
+          disable-animations: true
           script: |
             set -euo pipefail
             adb_has_booted_device() {
@@ -436,6 +436,14 @@ jobs:
           emulator_job_cleanup
           exit 0
 
+      - name: Report emulator diagnostics size
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p ci-emulator-diagnostics
+          du -sh ci-emulator-diagnostics 2>/dev/null || true
+          ls -la ci-emulator-diagnostics/ 2>/dev/null || true
+
       - name: Upload emulator CI logs
         if: always()
         timeout-minutes: 5
@@ -454,7 +462,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-    timeout-minutes: 38
+    timeout-minutes: 52
     continue-on-error: true
     needs: build
     steps:
@@ -525,7 +533,7 @@ jobs:
           emulator_host_stale_cleanup
 
       - uses: reactivecircus/android-emulator-runner@v2
-        timeout-minutes: 30
+        timeout-minutes: 32
         with:
           api-level: 30
           arch: ${{ steps.emu_arch.outputs.arch }}
@@ -534,10 +542,10 @@ jobs:
           force-avd-creation: true
           cores: 1
           ram-size: 3072M
-          emulator-boot-timeout: 600
+          emulator-boot-timeout: 900
           pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
-          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on -verbose -show-kernel
-          disable-animations: false
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -camera-back none -accel on -verbose -show-kernel -debug-init -logfile ci-emulator-diagnostics/emulator-qemu.log -logcat-output ci-emulator-diagnostics/emulator-logcat-output.txt
+          disable-animations: true
           script: |
             set -euo pipefail
             adb_has_booted_device() {
@@ -607,6 +615,14 @@ jobs:
           source .github/scripts/emulator_ci_host.sh
           emulator_job_cleanup
           exit 0
+
+      - name: Report emulator diagnostics size
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p ci-emulator-diagnostics
+          du -sh ci-emulator-diagnostics 2>/dev/null || true
+          ls -la ci-emulator-diagnostics/ 2>/dev/null || true
 
       - name: Upload emulator CI logs
         if: always()

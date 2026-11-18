@@ -57,8 +57,23 @@ emulator_host_preflight_checks() {
   test -r /dev/kvm && test -w /dev/kvm
 }
 
+emulator_delete_test_avd_if_present() {
+  local sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/home/ghrunner/android-sdk}}"
+  local avdmanager="$sdk/cmdline-tools/latest/bin/avdmanager"
+  if [ ! -x "$avdmanager" ]; then
+    avdmanager="$(find "$sdk/cmdline-tools" -name avdmanager -type f 2>/dev/null | head -1 || true)"
+  fi
+  if [ -n "$avdmanager" ] && [ -x "$avdmanager" ]; then
+    if avdmanager list avd 2>/dev/null | grep -q 'Name: test'; then
+      echo "flightvis-ci: deleting stale AVD 'test' before android-emulator-runner"
+      echo no | "$avdmanager" delete avd -n test 2>/dev/null || true
+    fi
+  fi
+}
+
 emulator_host_stale_cleanup() {
   echo "flightvis-ci: clearing stale emulator/adb locks"
+  emulator_delete_test_avd_if_present
   adb_server_cleanup
   timeout 10 pkill -9 -f qemu-system-x86_64 2>/dev/null || true
   timeout 10 pkill -9 -f qemu-system-x86 2>/dev/null || true
@@ -71,24 +86,14 @@ emulator_host_stale_cleanup() {
   timeout 10 adb devices -l 2>/dev/null || true
 }
 
-emulator_delete_test_avd() {
-  local sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/home/ghrunner/android-sdk}}"
-  local avdmanager="$sdk/cmdline-tools/latest/bin/avdmanager"
-  if [ ! -x "$avdmanager" ]; then
-    avdmanager="$(find "$sdk/cmdline-tools" -name avdmanager -type f 2>/dev/null | head -1 || true)"
-  fi
-  if [ -n "$avdmanager" ] && [ -x "$avdmanager" ]; then
-    echo "flightvis-ci: deleting existing AVD 'test' before recreate"
-    echo "no" | "$avdmanager" delete avd -n test 2>/dev/null || true
-  fi
+emulator_append_sdk_inventory() {
   mkdir -p "$DIAG_DIR"
-  echo "flightvis-ci: AVD test deleted (force recreation next)" >> "$DIAG_DIR/emulator-launch.log"
-}
-
-emulator_prepare_log_capture() {
-  mkdir -p "$DIAG_DIR"
-  : >"$DIAG_DIR/emulator-launch.log"
-  echo "flightvis-ci: emulator will use -verbose -show-kernel (also in Actions step log)" >> "$DIAG_DIR/emulator-launch.log"
+  {
+    echo "=== sdkmanager --list_installed @ $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    sdkmanager --list_installed 2>/dev/null | grep -E 'system-images|emulator' || true
+    echo "=== avdmanager list avd ==="
+    avdmanager list avd 2>/dev/null || true
+  } >>"$DIAG_DIR/sdk-inventory.txt" 2>&1 || true
 }
 
 collect_emulator_avd_logs() {
@@ -106,8 +111,21 @@ collect_emulator_avd_logs() {
   fi
 }
 
+emulator_collect_log_files() {
+  mkdir -p "$DIAG_DIR"
+  for f in emulator-logcat-output.txt emulator-qemu.log emulator-stdio.log sdk-inventory.txt; do
+    if [ -f "$DIAG_DIR/$f" ]; then
+      echo "flightvis-ci: captured $DIAG_DIR/$f ($(wc -c <"$DIAG_DIR/$f") bytes)"
+    fi
+  done
+  if [ -f "$DIAG_DIR/emulator-launch.log" ]; then
+    echo "flightvis-ci: emulator-launch.log $(wc -c <"$DIAG_DIR/emulator-launch.log") bytes"
+  fi
+}
+
 collect_host_diagnostics() {
   mkdir -p "$DIAG_DIR"
+  emulator_collect_log_files
   timeout 10 adb devices -l >"$DIAG_DIR/adb-devices.txt" 2>&1 || true
   if ! adb_has_booted_device; then
     echo "flightvis-ci: no adb device in 'device' state; skipping logcat/screencap/meminfo"
@@ -119,6 +137,7 @@ collect_host_diagnostics() {
 }
 
 emulator_job_cleanup() {
+  emulator_append_sdk_inventory
   if [ -f mock_server.pid ]; then
     kill "$(cat mock_server.pid)" 2>/dev/null || true
   fi
