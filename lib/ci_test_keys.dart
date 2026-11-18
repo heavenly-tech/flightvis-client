@@ -11,6 +11,8 @@ abstract final class FlightVisTestKeys {
   static const permissionsScreen = ValueKey<String>('flightvis_permissions');
   static const permissionsPrimary = ValueKey<String>('flightvis_permissions_primary');
   static const loginGuest = ValueKey<String>('flightvis_login_guest');
+  static const loginRegister = ValueKey<String>('flightvis_login_register');
+  static const loginRegisterNote = ValueKey<String>('flightvis_login_register_note');
   static const checkinContinue = ValueKey<String>('flightvis_checkin_continue');
   static const tailPicker = ValueKey<String>('flightvis_tail_picker');
   static const tailStart = ValueKey<String>('flightvis_tail_start');

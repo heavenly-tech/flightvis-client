@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/flight_vis_client.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../ci_test_keys.dart';
 import '../services/passkey_auth.dart';
+import '../util/club_registration_url.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -119,6 +121,28 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _openClubRegistration() async {
+    final l10n = context.pilotL10n;
+    setState(() {
+      _error = null;
+      _info = null;
+    });
+    widget.repo.refreshBaseUrl();
+    widget.repo.syncClubFromPrefs();
+    final slug = ClubRegistrationUrl.resolveClubSlug(
+      activeClubSlug: widget.repo.prefs.activeClubSlug(),
+      clientClubSlug: widget.repo.client.clubSlug,
+    );
+    final uri = ClubRegistrationUrl.build(
+      serverBaseUrl: widget.repo.prefs.baseUrl(),
+      clubSlug: slug,
+    );
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      setState(() => _error = l10n.pilotRegisterOpenFailed);
+    }
+  }
+
   Future<void> _passwordLogin() async {
     setState(() {
       _busy = true;
@@ -159,7 +183,19 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: 8),
             Text(l10n.pilotSignInIntro),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              key: FlightVisTestKeys.loginRegister,
+              onPressed: _busy ? null : _openClubRegistration,
+              child: Text(l10n.pilotRegisterButton),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.pilotRegisterApprovalNote,
+              key: FlightVisTestKeys.loginRegisterNote,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _busy ? null : _passkey,
               icon: const Icon(Icons.fingerprint),
