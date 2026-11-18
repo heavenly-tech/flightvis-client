@@ -82,29 +82,47 @@ Future<void> waitForTappable(
   throw TestFailure('Timed out after ${timeout.inSeconds}s waiting for tappable: $name');
 }
 
-Future<void> _popTopRouteIfCheckinVisible(WidgetTester tester) async {
+Future<void> _popCheckinRouteIfVisible(WidgetTester tester) async {
   final checkin = find.byKey(FlightVisTestKeys.checkinScreen);
   if (checkin.evaluate().isEmpty) return;
 
-  final navigatorFinder = find.byType(Navigator);
-  if (navigatorFinder.evaluate().isEmpty) return;
-
-  final navigator = tester.state<NavigatorState>(navigatorFinder.last);
-  if (navigator.canPop()) {
-    ciLog('hub: integration test navigator.pop (check-in still visible)');
+  final navigator = tester
+      .element(checkin.first)
+      .findAncestorStateOfType<NavigatorState>();
+  if (navigator != null && navigator.canPop()) {
+    ciLog('hub: ancestor navigator.pop (check-in still visible)');
     navigator.pop();
     await pumpFrames(tester, total: const Duration(seconds: 2));
   }
 }
 
-Future<void> leaveCheckinForHub(WidgetTester tester) async {
-  final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
-  await tapWhenFound(
+/// Emulator integration taps can miss [FilledButton] hits; invoke [onPressed] when unambiguous.
+Future<void> activateCheckinContinue(WidgetTester tester) async {
+  final continueFinder = find.byKey(FlightVisTestKeys.checkinContinue);
+  await waitForFound(
     tester,
-    find.byKey(FlightVisTestKeys.checkinContinue),
+    continueFinder,
     label: 'check-in continue',
     timeout: const Duration(seconds: 25),
   );
+  final matches = continueFinder.evaluate();
+  if (matches.length == 1) {
+    final button = tester.widget<FilledButton>(continueFinder);
+    if (button.onPressed != null) {
+      ciLog('hub: invoke check-in continue onPressed');
+      button.onPressed!();
+      await pumpFrames(tester, total: const Duration(seconds: 2));
+      return;
+    }
+  }
+  await tester.ensureVisible(continueFinder);
+  await tester.tap(continueFinder);
+  await pumpFrames(tester, total: const Duration(seconds: 2));
+}
+
+Future<void> leaveCheckinForHub(WidgetTester tester) async {
+  final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
+  await activateCheckinContinue(tester);
   try {
     await waitForAbsent(
       tester,
@@ -113,7 +131,7 @@ Future<void> leaveCheckinForHub(WidgetTester tester) async {
       timeout: const Duration(seconds: 20),
     );
   } on TestFailure {
-    await _popTopRouteIfCheckinVisible(tester);
+    await _popCheckinRouteIfVisible(tester);
     await waitForAbsent(
       tester,
       checkinRoute,
