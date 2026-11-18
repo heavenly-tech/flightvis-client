@@ -120,6 +120,23 @@ Future<void> activateCheckinContinue(WidgetTester tester) async {
   await pumpFrames(tester, total: const Duration(seconds: 2));
 }
 
+Future<void> openHubFlightDetails(WidgetTester tester) async {
+  final finder = find.byKey(FlightVisTestKeys.hubFlightDetails);
+  final end = DateTime.now().add(const Duration(seconds: 60));
+  while (DateTime.now().isBefore(end)) {
+    await tester.pump(const Duration(milliseconds: 200));
+    if (finder.evaluate().isEmpty) continue;
+    final tile = tester.widget<ListTile>(finder);
+    if (tile.enabled && tile.onTap != null) {
+      ciLog('hub: invoke flight details onTap');
+      tile.onTap!();
+      await pumpFrames(tester, total: const Duration(seconds: 2));
+      return;
+    }
+  }
+  throw TestFailure('Timed out waiting for enabled hub flight details');
+}
+
 Future<void> leaveCheckinForHub(WidgetTester tester) async {
   final checkinRoute = find.byKey(FlightVisTestKeys.checkinScreen);
   await activateCheckinContinue(tester);

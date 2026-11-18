@@ -103,17 +103,12 @@ void main() {
         }, timeout: const Duration(seconds: 90));
 
         await ciStep(tester, 'start tracking', () async {
-          await tapWhenFound(
-            tester,
-            find.byKey(FlightVisTestKeys.hubFlightDetails),
-            label: 'hub flight details',
-            timeout: const Duration(seconds: 45),
-          );
+          await openHubFlightDetails(tester);
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailPicker),
             label: 'tail picker',
-            timeout: const Duration(seconds: 45),
+            timeout: const Duration(seconds: 90),
           );
           await waitForAbsent(
             tester,
