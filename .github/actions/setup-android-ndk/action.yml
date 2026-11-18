@@ -47,16 +47,23 @@ runs:
           exit 1
         fi
         for attempt in 1 2 3; do
+          if [ -f "$NDK_DIR/source.properties" ]; then
+            echo "flightvis-ci: NDK $NDK_VERSION present at $NDK_DIR"
+            exit 0
+          fi
           echo "flightvis-ci: sdkmanager install ndk;$NDK_VERSION (attempt $attempt/3)"
-          if yes | "$SDKMANAGER" --install "ndk;$NDK_VERSION"; then
-            if [ -f "$NDK_DIR/source.properties" ]; then
-              echo "flightvis-ci: NDK installed at $NDK_DIR"
-              exit 0
-            fi
+          set +e
+          set +o pipefail
+          yes | "$SDKMANAGER" --install "ndk;$NDK_VERSION"
+          set -o pipefail
+          set -e
+          if [ -f "$NDK_DIR/source.properties" ]; then
+            echo "flightvis-ci: NDK installed at $NDK_DIR"
+            exit 0
           fi
           if [ "$attempt" -lt 3 ]; then
             sleep $((attempt * 20))
           fi
         done
-        echo "::error::NDK $NDK_VERSION install failed after 3 attempts"
+        echo "::error::NDK $NDK_VERSION install failed after 3 attempts (missing $NDK_DIR/source.properties)"
         exit 1
