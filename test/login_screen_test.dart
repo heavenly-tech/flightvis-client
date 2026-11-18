@@ -40,18 +40,48 @@ void main() {
     );
   }
 
-  testWidgets('login shows create account action and magic link note', (tester) async {
-    final repo = await mockRepo();
+  Future<void> pumpLogin(
+    WidgetTester tester, {
+    required AppRepository repo,
+    Future<bool> Function(String baseUrl)? signupAvailabilityProbe,
+  }) async {
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
-        home: LoginScreen(repo: repo, onLoggedIn: () {}),
+        home: LoginScreen(
+          repo: repo,
+          onLoggedIn: () {},
+          signupAvailabilityProbe: signupAvailabilityProbe,
+        ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  testWidgets('login shows create account when signup probe is true', (tester) async {
+    final repo = await mockRepo();
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => true,
+    );
     expect(find.byKey(FlightVisTestKeys.loginRegister), findsOneWidget);
     expect(find.byKey(FlightVisTestKeys.loginRegisterNote), findsOneWidget);
     expect(find.text('Crear cuenta'), findsOneWidget);
     expect(find.textContaining('enlace para entrar'), findsOneWidget);
+  });
+
+  testWidgets('login hides create account when signup probe is false', (tester) async {
+    final repo = await mockRepo();
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => false,
+    );
+    expect(find.byKey(FlightVisTestKeys.loginRegister), findsNothing);
+    expect(find.byKey(FlightVisTestKeys.loginRegisterNote), findsNothing);
+    expect(find.text('Crear cuenta'), findsNothing);
+    expect(find.text('Enviar enlace mágico'), findsOneWidget);
   });
 }

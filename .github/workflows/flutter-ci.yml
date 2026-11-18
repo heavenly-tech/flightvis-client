@@ -1,5 +1,9 @@
 name: flight_vis CI
 
+concurrency:
+  group: flight_vis-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   FLIGHTVIS_NDK_VERSION: '28.2.13676358'
 
@@ -284,8 +288,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     concurrency:
-      group: flightvis-selfhosted-emu-${{ github.ref }}
-      cancel-in-progress: false
+      group: flightvis-selfhosted-emu-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
     timeout-minutes: 32
@@ -417,8 +421,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     concurrency:
-      group: flightvis-selfhosted-emu-${{ github.ref }}
-      cancel-in-progress: false
+      group: flightvis-selfhosted-emu-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
     timeout-minutes: 38

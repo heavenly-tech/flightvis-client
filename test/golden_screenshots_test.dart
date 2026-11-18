@@ -49,6 +49,7 @@ Future<void> _golden(WidgetTester tester, Widget home, String name) async {
   await tester.binding.setSurfaceSize(const Size(390, 844));
   await tester.pumpWidget(PilotAppShell(home: home, locale: const Locale('es')));
   await tester.pumpAndSettle();
+  await tester.pump(const Duration(milliseconds: 100));
   await expectLater(
     find.byType(MaterialApp),
     matchesGoldenFile('../docs/screenshots/$name.png'),
@@ -66,6 +67,7 @@ void main() {
         repo: repo,
         onLoggedIn: () {},
         onContinueAsGuest: () {},
+        signupAvailabilityProbe: (_) async => true,
       ),
       '01-login-options',
     );
@@ -107,11 +109,13 @@ void main() {
           repo: repo,
           onLoggedIn: () {},
           onContinueAsGuest: () {},
+          signupAvailabilityProbe: (_) async => true,
         ),
         locale: const Locale('en'),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('../docs/screenshots/01-login-options-en.png'),

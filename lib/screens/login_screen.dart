@@ -6,6 +6,7 @@ import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../ci_test_keys.dart';
 import '../services/passkey_auth.dart';
+import '../util/account_signup_availability.dart';
 import '../util/account_signup_url.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,11 +15,15 @@ class LoginScreen extends StatefulWidget {
     required this.repo,
     required this.onLoggedIn,
     this.onContinueAsGuest,
+    this.signupAvailabilityProbe,
   });
 
   final AppRepository repo;
   final VoidCallback onLoggedIn;
   final VoidCallback? onContinueAsGuest;
+
+  /// Tests inject a probe; production uses [AccountSignupAvailability.isAvailable].
+  final AccountSignupAvailabilityProbe? signupAvailabilityProbe;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -30,6 +35,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passkeyAuth = PasskeyAuth();
   bool _busy = false;
   bool _showPassword = false;
+  bool _signupAvailable = false;
   String? _error;
   String? _info;
 
@@ -37,6 +43,17 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _passkeyAuth.bindClient(widget.repo.client);
+    _refreshSignupAvailability();
+  }
+
+  Future<void> _refreshSignupAvailability() async {
+    widget.repo.refreshBaseUrl();
+    final base = widget.repo.prefs.baseUrl();
+    final probe =
+        widget.signupAvailabilityProbe ?? AccountSignupAvailability.isAvailable;
+    final available = await probe(base);
+    if (!mounted) return;
+    setState(() => _signupAvailable = available);
   }
 
   @override
@@ -175,18 +192,20 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: 8),
             Text(l10n.pilotSignInIntro),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              key: FlightVisTestKeys.loginRegister,
-              onPressed: _busy ? null : _openAccountSignup,
-              child: Text(l10n.pilotCreateAccountButton),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.pilotCreateAccountNote,
-              key: FlightVisTestKeys.loginRegisterNote,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            if (_signupAvailable) ...[
+              const SizedBox(height: 12),
+              OutlinedButton(
+                key: FlightVisTestKeys.loginRegister,
+                onPressed: _busy ? null : _openAccountSignup,
+                child: Text(l10n.pilotCreateAccountButton),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.pilotCreateAccountNote,
+                key: FlightVisTestKeys.loginRegisterNote,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _busy ? null : _passkey,
