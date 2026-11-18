@@ -252,15 +252,23 @@ jobs:
           script: |
             set -e
             adb wait-for-device
-            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done;'
-            sleep 5
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 2; done;'
+            echo "flightvis-ci: waiting for package manager"
+            for i in $(seq 1 60); do
+              if adb shell pm path android >/dev/null 2>&1; then
+                echo "flightvis-ci: package manager ready (${i}x5s)"
+                break
+              fi
+              sleep 5
+            done
+            adb shell pm path android
+
             adb shell settings put global window_animation_scale 0 || true
             adb shell settings put global transition_animation_scale 0 || true
             adb shell settings put global animator_duration_scale 0 || true
 
-            DART_DEFINES="--dart-define=FLIGHTVIS_BASE_URL=http://10.0.2.2:18080 --dart-define=FLIGHTVIS_SCREENSHOT_TEST=true"
-
-            flutter test integration_test/ $DART_DEFINES
+            DEFINES="--dart-define-from-file=tool/ci_emulator_defines.json"
+            flutter test integration_test/ci_emulator_suite.dart $DEFINES
 
             mkdir -p docs/emulator-screenshots
             adb pull /sdcard/Download/flightvis-emulator/. docs/emulator-screenshots/ || true
