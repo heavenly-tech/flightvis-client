@@ -1,0 +1,264 @@
+name: flight_vis emulator (main)
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: emulator-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLIGHTVIS_NDK_VERSION: '28.2.13676358'
+
+jobs:
+  emulator-tests-main:
+    runs-on: [self-hosted, android-emulator, linux, x64, kvm]
+    timeout-minutes: 32
+    env:
+      ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
+      ANDROID_HOME: /home/ghrunner/android-sdk
+      FLIGHTVIS_EMULATOR_API: '30'
+      FLIGHTVIS_EMULATOR_ARCH: x86_64
+      FLIGHTVIS_EMULATOR_TARGET: google_apis
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Self-hosted host disk cleanup
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_disk_cleanup
+          exit 0
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+
+      - name: Setup Android NDK and Gradle cache
+        uses: ./.github/actions/setup-android-ndk
+        with:
+          ndk-version: ${{ env.FLIGHTVIS_NDK_VERSION }}
+
+      - name: Resolve emulator CPU arch
+        id: emu_arch
+        run: |
+          ARCH="${{ vars.EMULATOR_ARCH }}"
+          if [ -z "$ARCH" ]; then ARCH=x86_64; fi
+          case "$ARCH" in
+            x86_64) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 on the linux/kvm runner (got $ARCH)"; exit 1 ;;
+          esac
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          echo "flightvis-ci: EMULATOR_ARCH=$ARCH"
+
+      - name: flutter pub get
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if flutter pub get; then
+              exit 0
+            fi
+            echo "flutter pub get failed (attempt $attempt/3)"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Start mock flight_vis API
+        run: |
+          dart run tool/mock_flight_vis_server.dart &
+          echo $! > mock_server.pid
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://127.0.0.1:18080/api/devices/anonymous \
+              -H 'Content-Type: application/json' \
+              -d '{"name":"CI"}'; then
+              echo "mock API ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "mock API failed to start"
+          exit 1
+
+      - name: Verify mock API on host
+        run: curl -sf http://127.0.0.1:18080/api/ci-health
+
+      - name: Prebuild debug APK (functional)
+        run: flutter build apk --debug --dart-define-from-file=tool/ci_functional_defines.json
+
+      - name: Emulator host preflight
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_ensure_host_sdk_for_runner
+          emulator_host_preflight_checks
+          emulator_host_stale_cleanup
+
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 28
+        with:
+          api-level: 30
+          arch: ${{ steps.emu_arch.outputs.arch }}
+          target: google_apis
+          avd-name: test
+          force-avd-creation: true
+          cores: 1
+          ram-size: 3072M
+          emulator-boot-timeout: 600
+          pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
+          disable-animations: false
+          script: bash .github/scripts/emulator_run_functional.sh
+
+      - name: Collect emulator diagnostics (host fallback)
+        if: always()
+        timeout-minutes: 4
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          collect_host_diagnostics
+          exit 0
+
+      - name: Cleanup emulator and mock API
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_job_cleanup
+          exit 0
+
+      - name: Upload emulator CI logs
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flight-vis-emulator-tests-main-logs-${{ github.sha }}
+          path: ci-emulator-diagnostics/
+          if-no-files-found: warn
+
+  emulator-screenshots-main:
+    runs-on: [self-hosted, android-emulator, linux, x64, kvm]
+    timeout-minutes: 38
+    continue-on-error: true
+    needs: emulator-tests-main
+    env:
+      ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
+      ANDROID_HOME: /home/ghrunner/android-sdk
+      FLIGHTVIS_EMULATOR_API: '30'
+      FLIGHTVIS_EMULATOR_ARCH: x86_64
+      FLIGHTVIS_EMULATOR_TARGET: google_apis
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Self-hosted host disk cleanup
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_host_disk_cleanup
+          exit 0
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+
+      - name: Setup Android NDK and Gradle cache
+        uses: ./.github/actions/setup-android-ndk
+        with:
+          ndk-version: ${{ env.FLIGHTVIS_NDK_VERSION }}
+
+      - name: Resolve emulator CPU arch
+        id: emu_arch
+        run: |
+          ARCH="${{ vars.EMULATOR_ARCH }}"
+          if [ -z "$ARCH" ]; then ARCH=x86_64; fi
+          case "$ARCH" in
+            x86_64) ;;
+            *) echo "::error::EMULATOR_ARCH must be x86_64 on the linux/kvm runner (got $ARCH)"; exit 1 ;;
+          esac
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: Start mock flight_vis API
+        run: |
+          dart run tool/mock_flight_vis_server.dart &
+          echo $! > mock_server.pid
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://127.0.0.1:18080/api/devices/anonymous \
+              -H 'Content-Type: application/json' \
+              -d '{"name":"CI"}'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Prebuild debug APK (screenshots)
+        run: flutter build apk --debug --dart-define-from-file=tool/ci_screenshot_defines.json
+
+      - name: Emulator host preflight
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_ensure_host_sdk_for_runner
+          emulator_host_preflight_checks
+          emulator_host_stale_cleanup
+
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        timeout-minutes: 30
+        with:
+          api-level: 30
+          arch: ${{ steps.emu_arch.outputs.arch }}
+          target: google_apis
+          avd-name: test
+          force-avd-creation: true
+          cores: 1
+          ram-size: 3072M
+          emulator-boot-timeout: 600
+          pre-emulator-launch-script: .github/scripts/emulator_pre_launch.sh
+          emulator-options: -no-snapshot -wipe-data -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -accel on
+          disable-animations: false
+          script: bash .github/scripts/emulator_run_screenshots.sh
+
+      - name: Cleanup emulator and mock API
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          # shellcheck disable=SC1091
+          source .github/scripts/emulator_ci_host.sh
+          emulator_job_cleanup
+          exit 0
+
+      - name: Upload emulator screenshots
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flight-vis-emulator-screenshots-main-${{ github.sha }}
+          path: docs/emulator-screenshots/
+          if-no-files-found: warn
