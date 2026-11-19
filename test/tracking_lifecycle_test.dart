@@ -28,7 +28,7 @@ void main() {
       );
     });
 
-    test('false when server check failed (null)', () {
+    test('true when server check unknown but check-in valid (M-5)', () {
       expect(
         shouldResumeTracking(
           activeFlightId: 'f1',
@@ -36,7 +36,7 @@ void main() {
           checkinExpiresAtMs: 9_999_999,
           nowMs: 0,
         ),
-        isFalse,
+        isTrue,
       );
     });
 
