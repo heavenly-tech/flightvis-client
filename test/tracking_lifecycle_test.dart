@@ -66,17 +66,27 @@ void main() {
   });
 
   group('ingestLogRequiresStop', () {
-    test('401 and unauthorized', () {
-      expect(ingestLogRequiresStop('HTTP 401 from /api/osmand'), isTrue);
-      expect(ingestLogRequiresStop('upload unauthorized'), isTrue);
+    test('stops on Upload response 400, 401, 403', () {
+      expect(ingestLogRequiresStop('Upload response 400'), isTrue);
+      expect(ingestLogRequiresStop('Upload response 401'), isTrue);
+      expect(ingestLogRequiresStop('Upload response 403'), isTrue);
     });
 
-    test('400 no active flight', () {
-      expect(ingestLogRequiresStop('HTTP 400: no active flight'), isTrue);
+    test('does not stop on 200 or 500', () {
+      expect(ingestLogRequiresStop('Upload response 200'), isFalse);
+      expect(ingestLogRequiresStop('Upload response 500'), isFalse);
+    });
+
+    test('coordinate line containing 401 does not stop', () {
+      expect(
+        ingestLogRequiresStop('position lat=-33.4012 lon=-70.6'),
+        isFalse,
+      );
     });
 
     test('ignores unrelated logs', () {
       expect(ingestLogRequiresStop('position sent ok'), isFalse);
+      expect(ingestLogRequiresStop('upload unauthorized'), isFalse);
     });
   });
 }
