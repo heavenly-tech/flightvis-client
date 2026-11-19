@@ -67,6 +67,12 @@ class _FlightVisAppState extends State<FlightVisApp> {
   }
 
   Future<void> _onDeepLink(ParsedDeepLink link) async {
+    if (link is AppHomeDeepLink) {
+      if (!_appReady) return;
+      if (_flow == _Flow.tracking) return;
+      if (mounted) _goHub();
+      return;
+    }
     if (link is MagicLinkDeepLink) {
       try {
         final pilot = await widget.repo.client.completeMagicLink(link.token);

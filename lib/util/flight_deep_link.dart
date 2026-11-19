@@ -23,6 +23,11 @@ class MagicLinkDeepLink extends ParsedDeepLink {
   final String token;
 }
 
+/// `https://flight.heavenly.cl/app.html` — open the signed-in / guest home hub.
+class AppHomeDeepLink extends ParsedDeepLink {
+  const AppHomeDeepLink();
+}
+
 class FlightDeepLink {
   static const productionHost = 'flight.heavenly.cl';
   static const androidPackage = 'cl.heavenly.flightvis';
@@ -47,6 +52,9 @@ class FlightDeepLink {
   static ParsedDeepLink? parseHttpsUri(Uri uri) {
     if (!_isTrustedHost(uri)) return null;
     final segs = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    if (segs.length == 1 && segs[0] == 'app.html') {
+      return const AppHomeDeepLink();
+    }
     if (segs.length >= 4 && segs[0] == 'c' && segs[2] == 'q') {
       final slug = segs[1];
       final token = Uri.decodeComponent(segs.sublist(3).join('/'));
