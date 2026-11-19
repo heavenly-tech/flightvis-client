@@ -276,10 +276,12 @@ jobs:
     if: |
       needs.build.result == 'success' && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
-          (contains(github.event.pull_request.labels.*.name, 'ready') ||
-            github.event.action == 'ready_for_review' ||
-            (github.event.action == 'labeled' && github.event.label.name == 'ready')))
+        (github.event_name == 'pull_request' && (
+          !github.event.pull_request.draft ||
+          contains(github.event.pull_request.labels.*.name, 'ready') ||
+          github.event.action == 'ready_for_review' ||
+          (github.event.action == 'labeled' && github.event.label.name == 'ready')
+        ))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -389,10 +391,12 @@ jobs:
       && (needs.emulator-tests.result == 'success' || needs.emulator-tests.result == 'skipped')
       && (
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
-          (contains(github.event.pull_request.labels.*.name, 'ready') ||
-            github.event.action == 'ready_for_review' ||
-            (github.event.action == 'labeled' && github.event.label.name == 'ready')))
+        (github.event_name == 'pull_request' && (
+          !github.event.pull_request.draft ||
+          contains(github.event.pull_request.labels.*.name, 'ready') ||
+          github.event.action == 'ready_for_review' ||
+          (github.event.action == 'labeled' && github.event.label.name == 'ready')
+        ))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 50
