@@ -21,6 +21,13 @@ void main() {
       expect((link! as MagicLinkDeepLink).token, 'abc123');
     });
 
+    test('parses app.html as home', () {
+      final link = FlightDeepLink.parseIncoming(
+        Uri.parse('https://flight.heavenly.cl/app.html'),
+      );
+      expect(link, isA<AppHomeDeepLink>());
+    });
+
     test('parses server magic consume URL (C-5)', () {
       final link = FlightDeepLink.parseIncoming(
         Uri.parse('https://flight.heavenly.cl/api/club/auth/magic?token=abc123'),

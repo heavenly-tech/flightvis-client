@@ -137,8 +137,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
     try {
       await widget.tracking.stop();
       if (AppConfig.screenshotTest) {
-        await widget.repo.prefs.setActiveFlightId(null);
         if (mounted) widget.onStopped();
+        await widget.repo.prefs.setActiveFlightId(null);
         return;
       }
       await widget.repo.client.endFlight(widget.flightId);
@@ -161,12 +161,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
     return Scaffold(
       key: FlightVisTestKeys.trackingScreen,
       appBar: AppBar(title: Text(l10n.pilotTrackingTitle)),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Text(l10n.pilotTailLine(widget.tail), style: Theme.of(context).textTheme.titleLarge),
             Text(l10n.pilotFlightIdLine(widget.flightId)),
             const SizedBox(height: 12),
@@ -194,7 +195,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
               onPressed: _endFlight,
               child: Text(l10n.pilotStop),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

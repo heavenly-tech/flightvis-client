@@ -10,8 +10,13 @@ The release app verifies against Digital Asset Links on the server.
 |------|---------|
 | `/c/{slug}/q/{token}` | Club QR check-in (multi-club) |
 | `/auth/magic/{token}` | Email magic-link login |
+| `/app.html` | Open app home (hub) |
 
-`AndroidManifest.xml` uses `android:autoVerify="true"` for `https://flight.heavenly.cl` with `pathPrefix` `/c/` and `/auth/magic/`. There are no custom URI schemes; the web fallback page may launch `intent://…#Intent;scheme=https;package=cl.heavenly.flightvis;…` which the app resolves to the same HTTPS paths.
+`AndroidManifest.xml` uses `android:autoVerify="true"` for `https://flight.heavenly.cl` with `pathPrefix` `/c/`, `/api/club/auth/magic`, and exact path `/app.html`. There are no custom URI schemes; the web fallback page may launch `intent://…#Intent;scheme=https;package=cl.heavenly.flightvis;…` which the app resolves to the same HTTPS paths.
+
+**Migration:** Uninstall any existing `org.traccar.client` build before installing `cl.heavenly.flightvis` (Android treats them as different apps).
+
+**Server env:** set `FLIGHT_ANDROID_APP_PACKAGE=cl.heavenly.flightvis` and `FLIGHT_ANDROID_CERT_SHA256` to the release keystore certificate SHA-256 (`keytool -list -v -keystore … -alias …`).
 
 ### Signing certificate SHA-256 for `assetlinks.json`
 

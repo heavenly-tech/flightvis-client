@@ -148,6 +148,10 @@ void main() {
 
         await pumpFrames(tester, total: const Duration(seconds: 1));
         expect(find.byKey(FlightVisTestKeys.trackingStop), findsOneWidget);
+
+        await ciStep(tester, 'stop tracking (teardown)', () async {
+          await stopTrackingAndReturnToHub(tester);
+        }, timeout: const Duration(seconds: 120));
         ciLog('screenshots: done');
       } catch (e) {
         await saveCiFailureScreenshot(binding, 'screenshot-flow-failure');

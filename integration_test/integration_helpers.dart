@@ -130,9 +130,10 @@ Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
   );
   await tester.runAsync(() async {
     ciLog('tracking: tap stop');
-    await tester.tap(find.byKey(FlightVisTestKeys.trackingStop));
+    await tester.ensureVisible(stop);
+    await tester.tap(stop);
   });
-  await pumpFrames(tester, total: const Duration(seconds: 2));
+  await pumpFrames(tester, total: const Duration(seconds: 4));
   await waitForAbsent(
     tester,
     find.byKey(FlightVisTestKeys.trackingScreen),
