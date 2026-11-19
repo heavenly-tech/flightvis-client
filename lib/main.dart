@@ -86,7 +86,10 @@ class _FlightVisAppState extends State<FlightVisApp> {
   Future<void> _onDeepLink(ParsedDeepLink link) async {
     if (link is MagicLinkDeepLink) {
       try {
-        final pilot = await widget.repo.client.completeMagicLink(link.token);
+        final pilot = await widget.repo.client.completeMagicLink(
+          link.token,
+          clubSlug: widget.repo.prefs.activeClubSlug() ?? widget.repo.client.clubSlug,
+        );
         if (!pilot.isApproved) return;
         await widget.repo.persistSession();
         await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
