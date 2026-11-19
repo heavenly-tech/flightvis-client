@@ -68,19 +68,28 @@ jobs:
           fi
 
       - name: Merge debug Android manifest (C-3 unit test)
+        env:
+          CI: 'true'
         run: |
           set -euo pipefail
           flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
-          MANIFEST="$(
-            find build -type f -path '*/intermediates/*' -name AndroidManifest.xml 2>/dev/null \
-              | grep -Ev 'aapt|unmerged' \
-              | head -1
-          )"
+          MANIFEST_CANDIDATES=(
+            build/app/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml
+            build/app/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml
+          )
+          MANIFEST=""
+          for candidate in "${MANIFEST_CANDIDATES[@]}"; do
+            if [ -f "$candidate" ]; then
+              MANIFEST="$candidate"
+              break
+            fi
+          done
           if [ -z "$MANIFEST" ]; then
-            find build -type f -name AndroidManifest.xml 2>/dev/null | head -20 >&2 || true
-            echo "::error::Could not locate merged AndroidManifest.xml under build/"
+            find build/app/intermediates -type f -name AndroidManifest.xml 2>/dev/null | head -20 >&2 || true
+            echo "::error::Could not locate app debug merged AndroidManifest.xml"
             exit 1
           fi
+          echo "flightvis-ci: merged manifest $MANIFEST"
           mkdir -p tool
           printf '%s\n' "$MANIFEST" > tool/ci_merged_manifest_path.txt
 
@@ -113,7 +122,7 @@ jobs:
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
-          channel: stable
+          flutter-version: '3.50.0'
 
       - name: Setup Android NDK and Gradle cache
         uses: ./.github/actions/setup-android-ndk

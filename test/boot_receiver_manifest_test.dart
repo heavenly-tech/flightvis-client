@@ -2,6 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+bool _isCi() =>
+    Platform.environment['CI'] == 'true' ||
+    Platform.environment['GITHUB_ACTIONS'] == 'true';
+
 Future<String?> _findMergedManifest() async {
   const ciPointer = 'tool/ci_merged_manifest_path.txt';
   if (File(ciPointer).existsSync()) {
@@ -9,41 +13,48 @@ Future<String?> _findMergedManifest() async {
     if (pointer.isNotEmpty && File(pointer).existsSync()) return pointer;
   }
   const candidates = [
-    'android/app/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml',
-    'android/app/build/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml',
-    'android/app/build/intermediates/merged_manifest/debug/output/AndroidManifest.xml',
+    'build/app/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml',
+    'build/app/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml',
   ];
   for (final path in candidates) {
     if (File(path).existsSync()) return path;
   }
-  for (final root in ['build', 'android/app/build']) {
-    final buildDir = Directory(root);
-    if (!buildDir.existsSync()) continue;
-    await for (final entity in buildDir.list(recursive: true, followLinks: false)) {
-    final path = entity.path;
-    if (!path.endsWith('AndroidManifest.xml')) continue;
-      if (path.contains('merged_manifest') || path.contains('packaged_manifests')) {
-        return path;
-      }
-    }
-  }
   return null;
 }
 
+void _expectExportPolicy(String xml) {
+  final exportedTrue = RegExp(r'android:exported\s*=\s*"true"', caseSensitive: false)
+      .allMatches(xml)
+      .length;
+  expect(
+    exportedTrue,
+    1,
+    reason: 'only MainActivity should be exported=true',
+  );
+  expect(
+    xml,
+    isNot(matches(RegExp(r'<receiver[^>]*android:exported\s*=\s*"true"', caseSensitive: false))),
+  );
+}
+
 void main() {
-  test('BootReceiver removed from merged manifest policy (C-3)', () async {
-    if (!Platform.isLinux) {
-      return;
-    }
+  test('C-3 merged debug manifest policy (BootReceiver / BOOT_COMPLETED / export)', () async {
+    if (!Platform.isLinux) return;
+
     final path = await _findMergedManifest();
     if (path == null) {
-      markTestSkipped(
-        'merged AndroidManifest.xml missing — CI runs debug APK build before flutter test',
-      );
+      if (_isCi()) {
+        fail('merged AndroidManifest.xml missing — expected tool/ci_merged_manifest_path.txt');
+      }
+      markTestSkipped('merged AndroidManifest.xml missing locally');
       return;
     }
+
     final xml = File(path).readAsStringSync();
-    // Merged output must not register Traccar BootReceiver (C-3 remove merge rule).
+    expect(xml, contains('package="cl.heavenly.flightvis"'));
+    expect(xml, contains('TrackerService'));
     expect(xml, isNot(contains('org.traccar.client.BootReceiver')));
+    expect(xml, isNot(contains('BOOT_COMPLETED')));
+    _expectExportPolicy(xml);
   });
 }
