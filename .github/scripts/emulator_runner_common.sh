@@ -15,6 +15,13 @@ collect_emulator_diagnostics() {
   fi
   timeout 25 adb exec-out screencap -p >ci-emulator-diagnostics/screen.png 2>/dev/null || true
   timeout 25 adb logcat -d >ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+  if [ -f ci-emulator-diagnostics/logcat.txt ]; then
+    sed -i -E \
+      -e '/Upload response/d' \
+      -e '/osmand\?/d' \
+      -e 's/(deviceId|device.?token|Bearer )[[:alnum:]_-]+/\1[redacted]/gi' \
+      ci-emulator-diagnostics/logcat.txt 2>/dev/null || true
+  fi
   timeout 25 adb shell dumpsys meminfo cl.heavenly.flightvis >ci-emulator-diagnostics/meminfo.txt 2>/dev/null || true
   timeout 60 adb pull /sdcard/Download/flightvis-emulator/. ci-emulator-diagnostics/flutter-screenshots/ 2>/dev/null || true
 }
