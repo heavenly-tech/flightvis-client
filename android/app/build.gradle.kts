@@ -66,3 +66,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("org.traccar:traccar-client-sdk:1.1.4")
+}

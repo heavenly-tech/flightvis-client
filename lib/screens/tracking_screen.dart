@@ -90,6 +90,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     await widget.tracking.initForFlight(
       baseUrl: widget.repo.prefs.baseUrl(),
       deviceToken: token,
+      checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
     );
     try {
       await widget.tracking.start();
