@@ -69,4 +69,5 @@ flutter {
 
 dependencies {
     implementation("org.traccar:traccar-client-sdk:1.1.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
