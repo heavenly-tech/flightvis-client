@@ -139,7 +139,11 @@ Future<AppRepository> _buildLoggedInRepo({
 }
 
 Future<void> _pumpApp(WidgetTester tester, AppRepository repo) async {
-  await tester.pumpWidget(FlightVisApp(repo: repo, bindPlatformDeepLinks: false));
+  await tester.pumpWidget(FlightVisApp(
+    repo: repo,
+    bindPlatformDeepLinks: false,
+    stopStickyTrackerOnRestore: false,
+  ));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 50));
 }
@@ -194,7 +198,11 @@ void main() {
     );
     final repo = AppRepository(secure: secure, prefs: prefs, client: client);
 
-    await tester.pumpWidget(FlightVisApp(repo: repo, bindPlatformDeepLinks: false));
+    await tester.pumpWidget(FlightVisApp(
+    repo: repo,
+    bindPlatformDeepLinks: false,
+    stopStickyTrackerOnRestore: false,
+  ));
     await tester.pump();
     await DeepLinkTestHooks.dispatch(
       const CheckinDeepLink(clubSlug: _demoSlug, token: _kioskToken),
