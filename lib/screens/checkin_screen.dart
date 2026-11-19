@@ -133,9 +133,10 @@ class _CheckinScreenState extends State<CheckinScreen> {
     return Scaffold(
       key: FlightVisTestKeys.checkinScreen,
       appBar: AppBar(title: Text(l10n.pilotCheckInTitle)),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(l10n.pilotCheckInIntro),
@@ -184,7 +185,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               onPressed: _busy ? null : () => _submitRaw(_pasteController.text),
               child: Text(l10n.pilotSubmitPastedToken),
             ),
-            const Spacer(),
+            const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _busy
                   ? null
