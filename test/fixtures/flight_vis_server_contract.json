@@ -1,0 +1,40 @@
+{
+  "_source": "heavenly-tech/flight_vis bd79692 contract_routes.rs + routes.rs",
+  "routes": {
+    "POST /api/auth/magic/send": {
+      "request": { "email": "string", "locale": "optional string" },
+      "response": { "ok": true }
+    },
+    "POST /api/auth/magic/complete": {
+      "request": { "token": "string", "slug": "optional string" },
+      "response": { "ok": true, "pilot": {} }
+    },
+    "POST /api/auth/passkey/login/options": {
+      "request": { "email": "string" },
+      "response": { "publicKey": {}, "nonce": "string" }
+    },
+    "POST /api/auth/passkey/login/verify": {
+      "request": { "nonce": "string", "credential": {} },
+      "response": { "ok": true, "pilot": {} }
+    },
+    "POST /api/devices/anonymous": {
+      "request": { "name": "optional string" },
+      "response": { "ok": true, "pilot": {} }
+    },
+    "GET /api/clubs/{slug}": {
+      "response": { "club": { "id": "", "name": "", "slug": "", "defaultLocale": "" }, "userLocale": null }
+    },
+    "POST /api/club/login": {
+      "request": { "email": "string", "password": "string", "installId": "optional" },
+      "response": { "ok": true, "pilot": {} }
+    },
+    "GET /api/club/me": { "response": { "pilot": {} } },
+    "POST /api/me/devices": {
+      "request": { "label": "string", "installId": "string", "model": "optional" },
+      "response": { "id": "", "token": "", "label": "", "created": true }
+    },
+    "POST /api/checkin": { "request": { "token": "string" }, "response": { "ok": true } },
+    "POST /api/flights": { "request": { "tail": "string", "visibility": "string" }, "response": { "id": "" } },
+    "POST /api/flights/{id}/end": { "errors": { "409": "not active" } }
+  }
+}

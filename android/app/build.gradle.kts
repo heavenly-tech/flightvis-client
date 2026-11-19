@@ -3,24 +3,20 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
-    // END: FlutterFire Configuration
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("../../environment/key.properties")
+val keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
 android {
-    namespace = "org.traccar.client"
+    namespace = "cl.heavenly.flightvis"
     compileSdk = 37
-    ndkVersion = flutter.ndkVersion
+    // Pinned to Flutter stable NDK (r28c); CI preinstalls via sdkmanager — must stay in sync.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,13 +24,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.traccar.client"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "cl.heavenly.flightvis"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        resourceConfigurations += listOf("es", "en")
     }
 
     signingConfigs {
@@ -57,6 +52,8 @@ android {
 
     lint {
         disable.add("NullSafeMutableLiveData")
+        fatal += setOf("HardcodedText", "MissingTranslation")
+        checkReleaseBuilds = true
     }
 }
 
@@ -68,4 +65,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("org.traccar:traccar-client-sdk:1.1.4")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }

@@ -1,0 +1,70 @@
+name: Setup pinned Android NDK
+description: Cache Gradle and NDK directories, then ensure the pinned NDK is installed before Gradle runs.
+inputs:
+  ndk-version:
+    description: Android NDK side-by-side version (must match android/app ndkVersion).
+    required: false
+    default: '28.2.13676358'
+runs:
+  using: composite
+  steps:
+    - id: sdkroot
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+        echo "root=$SDK" >> "$GITHUB_OUTPUT"
+        echo "FLIGHTVIS_ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ${{ steps.sdkroot.outputs.root }}/ndk/${{ inputs.ndk-version }}
+        key: flightvis-ndk-${{ inputs.ndk-version }}-${{ runner.os }}-${{ runner.arch }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'android/**') }}
+        restore-keys: |
+          flightvis-ndk-${{ inputs.ndk-version }}-${{ runner.os }}-${{ runner.arch }}-gradle-
+
+    - shell: bash
+      run: |
+        set -euo pipefail
+        SDK="${FLIGHTVIS_ANDROID_SDK_ROOT}"
+        NDK_VERSION="${{ inputs.ndk-version }}"
+        export ANDROID_SDK_ROOT="$SDK"
+        export ANDROID_HOME="$SDK"
+        NDK_DIR="$ANDROID_SDK_ROOT/ndk/$NDK_VERSION"
+
+        if [ -f "$NDK_DIR/source.properties" ]; then
+          echo "flightvis-ci: NDK $NDK_VERSION already at $NDK_DIR (skip sdkmanager)"
+          exit 0
+        fi
+
+        SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+        if [ ! -x "$SDKMANAGER" ]; then
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1 || true)"
+        fi
+        if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+          echo "::error::sdkmanager not found under $SDK"
+          exit 1
+        fi
+
+        yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+        for attempt in 1 2 3; do
+          if [ -f "$NDK_DIR/source.properties" ]; then
+            echo "flightvis-ci: NDK $NDK_VERSION present at $NDK_DIR"
+            exit 0
+          fi
+          echo "flightvis-ci: sdkmanager install ndk;$NDK_VERSION (attempt $attempt/3)"
+          "$SDKMANAGER" --install "ndk;$NDK_VERSION" || true
+          if [ -f "$NDK_DIR/source.properties" ]; then
+            echo "flightvis-ci: NDK installed at $NDK_DIR"
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            sleep $((attempt * 20))
+          fi
+        done
+        echo "::error::NDK $NDK_VERSION install failed after 3 attempts (missing $NDK_DIR/source.properties)"
+        exit 1

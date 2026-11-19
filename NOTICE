@@ -1,0 +1,26 @@
+flight_vis — pilot tracker for flying clubs
+===========================================
+
+This application is derived from Traccar Client
+(https://github.com/traccar/traccar-client), copyright Anton Tananaev,
+licensed under the Apache License, Version 2.0. See LICENSE.txt.
+
+Upstream base commit for this fork: 94dd73f16b00c37cf1a527925efe91e60d3b856f
+(https://github.com/traccar/traccar-client/commit/94dd73f16b00c37cf1a527925efe91e60d3b856f)
+
+Modifications include rebrand to flight_vis (cl.heavenly.flightvis), removal of
+third-party telemetry, club pilot login / device pairing / check-in / flight
+start-stop flow against the flight_vis server, and CI packaging for Android
+release builds.
+
+Third-party components
+----------------------
+
+- traccar_client_sdk (https://pub.dev/packages/traccar_client_sdk) — location
+  tracking and OsmAnd/Traccar protocol upload. Refer to the package license on
+  pub.dev.
+
+- mobile_scanner (https://pub.dev/packages/mobile_scanner) — BSD-3-Clause — QR
+  barcode scanning for club check-in and device pairing.
+
+Other dependencies are listed in pubspec.yaml with their respective licenses.

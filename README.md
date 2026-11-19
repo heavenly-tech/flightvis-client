@@ -1,38 +1,72 @@
-# [Traccar Client app](https://www.traccar.org/client)
+# flight_vis (Android pilot app)
 
-[![Get it on Google Play](https://www.tananaev.com/badges/google-play.svg)](https://play.google.com/store/apps/details?id=org.traccar.client) [![Download on the App Store](https://www.tananaev.com/badges/app-store.svg)](https://itunes.apple.com/app/traccar-client/id843156974)
+Club check-in, flight tracking, and pilot login for [heavenly-tech/flight_vis](https://github.com/heavenly-tech/flight_vis).
 
-## Overview
+## App Links (`flight.heavenly.cl`)
 
-Traccar Client is a GPS tracking app for Android and iOS. It runs in the background and sends location updates to your own server running [Traccar](https://github.com/traccar/traccar), the open-source GPS tracking platform.
+The release app verifies against Digital Asset Links on the server.
 
-- **Real-time Tracking**: See your device’s location on your private server in real time.
-- **Open-Source**: 100% free and open-source, with no ads or tracking.
-- **Customizable**: Configure update intervals, accuracy, and data usage to fit your needs.
-- **Privacy First**: Your location data is sent only to your chosen server—never to third parties.
-- **Easy Integration**: Designed to work seamlessly with the Traccar server and many third-party GPS tracking platforms.
+| Path | Purpose |
+|------|---------|
+| `/c/{slug}/q/{token}` | Club QR check-in (multi-club) |
+| `/auth/magic/{token}` | Email magic-link login |
 
-Just enter your server address, grant location permissions, and the app will automatically send periodic location reports in the background.
+`AndroidManifest.xml` uses `android:autoVerify="true"` for `https://flight.heavenly.cl` with `pathPrefix` `/c/` and `/auth/magic/`. There are no custom URI schemes; the web fallback page may launch `intent://…#Intent;scheme=https;package=cl.heavenly.flightvis;…` which the app resolves to the same HTTPS paths.
 
-Don't have a Traccar server yet? [Try the live demo](https://www.traccar.org/demo-server/) or see the [installation guides](https://www.traccar.org/install-vps/) to set up your own for free.
+### Signing certificate SHA-256 for `assetlinks.json`
 
-| Client App |
-|---|
-| <img src=".github/screenshot.png" alt="Traccar Client app" width="200"> |
+The server team needs the app’s **release** and (for sideload/testing) **debug** signing cert SHA-256 fingerprints.
 
-## Build
+### CI release keystore (GitHub Actions)
 
-Standard Flutter project:
+Production builds (`push` to `main` or `v*` tags) **fail** unless these repository secrets are set:
 
-```shell
-flutter pub get
-flutter run
+| Secret | Purpose |
+|--------|---------|
+| `FLIGHTVIS_KEYSTORE_BASE64` | Base64-encoded release `.jks` / `.keystore` |
+| `FLIGHTVIS_KEYSTORE_PASSWORD` | Keystore password |
+| `FLIGHTVIS_KEY_ALIAS` | Key alias inside the store |
+| `FLIGHTVIS_KEY_PASSWORD` | Private key password |
+
+Use **one stable release keystore forever**. Rotating it breaks Android App Links until `assetlinks.json` is updated with the new certificate SHA-256. Pull-request CI may produce a **debug-signed** APK artifact named `flight-vis-android-debugsigned-<sha>`; do not ship that build. Release runs upload `build/app-release.cert-sha256` (from `apksigner verify --print-certs`) for the server team.
+
+**Release APK / Play App Signing**
+
+If you build with the `FLIGHTVIS_KEYSTORE_*` CI secrets (`android/app/release.keystore`):
+
+```bash
+keytool -list -v -keystore android/app/release.keystore -alias YOUR_KEY_ALIAS
 ```
 
-## Team
+Enter the keystore password when prompted. Copy the **SHA-256** line under `Certificate fingerprints`.
 
-- Anton Tananaev ([anton@traccar.org](mailto:anton@traccar.org))
+**Gradle signing report (all variants on a dev machine)**
 
-## License
+```bash
+cd android && ./gradlew signingReport
+```
 
-Apache License, Version 2.0. See [LICENSE.txt](https://github.com/traccar/traccar-client/blob/master/LICENSE.txt) for details.
+Look for `SHA-256` under `release` and `debug` config blocks.
+
+**Debug keystore (local emulator / unsigned CI APK)**
+
+Default Android debug keystore:
+
+```bash
+keytool -list -v \
+  -keystore ~/.android/debug.keystore \
+  -alias androiddebugkey \
+  -storepass android -keypass android
+```
+
+Publish fingerprints in `https://flight.heavenly.cl/.well-known/assetlinks.json` for package name `cl.heavenly.flightvis`.
+
+## Development
+
+```bash
+flutter pub get
+flutter analyze
+flutter test
+```
+
+Emulator screenshot flow (CI): `integration_test/screenshot_flow_test.dart` and `integration_test/deep_link_checkin_test.dart`.

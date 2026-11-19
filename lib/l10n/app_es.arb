@@ -36,5 +36,150 @@
   "sosAction": "Enviar SOS",
   "disclosureMessage": "Esta aplicación recopila datos de ubicación y actividad en segundo plano y los envía al servidor configurado.",
   "configurationMessage": "¿Aplicar la nueva configuración?",
+  "pilotSignInTitle": "Acceso piloto",
+  "pilotSignInIntro": "Use passkey, enlace mágico o contraseña. También puede continuar sin iniciar sesión.",
+  "pilotSignInPasskey": "Iniciar con passkey",
+  "pilotCreateAccountButton": "Crear cuenta",
+  "pilotCreateAccountNote": "Crea tu cuenta con tu correo; te enviaremos un enlace para entrar.",
+  "pilotCreateAccountOpenFailed": "No se pudo abrir el registro en el navegador.",
+  "pilotSignInMagicLink": "Enviar enlace mágico",
+  "pilotSignInPasswordToggle": "Usar contraseña",
+  "pilotMagicLinkSent": "Si el correo está registrado, le enviamos un enlace de acceso.",
+  "pilotContinueAsGuest": "Continuar sin iniciar sesión",
+  "pilotHubGuestMode": "Modo invitado — el tracking funciona; inicie sesión para guardar historial.",
+  "pilotHubActiveClub": "Club: {name}",
+  "@pilotHubActiveClub": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "pilotHubNoClubYet": "Escanee el QR de check-in del club para elegir el club.",
+  "pilotPendingApproval": "Su cuenta de piloto aún no está aprobada.",
+  "pilotSignOut": "Cerrar sesión",
+  "pilotSignInButton": "Iniciar sesión",
+  "pilotEmailLabel": "Correo",
+  "pilotPasswordLabel": "Contraseña",
+  "pilotHubSignedInAs": "Sesión: {name}",
+  "@pilotHubSignedInAs": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "pilotHubCheckInTitle": "Check-in club",
+  "pilotHubCheckInSubtitle": "Escanee el QR de la pantalla del club",
+  "pilotCheckInValidUntil": "Check-in válido hasta {time}",
+  "@pilotCheckInValidUntil": {
+    "placeholders": {
+      "time": {"type": "String"}
+    }
+  },
+  "pilotCheckInExpiredRescan": "Escanee de nuevo el QR del club para volar.",
+  "pilotHubFlightTitle": "Detalles del vuelo",
+  "pilotHubFlightSubtitle": "Elija matrícula y visibilidad, luego comience",
+  "pilotHubPairingTitle": "Vincular dispositivo",
+  "pilotHubPairingSubtitle": "Escanee o pegue el token del dispositivo",
+  "pilotCheckInTitle": "Check-in club",
+  "pilotCheckInIntro": "Escanee el QR rotativo en la pantalla del club. Se renueva cada ~30 segundos.",
+  "pilotScanCheckInQr": "Escanear QR de check-in",
+  "pilotPasteCheckInToken": "O pegue el token de check-in",
+  "pilotSubmitPastedToken": "Enviar token",
+  "pilotContinue": "Continuar",
+  "pilotCheckInSuccess": "Check-in correcto.",
+  "pilotCheckInValidFor": "Check-in válido {minutes}m {seconds}s",
+  "@pilotCheckInValidFor": {
+    "placeholders": {
+      "minutes": {"type": "int"},
+      "seconds": {"type": "int"}
+    }
+  },
+  "pilotCheckInExpired": "Check-in vencido. Escanee de nuevo el QR del club.",
+  "pilotCheckInRequired": "Haga check-in con el QR del club antes de volar.",
+  "pilotFlightDetailsTitle": "Detalles del vuelo",
+  "pilotTailLabel": "Matrícula",
+  "pilotVisibilityLabel": "Visibilidad",
+  "pilotVisibilityPrivate": "Privado",
+  "pilotVisibilityClub": "Club",
+  "pilotVisibilityPublic": "Público",
+  "pilotShowPilotNamePublic": "Mostrar nombre en mapa público",
+  "pilotSelectTail": "Seleccione una matrícula.",
+  "pilotStart": "Comenzar tracking",
+  "pilotStop": "Finalizar tracking",
+  "pilotTrackingTitle": "En vuelo",
+  "pilotTailLine": "Matrícula: {tail}",
+  "@pilotTailLine": {
+    "placeholders": {
+      "tail": {"type": "String"}
+    }
+  },
+  "pilotFlightIdLine": "Vuelo: {id}",
+  "@pilotFlightIdLine": {
+    "placeholders": {
+      "id": {"type": "String"}
+    }
+  },
+  "pilotBroadcasting": "Transmitiendo posición",
+  "pilotBroadcastingPaused": "Transmisión pausada",
+  "pilotDeviceTokenMissing": "Falta el token del dispositivo — vincúlelo primero.",
+  "permOnboardingTitle": "Permisos para volar",
+  "permIntroBody": "Para transmitir su posición durante el vuelo, flight_vis necesita ubicación en segundo plano, notificaciones y batería sin restricciones.",
+  "permFineTitle": "Ubicación precisa",
+  "permFineBody": "Primero conceda acceso a la ubicación mientras usa la app. Es el primer paso para el GPS en vuelo.",
+  "permFineAction": "Conceder ubicación",
+  "permBackgroundTitle": "Permitir todo el tiempo",
+  "permBackgroundBody": "En la siguiente pantalla del sistema, elija «Permitir todo el tiempo» para que el tracking continúe con la pantalla apagada.",
+  "permBackgroundAction": "Continuar a segundo plano",
+  "permNotifTitle": "Notificaciones",
+  "permNotifBody": "Android necesita notificaciones para mostrar el servicio en primer plano mientras transmite.",
+  "permNotifAction": "Conceder notificaciones",
+  "permBatteryTitle": "Batería sin restricciones",
+  "permBatteryBody": "Excluya flight_vis de la optimización de batería para que Android no detenga el tracking.",
+  "permBatteryAction": "Abrir ajustes de batería",
+  "permContinue": "Continuar",
+  "permFinish": "Listo para volar",
+  "permWarningTitle": "Faltan permisos para transmitir",
+  "permWarningBackground": "Debe activar «Permitir todo el tiempo» en ubicación.",
+  "permWarningFix": "Corregir",
+  "permStartBlocked": "No puede comenzar el tracking sin ubicación en segundo plano.",
+  "appName": "flight_vis",
+  "pilotCheckInInvalidCode": "Código de check-in no válido.",
+  "pilotGpsStartFailed": "No se pudo iniciar el GPS. Revise los permisos de ubicación.",
+  "pilotSaveToHistoryTitle": "¿Guardar en mi historial?",
+  "pilotSaveToHistoryBody": "Si inicia sesión, puede guardar este vuelo en su historial personal.",
+  "pilotSaveToHistoryYes": "Sí, guardar",
+  "pilotSaveToHistoryNo": "No",
+  "permLegacyTitle": "Permisos",
+  "permLegacyIntro": "flight_vis necesita ubicación y ajustes de batería para transmitir su posición en segundo plano durante el vuelo.",
+  "permLegacyLocationTitle": "Ubicación — permitir todo el tiempo",
+  "permLegacyLocationSubtitle": "Necesario para GPS continuo con la pantalla apagada.",
+  "permLegacyBatteryTitle": "Batería sin restricciones",
+  "permLegacyBatterySubtitle": "Desactive la optimización de batería para que Android no detenga el tracking.",
+  "permOpenSettings": "Abrir",
+  "pilotPairingTitle": "Vincular dispositivo",
+  "pilotPairingIntro": "Vincule este teléfono con su cuenta piloto usando el token único del sitio del club (Mis dispositivos → QR nuevo).",
+  "pilotScanPairingQr": "Escanear QR de vinculación",
+  "pilotPasteDeviceToken": "O pegue el token del dispositivo",
+  "pilotSaveDeviceToken": "Guardar token",
+  "pilotDeviceTokenTooShort": "El token del dispositivo parece demasiado corto.",
+  "pilotQrCameraUnavailable": "Cámara no disponible",
+  "pilotQrOpenSettings": "Abrir ajustes",
+  "hiddenServerSettingsTitle": "Ajustes del servidor",
+  "hiddenApiBaseUrlLabel": "URL base de la API",
+  "hiddenApiBaseUrlHelper": "Puede cambiar la URL predeterminada de compilación. Sin barra final.",
+  "hiddenServerUrlSaved": "URL del servidor guardada",
+  "pilotLanguageTitle": "Idioma",
+  "pilotLanguageSystem": "Según el dispositivo",
+  "pilotLanguageSpanish": "Español (Chile)",
+  "pilotLanguageEnglish": "English",
+  "pilotTailTypeFormat": "{tail} ({type})",
+  "@pilotTailTypeFormat": {
+    "placeholders": {
+      "tail": {"type": "String"},
+      "type": {"type": "String"}
+    }
+  },
+  "errorGeneric": "Ocurrió un error. Inténtelo de nuevo.",
+  "errorUnauthorized": "Debe iniciar sesión para continuar.",
+  "pilotForegroundNotificationText": "Transmitiendo posición del vuelo",
+  "pilotForegroundNotificationChannel": "Seguimiento en vuelo",
   "@@locale": "es"
 }

@@ -1,0 +1,59 @@
+{
+  "_source": "heavenly-tech/flight_vis PR #15 (club registry API)",
+  "post_club_login_success": {
+    "ok": true,
+    "pilot": {
+      "id": "p1",
+      "name": "Demo Pilot",
+      "email": "pilot@demo.test",
+      "status": "approved",
+      "role": "pilot"
+    }
+  },
+  "get_club_me_success": {
+    "pilot": {
+      "id": "p1",
+      "name": "Demo Pilot",
+      "email": "pilot@demo.test",
+      "status": "approved",
+      "role": "pilot",
+      "licenseNo": "L-1"
+    }
+  },
+  "post_checkin_success": {
+    "ok": true,
+    "expiresAt": "2026-11-17T15:00:00Z"
+  },
+  "get_me_tails_success": {
+    "tails": [
+      {
+        "id": "a1",
+        "tail": "N12345",
+        "type_code": "C172"
+      }
+    ]
+  },
+  "post_flights_request": {
+    "tail": "N12345",
+    "visibility": "club",
+    "show_pilot_name_public": false
+  },
+  "post_flights_success": {
+    "id": "flight-ci-1",
+    "visibility": "club",
+    "showPilotNamePublic": false
+  },
+  "post_checkin_request": {
+    "token": "v1.club1.999999.abcdef0123456789abcdef0123456789"
+  },
+  "post_club_login_request": {
+    "email": "pilot@demo.test",
+    "password": "password12"
+  },
+  "error_checkin_required": {
+    "error": "check-in required"
+  },
+  "error_not_cleared": {
+    "error": "not cleared for CC-ABC / C172"
+  }
+}
