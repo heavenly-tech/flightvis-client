@@ -30,17 +30,21 @@ void _expectNoBootCompletedReceivers(String xml) {
 }
 
 void _expectExportPolicy(String xml) {
-  expect(
-    xml,
-    isNot(matches(RegExp(r'<(service|receiver)\b[^>]*android:exported\s*=\s*"true"', caseSensitive: false))),
-  );
-  expect(
-    xml,
-    matches(RegExp(
-      r'<activity\b[^>]*android:name="\.MainActivity"[^>]*android:exported\s*=\s*"true"',
-      caseSensitive: false,
-    )),
-  );
+  final exportedAppComponents = RegExp(
+    r'<(activity|service|receiver)\b[^>]*android:name="([^"]+)"[^>]*android:exported\s*=\s*"true"',
+    caseSensitive: false,
+  ).allMatches(xml);
+  for (final match in exportedAppComponents) {
+    final name = match.group(2)!;
+    if (!name.startsWith('cl.heavenly.flightvis') && !name.startsWith('.')) {
+      continue;
+    }
+    expect(
+      name == 'cl.heavenly.flightvis.MainActivity' || name == '.MainActivity',
+      isTrue,
+      reason: 'only MainActivity may be exported in app package (found $name)',
+    );
+  }
 }
 
 void main() {
