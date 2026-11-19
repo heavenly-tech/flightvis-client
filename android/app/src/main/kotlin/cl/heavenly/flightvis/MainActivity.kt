@@ -5,7 +5,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -45,7 +47,11 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "scheduleCheckinExpiryStop" -> {
                         val expiresAtMs = (call.arguments as Number).toLong()
-                        scheduleCheckinExpiryStop(expiresAtMs)
+                        try {
+                            scheduleCheckinExpiryStop(expiresAtMs)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "scheduleCheckinExpiryStop failed", e)
+                        }
                         result.success(null)
                     }
                     "cancelCheckinExpiryStop" -> {
@@ -70,7 +76,23 @@ class MainActivity : FlutterActivity() {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiresAtMs, pending)
+        try {
+            val useExact =
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    alarmManager.canScheduleExactAlarms()
+            if (useExact) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    expiresAtMs,
+                    pending,
+                )
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiresAtMs, pending)
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "exact alarm denied; falling back to inexact", e)
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, expiresAtMs, pending)
+        }
     }
 
     private fun cancelCheckinExpiryStop() {
@@ -103,5 +125,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val PRODUCTION_HOST = "flight.heavenly.cl"
         private const val CHECKIN_EXPIRY_ALARM_REQUEST = 41001
+        private const val TAG = "FlightVisMainActivity"
     }
 }

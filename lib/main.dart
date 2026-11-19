@@ -32,13 +32,22 @@ void main() async {
 }
 
 class FlightVisApp extends StatefulWidget {
-  const FlightVisApp({super.key, required this.repo, this.bindPlatformDeepLinks = true});
+  const FlightVisApp({
+    super.key,
+    required this.repo,
+    this.bindPlatformDeepLinks = true,
+    this.stopStickyTrackerOnRestore = true,
+  });
 
   final AppRepository repo;
 
   /// Widget tests set this to false to skip `app_links` platform setup.
   @visibleForTesting
   final bool bindPlatformDeepLinks;
+
+  /// When false, widget tests avoid native Traccar [TrackingService.stop] on restore (L-33).
+  @visibleForTesting
+  final bool stopStickyTrackerOnRestore;
 
   @override
   State<FlightVisApp> createState() => _FlightVisAppState();
@@ -252,10 +261,12 @@ class _FlightVisAppState extends State<FlightVisApp> {
       checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
       nowMs: nowMs,
     );
-    if (!resumeTracking && activeFlight != null) {
+    if (!resumeTracking && widget.stopStickyTrackerOnRestore) {
       await _tracking.stop();
-      await widget.repo.prefs.setActiveFlightId(null);
-      activeFlight = null;
+      if (activeFlight != null) {
+        await widget.repo.prefs.setActiveFlightId(null);
+        activeFlight = null;
+      }
     }
     if (!mounted) return;
     setState(() {

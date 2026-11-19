@@ -40,4 +40,13 @@ void main() {
     await CheckinExpiryAlarm.cancel();
     expect(log.single.method, 'cancelCheckinExpiryStop');
   });
+
+  test('scheduleStopAt swallows PlatformException (exact alarm denied)', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      throw PlatformException(code: 'exact_alarms_not_permitted');
+    });
+    final expiresAt = DateTime.now().add(const Duration(hours: 2)).millisecondsSinceEpoch;
+    await CheckinExpiryAlarm.scheduleStopAt(expiresAt);
+  });
 }

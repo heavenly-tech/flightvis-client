@@ -22,6 +22,16 @@ class CheckinExpiryAlarm {
       await _channel.invokeMethod<void>('scheduleCheckinExpiryStop', expiresAtMs);
     } on MissingPluginException {
       // Desktop / unsupported.
+    } on PlatformException catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('CheckinExpiryAlarm: schedule failed (${e.code}): ${e.message}');
+        debugPrint('$st');
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('CheckinExpiryAlarm: schedule failed: $e');
+        debugPrint('$st');
+      }
     }
   }
 
@@ -31,6 +41,16 @@ class CheckinExpiryAlarm {
       await _channel.invokeMethod<void>('cancelCheckinExpiryStop');
     } on MissingPluginException {
       // Desktop / unsupported.
+    } on PlatformException catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('CheckinExpiryAlarm: cancel failed (${e.code}): ${e.message}');
+        debugPrint('$st');
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('CheckinExpiryAlarm: cancel failed: $e');
+        debugPrint('$st');
+      }
     }
   }
 }
