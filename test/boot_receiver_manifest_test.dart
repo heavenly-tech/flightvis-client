@@ -16,9 +16,10 @@ Future<String?> _findMergedManifest() async {
   for (final path in candidates) {
     if (File(path).existsSync()) return path;
   }
-  final buildDir = Directory('android/app/build');
-  if (!buildDir.existsSync()) return null;
-  await for (final entity in buildDir.list(recursive: true, followLinks: false)) {
+  for (final root in ['build', 'android/app/build']) {
+    final buildDir = Directory(root);
+    if (!buildDir.existsSync()) continue;
+    await for (final entity in buildDir.list(recursive: true, followLinks: false)) {
     final path = entity.path;
     if (!path.endsWith('AndroidManifest.xml')) continue;
     if (path.contains('merged_manifest')) return path;
