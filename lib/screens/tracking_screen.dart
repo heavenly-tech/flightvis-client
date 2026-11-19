@@ -183,7 +183,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
-            const SizedBox(height: 32),
+            const SizedBox(height: 16),
             FilledButton(
               key: FlightVisTestKeys.trackingStop,
               style: FilledButton.styleFrom(
