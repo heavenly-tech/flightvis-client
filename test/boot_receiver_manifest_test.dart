@@ -22,7 +22,10 @@ Future<String?> _findMergedManifest() async {
     await for (final entity in buildDir.list(recursive: true, followLinks: false)) {
     final path = entity.path;
     if (!path.endsWith('AndroidManifest.xml')) continue;
-    if (path.contains('merged_manifest')) return path;
+      if (path.contains('merged_manifest') || path.contains('packaged_manifests')) {
+        return path;
+      }
+    }
   }
   return null;
 }
