@@ -3,6 +3,7 @@ name: flight_vis emulator (main)
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: emulator-main
@@ -15,7 +16,7 @@ env:
   FLIGHTVIS_NDK_VERSION: '28.2.13676358'
 
 jobs:
-  emulator-tests-main:
+  emulator-tests:
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     timeout-minutes: 32
     env:
@@ -148,15 +149,15 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: flight-vis-emulator-tests-main-logs-${{ github.sha }}
+          name: flight-vis-emulator-tests-logs-${{ github.sha }}
           path: ci-emulator-diagnostics/
           if-no-files-found: warn
 
-  emulator-screenshots-main:
+  emulator-screenshots:
     runs-on: [self-hosted, android-emulator, linux, x64, kvm]
     timeout-minutes: 38
     continue-on-error: true
-    needs: emulator-tests-main
+    needs: emulator-tests
     env:
       ANDROID_SDK_ROOT: /home/ghrunner/android-sdk
       ANDROID_HOME: /home/ghrunner/android-sdk
@@ -259,6 +260,6 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: flight-vis-emulator-screenshots-main-${{ github.sha }}
+          name: flight-vis-emulator-screenshots-${{ github.sha }}
           path: docs/emulator-screenshots/
           if-no-files-found: warn
