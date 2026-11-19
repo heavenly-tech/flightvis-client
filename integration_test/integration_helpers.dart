@@ -128,9 +128,11 @@ Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
     label: 'tracking stop',
     timeout: const Duration(seconds: 45),
   );
-  await tester.ensureVisible(stop);
-  await tester.tap(stop);
-  ciLog('tracking: tapped stop');
+  await tester.runAsync(() async {
+    ciLog('tracking: tap stop');
+    await tester.ensureVisible(stop);
+    await tester.tap(stop);
+  });
   await pumpFrames(tester, total: const Duration(seconds: 4));
   await waitForAbsent(
     tester,

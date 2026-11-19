@@ -112,7 +112,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     final l10n = context.pilotL10n;
     final signedIn =
         widget.repo.client.sessionId != null && widget.repo.client.sessionId!.isNotEmpty;
-    if (signedIn && mounted) {
+    if (signedIn && mounted && !AppConfig.screenshotTest) {
       final save = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(

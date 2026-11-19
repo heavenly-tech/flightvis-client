@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'util/checkin_expiry_format.dart';
@@ -117,18 +119,21 @@ class _FlightVisAppState extends State<FlightVisApp> {
   Future<void> _openCheckinScreen(CheckinDeepLink link) async {
     final ctx = _navigatorKey.currentContext;
     if (ctx == null || !mounted) return;
-    await Navigator.of(ctx).push(
-      MaterialPageRoute(
-        builder: (_) => CheckinScreen(
-          repo: widget.repo,
-          initialScan: link.token,
-          initialClubSlug: link.clubSlug,
-          onCheckedIn: () async {
-            await widget.repo.prefs.clearPendingCheckin();
-          },
-          onLoginRequired: () {
-            if (ctx.mounted) setState(() => _flow = _Flow.login);
-          },
+  // Return after the route is pushed; do not wait for the pilot to finish check-in.
+    unawaited(
+      Navigator.of(ctx).push(
+        MaterialPageRoute(
+          builder: (_) => CheckinScreen(
+            repo: widget.repo,
+            initialScan: link.token,
+            initialClubSlug: link.clubSlug,
+            onCheckedIn: () async {
+              await widget.repo.prefs.clearPendingCheckin();
+            },
+            onLoginRequired: () {
+              if (ctx.mounted) setState(() => _flow = _Flow.login);
+            },
+          ),
         ),
       ),
     );
