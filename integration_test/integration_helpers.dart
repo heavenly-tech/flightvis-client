@@ -128,17 +128,9 @@ Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
     label: 'tracking stop',
     timeout: const Duration(seconds: 45),
   );
-  final button = tester.widget<FilledButton>(stop);
   await tester.runAsync(() async {
-    if (button.onPressed != null) {
-      ciLog('tracking: invoke stop onPressed');
-      final outcome = button.onPressed!();
-      if (outcome is Future<void>) {
-        await outcome;
-      }
-    } else {
-      await tester.tap(stop);
-    }
+    ciLog('tracking: tap stop');
+    await tester.tap(find.byKey(FlightVisTestKeys.trackingStop));
   });
   await pumpFrames(tester, total: const Duration(seconds: 2));
   await waitForAbsent(
