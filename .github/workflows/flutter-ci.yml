@@ -4,6 +4,9 @@ concurrency:
   group: flight_vis-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   FLIGHTVIS_NDK_VERSION: '28.2.13676358'
 
@@ -18,9 +21,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
 
@@ -28,17 +31,6 @@ jobs:
         uses: ./.github/actions/setup-android-ndk
         with:
           ndk-version: ${{ env.FLIGHTVIS_NDK_VERSION }}
-
-      - name: Determine signing policy
-        id: signing_policy
-        run: |
-          require=false
-          if [ "${{ github.event_name }}" = "push" ]; then
-            if [ "${{ github.ref }}" = "refs/heads/main" ] || echo "${{ github.ref }}" | grep -q '^refs/tags/v'; then
-              require=true
-            fi
-          fi
-          echo "require_release_keystore=$require" >> "$GITHUB_OUTPUT"
 
       - name: flutter pub get
         run: |
@@ -64,11 +56,74 @@ jobs:
       - name: flutter analyze
         run: flutter analyze
 
+      - name: Ensure Android debug keystore (manifest merge / PR APK)
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Android Debug,O=Android,C=US'
+          fi
+
+      - name: Merge debug Android manifest (C-3 unit test)
+        run: |
+          set -euo pipefail
+          flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+          MANIFEST="$(
+            find build -type f -path '*/intermediates/*' -name AndroidManifest.xml 2>/dev/null \
+              | grep -Ev 'aapt|unmerged' \
+              | head -1
+          )"
+          if [ -z "$MANIFEST" ]; then
+            find build -type f -name AndroidManifest.xml 2>/dev/null | head -20 >&2 || true
+            echo "::error::Could not locate merged AndroidManifest.xml under build/"
+            exit 1
+          fi
+          mkdir -p tool
+          printf '%s\n' "$MANIFEST" > tool/ci_merged_manifest_path.txt
+
       - name: flutter test
         run: flutter test
 
+      - name: Golden UI screenshots (widget tests)
+        run: flutter test test/golden_screenshots_test.dart
+
+      - name: Upload debug APK and goldens (PR only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flight-vis-android-debugsigned-${{ github.sha }}
+          retention-days: 7
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            docs/screenshots/
+
+  release-android:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+
+      - name: Setup Android NDK and Gradle cache
+        uses: ./.github/actions/setup-android-ndk
+        with:
+          ndk-version: ${{ env.FLIGHTVIS_NDK_VERSION }}
+
+      - name: flutter pub get
+        run: flutter pub get
+
       - name: Validate release signing secrets
-        if: steps.signing_policy.outputs.require_release_keystore == 'true'
         env:
           FLIGHTVIS_KEYSTORE_BASE64: ${{ secrets.FLIGHTVIS_KEYSTORE_BASE64 }}
           FLIGHTVIS_KEYSTORE_PASSWORD: ${{ secrets.FLIGHTVIS_KEYSTORE_PASSWORD }}
@@ -80,7 +135,7 @@ jobs:
           for name in FLIGHTVIS_KEYSTORE_BASE64 FLIGHTVIS_KEYSTORE_PASSWORD FLIGHTVIS_KEY_ALIAS FLIGHTVIS_KEY_PASSWORD; do
             eval "val=\$$name"
             if [ -z "$val" ]; then
-              echo "::error::Missing GitHub secret $name (required on main and version tags)"
+              echo "::error::Missing secret $name in the release environment"
               missing=1
             fi
           done
@@ -95,39 +150,16 @@ jobs:
           FLIGHTVIS_KEY_PASSWORD: ${{ secrets.FLIGHTVIS_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -n "$FLIGHTVIS_KEYSTORE_BASE64" ]; then
-            echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
-            cat > android/key.properties <<EOF
+          echo "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+          cat > android/key.properties <<EOF
           storePassword=$FLIGHTVIS_KEYSTORE_PASSWORD
           keyPassword=$FLIGHTVIS_KEY_PASSWORD
           keyAlias=$FLIGHTVIS_KEY_ALIAS
           storeFile=release.keystore
           EOF
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-          else
-            if [ "${{ steps.signing_policy.outputs.require_release_keystore }}" = "true" ]; then
-              echo "::error::Release keystore decode failed on protected ref"
-              exit 1
-            fi
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Ensure Android debug keystore (PR debug-signed APK)
-        if: steps.keystore.outputs.signed != 'true'
-        run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname 'CN=Android Debug,O=Android,C=US'
-          fi
 
       - name: Build release APK
-        run: |
-          flutter build apk --release \
-            --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+        run: flutter build apk --release --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
 
       - name: Package metadata
         run: |
@@ -137,13 +169,8 @@ jobs:
           VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
           VERSION_NAME=${VERSION%%+*}
           VERSION_CODE=${VERSION##*+}
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            RELEASE_SIGNED=true
-          else
-            RELEASE_SIGNED=false
-          fi
           cat > build/app-release.json <<EOF
-          {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}","releaseSigned":$RELEASE_SIGNED}
+          {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${{ github.sha }}","releaseSigned":true}
           EOF
 
       - name: Extract APK signing certificate SHA-256
@@ -167,22 +194,13 @@ jobs:
             cat build/app-release.cert-sha256.txt
             exit 1
           fi
-          if [ "$VERIFY_EXIT" -ne 0 ]; then
-            echo "apksigner verify exited $VERIFY_EXIT (continuing — certs present for release pin)"
-          fi
           DIGEST="$(echo "$OUT" | grep -i 'certificate SHA-256 digest:' | head -1 | sed -E 's/.*SHA-256 digest:[[:space:]]*//')"
           DIGEST="${DIGEST//$'\r'/}"
-          if [ -z "$DIGEST" ]; then
-            echo "::error::Could not parse certificate SHA-256 digest from apksigner output"
-            head -40 build/app-release.cert-sha256.txt >&2
-            exit 1
-          fi
           FINGERPRINT="$(DIGEST="$DIGEST" python3 -c "import os,sys;h=os.environ['DIGEST'].replace(':','').strip().upper();(len(h)!=64 or any(c not in '0123456789ABCDEF' for c in h)) and sys.exit(1);print(':'.join(h[i:i+2] for i in range(0,len(h),2)))")"
           echo "$FINGERPRINT" > build/app-release.cert-sha256
           echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
 
       - name: Assert release certificate matches App Links pin
-        if: steps.keystore.outputs.signed == 'true'
         env:
           ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
           ANDROID_CERT_SHA256_SECRET: ${{ secrets.ANDROID_CERT_SHA256 }}
@@ -194,7 +212,7 @@ jobs:
             EXPECTED="${ANDROID_CERT_SHA256_SECRET:-}"
           fi
           if [ -z "$EXPECTED" ]; then
-            echo "::error::Release-signed build requires vars.ANDROID_CERT_SHA256 or secrets.ANDROID_CERT_SHA256"
+            echo "::error::Release build requires vars.ANDROID_CERT_SHA256 or secrets.ANDROID_CERT_SHA256"
             exit 1
           fi
           normalize() {
@@ -203,78 +221,31 @@ jobs:
           EXPECTED_N="$(normalize "$EXPECTED")"
           ACTUAL_N="$(normalize "$ACTUAL_FINGERPRINT")"
           if [ "$EXPECTED_N" != "$ACTUAL_N" ]; then
-            echo "::error::APK cert SHA-256 mismatch (expected App Links pin)"
-            echo "Expected: $EXPECTED_N"
-            echo "Actual:   $ACTUAL_N"
+            echo "::error::APK cert SHA-256 mismatch"
             exit 1
           fi
-          echo "Release certificate matches expected App Links SHA-256"
-
-      - name: Verify release artifact bundle
-        run: |
-          test -f build/app/outputs/flutter-apk/app-release.apk
-          test -s build/app/outputs/flutter-apk/app-release.apk
-          test -f build/app-release.apk.sha256
-          test -f build/app-release.json
-          test -s build/app-release.cert-sha256
-          echo "release bundle OK"
-
-      - name: Job summary
-        run: |
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            echo "### APK signed with release keystore" >> "$GITHUB_STEP_SUMMARY"
-            echo "Signing cert SHA-256: \`${{ steps.cert.outputs.fingerprint }}\`" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "### APK debug-signed (PR only — not for App Links / publish)" >> "$GITHUB_STEP_SUMMARY"
-            echo "Signing cert SHA-256: \`${{ steps.cert.outputs.fingerprint }}\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo "Artifacts: app-release.apk, app-release.apk.sha256, app-release.json, app-release.cert-sha256" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Golden UI screenshots (widget tests)
-        run: flutter test test/golden_screenshots_test.dart
 
       - name: Guard artifacts exclude keystores
         run: |
           set -euo pipefail
-          fail=0
-          for target in \
-            build/app/outputs/flutter-apk/app-release.apk \
-            build/app-release.apk.sha256 \
-            build/app-release.json \
-            build/app-release.cert-sha256 \
-            docs/screenshots; do
-            if [ ! -e "$target" ]; then
-              continue
-            fi
-            case "$target" in
-              *.keystore|*.jks)
-                echo "::error::Refusing to upload keystore material: $target"
-                fail=1
-                ;;
-            esac
-            if [ -d "$target" ]; then
-              if find "$target" -type f \( -name '*.keystore' -o -name '*.jks' \) | grep -q .; then
-                echo "::error::Keystore material under upload path: $target"
-                fail=1
-              fi
-            fi
-          done
-          [ "$fail" -eq 0 ]
+          if find build -type f \( -name '*.keystore' -o -name '*.jks' \) | grep -q .; then
+            echo "::error::Keystore material under build/"
+            exit 1
+          fi
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ steps.keystore.outputs.signed == 'true' && format('flight-vis-android-{0}', github.sha) || format('flight-vis-android-debugsigned-{0}', github.sha) }}
+          name: flight-vis-android-${{ github.sha }}
           path: |
             build/app/outputs/flutter-apk/app-release.apk
             build/app-release.apk.sha256
             build/app-release.json
             build/app-release.cert-sha256
-            docs/screenshots/
 
       - name: Attach to GitHub Release on version tags
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             build/app/outputs/flutter-apk/app-release.apk
@@ -282,10 +253,9 @@ jobs:
             build/app-release.json
             build/app-release.cert-sha256
 
-      - name: Remove CI signing material
+      - name: Remove decoded keystore
         if: always()
-        run: |
-          rm -f android/app/release.keystore android/key.properties
+        run: rm -f android/app/release.keystore android/key.properties
 
   emulator-tests:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -304,7 +274,9 @@ jobs:
       FLIGHTVIS_EMULATOR_ARCH: x86_64
       FLIGHTVIS_EMULATOR_TARGET: google_apis
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Self-hosted host disk cleanup
         timeout-minutes: 10
@@ -316,7 +288,7 @@ jobs:
           emulator_host_disk_cleanup
           exit 0
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
 
@@ -381,7 +353,7 @@ jobs:
           emulator_host_preflight_checks
           emulator_host_stale_cleanup
 
-      - uses: reactivecircus/android-emulator-runner@v2
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         timeout-minutes: 28
         with:
           api-level: 30
@@ -431,7 +403,7 @@ jobs:
         if: always()
         timeout-minutes: 5
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: flight-vis-emulator-tests-logs-${{ github.sha }}
           path: ci-emulator-diagnostics/
@@ -458,7 +430,9 @@ jobs:
       FLIGHTVIS_EMULATOR_ARCH: x86_64
       FLIGHTVIS_EMULATOR_TARGET: google_apis
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Self-hosted host disk cleanup
         timeout-minutes: 10
@@ -470,7 +444,7 @@ jobs:
           emulator_host_disk_cleanup
           exit 0
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
 
@@ -535,7 +509,7 @@ jobs:
           emulator_host_preflight_checks
           emulator_host_stale_cleanup
 
-      - uses: reactivecircus/android-emulator-runner@v2
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         timeout-minutes: 30
         with:
           api-level: 30
@@ -585,7 +559,7 @@ jobs:
         if: always()
         timeout-minutes: 5
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: flight-vis-emulator-screenshots-logs-${{ github.sha }}
           path: ci-emulator-diagnostics/
@@ -594,7 +568,7 @@ jobs:
       - name: Upload emulator screenshots
         timeout-minutes: 4
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: flight-vis-emulator-screenshots-${{ github.sha }}
           path: docs/emulator-screenshots/

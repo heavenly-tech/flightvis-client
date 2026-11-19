@@ -37,6 +37,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
   String? _error;
   bool _busy = false;
   bool _justCheckedIn = false;
+  String? _autoSubmittedToken;
   final _pasteController = TextEditingController();
   Timer? _tick;
 
@@ -48,11 +49,19 @@ class _CheckinScreenState extends State<CheckinScreen> {
         if (mounted) setState(() {});
       });
     }
-    if (widget.initialScan != null) {
+    final scan = widget.initialScan;
+    if (scan != null && scan.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _submitRaw(widget.initialScan!);
+        _submitInitialScanOnce(scan);
       });
     }
+  }
+
+  void _submitInitialScanOnce(String token) {
+    if (!mounted) return;
+    if (_autoSubmittedToken == token) return;
+    _autoSubmittedToken = token;
+    _submitRaw(token);
   }
 
   @override

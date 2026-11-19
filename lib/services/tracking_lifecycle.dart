@@ -18,14 +18,12 @@ bool shouldResumeTracking({
   return true;
 }
 
-/// SDK diagnostic lines that mean ingest must stop (401 / 400 no active flight).
+final _uploadResponseLine = RegExp(r'^Upload response (\d{3})$');
+
+/// SDK log line that means ingest must stop (exact `Upload response NNN` only).
 bool ingestLogRequiresStop(String message) {
-  final lower = message.toLowerCase();
-  if (lower.contains('401') || lower.contains('unauthorized')) return true;
-  if (lower.contains('no active flight')) return true;
-  if (lower.contains('400') &&
-      (lower.contains('bad request') || lower.contains('no active'))) {
-    return true;
-  }
-  return false;
+  final match = _uploadResponseLine.firstMatch(message.trim());
+  if (match == null) return false;
+  final code = int.parse(match.group(1)!);
+  return code == 400 || code == 401 || code == 403;
 }

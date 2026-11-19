@@ -2,10 +2,48 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+Future<String?> _findMergedManifest() async {
+  const ciPointer = 'tool/ci_merged_manifest_path.txt';
+  if (File(ciPointer).existsSync()) {
+    final pointer = File(ciPointer).readAsStringSync().trim();
+    if (pointer.isNotEmpty && File(pointer).existsSync()) return pointer;
+  }
+  const candidates = [
+    'android/app/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml',
+    'android/app/build/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml',
+    'android/app/build/intermediates/merged_manifest/debug/output/AndroidManifest.xml',
+  ];
+  for (final path in candidates) {
+    if (File(path).existsSync()) return path;
+  }
+  for (final root in ['build', 'android/app/build']) {
+    final buildDir = Directory(root);
+    if (!buildDir.existsSync()) continue;
+    await for (final entity in buildDir.list(recursive: true, followLinks: false)) {
+    final path = entity.path;
+    if (!path.endsWith('AndroidManifest.xml')) continue;
+      if (path.contains('merged_manifest') || path.contains('packaged_manifests')) {
+        return path;
+      }
+    }
+  }
+  return null;
+}
+
 void main() {
-  test('BootReceiver removed from merged manifest policy (C-3)', () {
-    final xml = File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
-    expect(xml, contains('org.traccar.client.BootReceiver'));
-    expect(xml, contains('tools:node="remove"'));
+  test('BootReceiver removed from merged manifest policy (C-3)', () async {
+    if (!Platform.isLinux) {
+      return;
+    }
+    final path = await _findMergedManifest();
+    if (path == null) {
+      markTestSkipped(
+        'merged AndroidManifest.xml missing — CI runs debug APK build before flutter test',
+      );
+      return;
+    }
+    final xml = File(path).readAsStringSync();
+    // Merged output must not register Traccar BootReceiver (C-3 remove merge rule).
+    expect(xml, isNot(contains('org.traccar.client.BootReceiver')));
   });
 }

@@ -2,6 +2,7 @@ import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 
 import '../app_config.dart' show AppConfig;
 import '../geolocation_service.dart';
+import 'checkin_expiry_alarm.dart';
 import 'tracking_session.dart';
 
 class TrackingService {
@@ -9,6 +10,7 @@ class TrackingService {
   Future<void> initForFlight({
     required String baseUrl,
     required String deviceToken,
+    int? checkinExpiresAtMs,
   }) async {
     if (AppConfig.screenshotTest) return;
     final config = Config(
@@ -27,6 +29,7 @@ class TrackingService {
       preferPlatformProviders: false,
     );
     await GeolocationService.tracker.init(config);
+    await CheckinExpiryAlarm.scheduleStopAt(checkinExpiresAtMs);
   }
 
   Future<bool> start() async {
@@ -42,6 +45,7 @@ class TrackingService {
 
   Future<void> stop() async {
     if (AppConfig.screenshotTest) return;
+    await CheckinExpiryAlarm.cancel();
     await GeolocationService.tracker.stop();
   }
 
