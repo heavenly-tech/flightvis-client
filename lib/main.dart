@@ -20,6 +20,10 @@ import 'ci_test_keys.dart';
 
 Future<AppRepository> createAppRepository() => AppRepository.create();
 
+/// Widget/integration tests invoke the real post-login handler without UI.
+@visibleForTesting
+Future<void> Function()? flightVisAppOnLoggedInTestHook;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   CheckinExpiryFormat.ensureInitialized();
@@ -28,9 +32,13 @@ void main() async {
 }
 
 class FlightVisApp extends StatefulWidget {
-  const FlightVisApp({super.key, required this.repo});
+  const FlightVisApp({super.key, required this.repo, this.bindPlatformDeepLinks = true});
 
   final AppRepository repo;
+
+  /// Widget tests set this to false to skip `app_links` platform setup.
+  @visibleForTesting
+  final bool bindPlatformDeepLinks;
 
   @override
   State<FlightVisApp> createState() => _FlightVisAppState();
@@ -46,6 +54,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
   String? _tail;
   bool _appReady = false;
   CheckinDeepLink? _queuedCheckin;
+  bool _checkinRouteOpen = false;
   late Locale _locale;
 
   @override
@@ -55,12 +64,18 @@ class _FlightVisAppState extends State<FlightVisApp> {
     _locale = widget.repo.localePrefs.resolveLocale(device);
     widget.repo.syncApiLocale(_locale);
     DeepLinkTestHooks.handler = _onDeepLink;
-    _deepLinks.bind(_onDeepLink);
+    if (widget.bindPlatformDeepLinks) {
+      _deepLinks.bind(_onDeepLink);
+    }
     _restore();
+    flightVisAppOnLoggedInTestHook = _onLoggedIn;
   }
 
   @override
   void dispose() {
+    if (flightVisAppOnLoggedInTestHook == _onLoggedIn) {
+      flightVisAppOnLoggedInTestHook = null;
+    }
     if (DeepLinkTestHooks.handler == _onDeepLink) {
       DeepLinkTestHooks.handler = null;
     }
@@ -107,30 +122,55 @@ class _FlightVisAppState extends State<FlightVisApp> {
       return;
     }
 
+    _queuedCheckin = null;
     await _openCheckinScreen(link);
   }
 
   Future<void> _openCheckinScreen(CheckinDeepLink link) async {
-    final ctx = _navigatorKey.currentContext;
-    if (ctx == null || !mounted) return;
-  // Return after the route is pushed; do not wait for the pilot to finish check-in.
-    unawaited(
-      Navigator.of(ctx).push(
-        MaterialPageRoute(
-          builder: (_) => CheckinScreen(
-            repo: widget.repo,
-            initialScan: link.token,
-            initialClubSlug: link.clubSlug,
-            onCheckedIn: () async {
-              await widget.repo.prefs.clearPendingCheckin();
-            },
-            onLoginRequired: () {
-              if (ctx.mounted) setState(() => _flow = _Flow.login);
-            },
+    if (_checkinRouteOpen || !mounted) return;
+
+    Future<void> pushWhenReady() async {
+      if (!mounted || _checkinRouteOpen) return;
+      final ctx = _navigatorKey.currentContext;
+      if (ctx == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(pushWhenReady());
+        });
+        return;
+      }
+      _checkinRouteOpen = true;
+      _queuedCheckin = null;
+      await widget.repo.prefs.clearPendingCheckin();
+      if (!mounted || !ctx.mounted) {
+        _checkinRouteOpen = false;
+        return;
+      }
+      final navigator = Navigator.of(ctx);
+      // Return after the route is pushed; do not wait for the pilot to finish check-in.
+      unawaited(
+        navigator
+            .push(
+          MaterialPageRoute(
+            builder: (_) => CheckinScreen(
+              repo: widget.repo,
+              initialScan: link.token,
+              initialClubSlug: link.clubSlug,
+              onCheckedIn: () async {
+                await widget.repo.prefs.clearPendingCheckin();
+              },
+              onLoginRequired: () {
+                if (mounted) setState(() => _flow = _Flow.login);
+              },
+            ),
           ),
-        ),
-      ),
-    );
+        )
+            .whenComplete(() {
+          if (mounted) setState(() => _checkinRouteOpen = false);
+        }),
+      );
+    }
+
+    await pushWhenReady();
   }
 
   Future<void> _resumePendingCheckin() async {
@@ -203,11 +243,9 @@ class _FlightVisAppState extends State<FlightVisApp> {
       checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
       nowMs: nowMs,
     );
-    if (!resumeTracking) {
+    if (!resumeTracking && activeFlight != null) {
       await _tracking.stop();
-      if (activeFlight != null) {
-        await widget.repo.prefs.setActiveFlightId(null);
-      }
+      await widget.repo.prefs.setActiveFlightId(null);
       activeFlight = null;
     }
     if (!mounted) return;
@@ -247,7 +285,6 @@ class _FlightVisAppState extends State<FlightVisApp> {
 
   Future<void> _onLoggedIn() async {
     await _restore();
-    await _resumePendingCheckin();
   }
 
   void _afterPermissions() async {
