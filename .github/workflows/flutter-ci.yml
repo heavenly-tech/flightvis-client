@@ -72,11 +72,15 @@ jobs:
           set -euo pipefail
           flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
           MANIFEST="$(
-            find build android/app/build -type f -name AndroidManifest.xml 2>/dev/null \
-              | grep -E 'merged_manifest|packaged_manifests' \
+            find build -type f -path '*/intermediates/*' -name AndroidManifest.xml 2>/dev/null \
+              | grep -Ev 'aapt|unmerged' \
               | head -1
           )"
-          test -n "$MANIFEST"
+          if [ -z "$MANIFEST" ]; then
+            find build -type f -name AndroidManifest.xml 2>/dev/null | head -20 >&2 || true
+            echo "::error::Could not locate merged AndroidManifest.xml under build/"
+            exit 1
+          fi
           mkdir -p tool
           printf '%s\n' "$MANIFEST" > tool/ci_merged_manifest_path.txt
 
