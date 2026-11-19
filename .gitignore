@@ -50,3 +50,4 @@ app.*.map.json
 lib/l10n/app_localizations.dart
 lib/l10n/app_localizations_*.dart
 test/failures/
+tool/ci_merged_manifest_path.txt

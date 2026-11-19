@@ -3,6 +3,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<String?> _findMergedManifest() async {
+  const ciPointer = 'tool/ci_merged_manifest_path.txt';
+  if (File(ciPointer).existsSync()) {
+    final pointer = File(ciPointer).readAsStringSync().trim();
+    if (pointer.isNotEmpty && File(pointer).existsSync()) return pointer;
+  }
   const candidates = [
     'android/app/build/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml',
     'android/app/build/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml',
@@ -34,7 +39,7 @@ void main() {
       return;
     }
     final xml = File(path).readAsStringSync();
-    expect(xml, contains('org.traccar.client.BootReceiver'));
-    expect(xml, contains('tools:node="remove"'));
+    // Merged output must not register Traccar BootReceiver (C-3 remove merge rule).
+    expect(xml, isNot(contains('org.traccar.client.BootReceiver')));
   });
 }

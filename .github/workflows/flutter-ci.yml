@@ -68,7 +68,13 @@ jobs:
           fi
 
       - name: Merge debug Android manifest (C-3 unit test)
-        run: flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+        run: |
+          set -euo pipefail
+          flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+          MANIFEST="$(find android/app/build -type f -name AndroidManifest.xml | grep -E 'merged_manifest|packaged_manifests' | head -1)"
+          test -n "$MANIFEST"
+          mkdir -p tool
+          printf '%s\n' "$MANIFEST" > tool/ci_merged_manifest_path.txt
 
       - name: flutter test
         run: flutter test
