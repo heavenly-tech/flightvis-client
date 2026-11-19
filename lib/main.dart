@@ -243,8 +243,8 @@ class _FlightVisAppState extends State<FlightVisApp> {
     if (activeFlight != null && session != null) {
       try {
         serverSaysActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
-      } catch (_) {
-        serverSaysActive = false;
+      } catch (e) {
+        serverSaysActive = serverFlightActiveFromError(e);
       }
     } else if (activeFlight != null) {
       serverSaysActive = null;
