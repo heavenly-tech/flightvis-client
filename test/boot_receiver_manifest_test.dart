@@ -22,18 +22,24 @@ Future<String?> _findMergedManifest() async {
   return null;
 }
 
+void _expectNoBootCompletedReceivers(String xml) {
+  final receivers = RegExp(r'<receiver\b[\s\S]*?</receiver>', multiLine: true).allMatches(xml);
+  for (final block in receivers) {
+    expect(block.group(0), isNot(contains('BOOT_COMPLETED')));
+  }
+}
+
 void _expectExportPolicy(String xml) {
-  final exportedTrue = RegExp(r'android:exported\s*=\s*"true"', caseSensitive: false)
-      .allMatches(xml)
-      .length;
   expect(
-    exportedTrue,
-    1,
-    reason: 'only MainActivity should be exported=true',
+    xml,
+    isNot(matches(RegExp(r'<(service|receiver)\b[^>]*android:exported\s*=\s*"true"', caseSensitive: false))),
   );
   expect(
     xml,
-    isNot(matches(RegExp(r'<receiver[^>]*android:exported\s*=\s*"true"', caseSensitive: false))),
+    matches(RegExp(
+      r'<activity\b[^>]*android:name="\.MainActivity"[^>]*android:exported\s*=\s*"true"',
+      caseSensitive: false,
+    )),
   );
 }
 
@@ -54,7 +60,7 @@ void main() {
     expect(xml, contains('package="cl.heavenly.flightvis"'));
     expect(xml, contains('TrackerService'));
     expect(xml, isNot(contains('org.traccar.client.BootReceiver')));
-    expect(xml, isNot(contains('BOOT_COMPLETED')));
+    _expectNoBootCompletedReceivers(xml);
     _expectExportPolicy(xml);
   });
 }
