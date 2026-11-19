@@ -99,11 +99,6 @@ jobs:
           path: launch.png
           if-no-files-found: error
 
-  publish-android:
-    needs: smoke-test-android
-    if: false
-  # Play upload disabled until PLAY_SERVICE_ACCOUNT_JSON is wired for cl.heavenly.flightvis.
-
   release-github:
     needs: [build-android]
     if: github.event_name == 'push'
