@@ -132,12 +132,13 @@ Future<void> stopTrackingAndReturnToHub(WidgetTester tester) async {
   await tester.runAsync(() async {
     if (button.onPressed != null) {
       ciLog('tracking: invoke stop onPressed');
-      button.onPressed!();
+      final outcome = button.onPressed!();
+      if (outcome is Future<void>) {
+        await outcome;
+      }
     } else {
       await tester.tap(stop);
     }
-    // _endFlight posts HTTP + setState; run under runAsync so the test binding schedules it.
-    await Future<void>.delayed(const Duration(seconds: 1));
   });
   await pumpFrames(tester, total: const Duration(seconds: 2));
   await waitForAbsent(
