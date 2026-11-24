@@ -56,6 +56,11 @@ Future<void> main() async {
     }
 
     if (method == 'POST' && path == '/api/me/devices') {
+      final cookie = request.headers.value('cookie') ?? '';
+      if (!cookie.contains(session)) {
+        await jsonResponse(200, {'ok': true, 'ignored': true});
+        continue;
+      }
       await jsonResponse(200, {
         'id': 'dev-ci',
         'token': deviceToken,
@@ -170,12 +175,42 @@ Future<void> main() async {
     }
 
     if (method == 'POST' && path == '/api/checkin') {
+      final raw = await utf8.decoder.bind(request).join();
+      final body = raw.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(raw) as Map<String, dynamic>;
+      final token = (body['token'] as String? ?? '').trim();
+      final auth = request.headers.value('authorization') ?? '';
+      final cookie = request.headers.value('cookie') ?? '';
+      final hasBearer = auth.startsWith('Bearer ') && auth.length > 'Bearer '.length;
+      final hasSession = cookie.contains(session);
+      if (!hasBearer && !hasSession) {
+        await jsonResponse(401, {
+          'error': 'no_device',
+          'reason': 'no_device',
+          'message': 'No encontramos tu sesión. Inicia sesión o escanea el QR de nuevo.',
+        });
+        continue;
+      }
+      if (token.isEmpty) {
+        await jsonResponse(400, {
+          'error': 'format',
+          'reason': 'format',
+          'message': 'El código no es válido. Escanea el QR de nuevo.',
+        });
+        continue;
+      }
       final expires = DateTime.now().toUtc().add(const Duration(hours: 12));
       checkinExpiresAtMs = expires.millisecondsSinceEpoch;
       await jsonResponse(200, {
         'ok': true,
+        'id': 'checkin-ci-1',
         'expiresAt': expires.toIso8601String(),
         'club': {'slug': clubSlug, 'name': clubName},
+        'status': hasBearer ? 'approved' : 'guest',
+        'needsSignup': !hasBearer,
+        if (!hasBearer) 'deviceId': 'dev-ci',
+        if (!hasBearer) 'token': deviceToken,
       });
       continue;
     }
@@ -244,6 +279,11 @@ Future<void> main() async {
     }
 
     if (method == 'POST' && path == '/api/osmand') {
+      final id = request.uri.queryParameters['id'] ?? '';
+      if (id != deviceToken) {
+        await jsonResponse(401, {'error': 'unauthorized'});
+        continue;
+      }
       await jsonResponse(200, {'ok': true});
       continue;
     }

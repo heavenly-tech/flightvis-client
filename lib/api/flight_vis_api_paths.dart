@@ -10,6 +10,7 @@ abstract final class FlightVisApiPaths {
   static const passkeyLoginOptions = '/api/auth/passkey/login/options';
   static const passkeyLoginVerify = '/api/auth/passkey/login/verify';
   static const devicesAnonymous = '/api/devices/anonymous';
+  static const clubAuthClaim = '/api/club/auth/claim';
 
   /// Browser magic consume (email links); app deep links use [authMagicComplete].
   static const clubAuthMagicConsume = '/api/club/auth/magic';
@@ -22,4 +23,6 @@ abstract final class FlightVisApiPaths {
 
   static String flightEnd(String flightId) => '/api/flights/$flightId/end';
   static String clubBySlug(String slug) => '/api/clubs/${Uri.encodeComponent(slug)}';
+  static String checkinLanding(String slug, String token) =>
+      '/api/c/${Uri.encodeComponent(slug)}/q/${Uri.encodeComponent(token)}/landing';
 }

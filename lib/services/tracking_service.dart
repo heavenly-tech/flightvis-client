@@ -26,10 +26,15 @@ class TrackingService {
     int? checkinExpiresAtMs,
   }) async {
     if (AppConfig.screenshotTest) return;
+    final token = deviceToken.trim();
+    if (token.isEmpty) {
+      throw ArgumentError.value(deviceToken, 'deviceToken', 'must not be empty');
+    }
     _checkinExpiresAtMs = checkinExpiresAtMs;
     final config = Config(
       serverUrl: AppConfig.osmandUrl(baseUrl),
-      deviceId: deviceToken,
+      // OsmAnd `id=` must be the server-issued device token, never the raw device id.
+      deviceId: token,
       location: const LocationConfig(
         accuracy: Accuracy.high,
         distanceMeters: 0,
@@ -42,7 +47,10 @@ class TrackingService {
       buffer: true,
       preferPlatformProviders: false,
     );
+    // `init` is idempotent and ignores subsequent configs; `setConfig` ensures
+    // newly issued or rotated device tokens are always applied before `start()`.
     await _tracker.init(config);
+    await _tracker.setConfig(config);
   }
 
   Future<bool> start() async {

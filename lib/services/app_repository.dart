@@ -6,17 +6,21 @@ import '../services/locale_preferences.dart';
 import '../storage/preferences_store.dart';
 import '../storage/secure_store.dart';
 
+typedef InstallIdProvider = Future<String> Function();
+
 /// Wires HTTP client, secure storage, and preferences.
 class AppRepository {
   AppRepository({
     required this.secure,
     required this.prefs,
     required this.client,
-  });
+    InstallIdProvider? installIdProvider,
+  }) : _installIdProvider = installIdProvider ?? DeviceInstallId.getOrCreate;
 
   final SecureStore secure;
   final PreferencesStore prefs;
   final FlightVisClient client;
+  final InstallIdProvider _installIdProvider;
 
   LocalePreferences get localePrefs => prefs.locale;
 
@@ -74,21 +78,76 @@ class AppRepository {
     client.baseUrl = prefs.baseUrl();
   }
 
-  /// Ensures a bearer token exists (anonymous guest device by default).
+  /// Ensures a device bearer token exists when a session is active.
+  ///
+  /// When there is no session, skips `POST /api/me/devices` so anonymous/guest
+  /// startup never triggers or surfaces a 401.
   Future<void> ensureDeviceRegistered({bool preferPilotRegistration = false}) async {
-    final existing = await secure.readDeviceToken();
+    final existing = (await secure.readDeviceToken())?.trim();
     if (existing != null && existing.length >= 32) {
       client.setDeviceToken(existing);
       return;
     }
-    if (client.sessionId == null) {
+    if (!client.hasSession) {
+      final storedSession = (await secure.readSessionId())?.trim();
+      if (storedSession != null && storedSession.isNotEmpty) {
+        client.setSessionId(storedSession);
+      }
+    }
+    if (!client.hasSession) return;
+    final reg = await client.registerDevice(
+      installId: await _installIdProvider(),
+    );
+    if (reg != null && reg.token.isNotEmpty) {
+      await persistDeviceToken(reg.token);
+    }
+  }
+
+  /// Submits a rotating QR (`v1.…`) or browser-landing handoff/claim (`h1.…`)
+  /// token to `POST /api/checkin`.
+  ///
+  /// For a first-scan guest with no session and no device token:
+  /// 1. Opens an anonymous guest session via `POST /api/devices/anonymous`.
+  /// 2. Posts the token to `POST /api/checkin` with the guest session cookie.
+  /// 3. Persists the server-issued device token (`result.deviceToken`, never
+  ///    the raw `deviceId`) so tracking sends `id=<deviceToken>` to `/api/osmand`.
+  /// 4. If the server omitted `token` on check-in and no device token is stored
+  ///    yet, falls back to `POST /api/me/devices` with the guest session cookie
+  ///    without surfacing 401 / `ignored: true` errors.
+  Future<CheckinResult> submitCheckin(
+    String token, {
+    String? clubSlug,
+  }) async {
+    syncClubFromPrefs();
+    if (!client.hasDeviceToken) {
+      final storedToken = (await secure.readDeviceToken())?.trim();
+      if (storedToken != null && storedToken.isNotEmpty) {
+        client.setDeviceToken(storedToken);
+      }
+    }
+    if (!client.hasSession) {
+      final storedSession = (await secure.readSessionId())?.trim();
+      if (storedSession != null && storedSession.isNotEmpty) {
+        client.setSessionId(storedSession);
+      }
+    }
+    if (!client.hasDeviceToken && !client.hasSession) {
       await client.startGuestSession(name: 'Android');
       await persistSession();
     }
-    final reg = await client.registerDevice(
-      installId: await DeviceInstallId.getOrCreate(),
-    );
-    await persistDeviceToken(reg.token);
+    final result = await client.checkin(token, clubSlug: clubSlug);
+    final issuedToken = result.deviceToken?.trim();
+    if (issuedToken != null && issuedToken.isNotEmpty) {
+      await persistDeviceToken(issuedToken);
+    } else if (!client.hasDeviceToken && client.hasSession) {
+      try {
+        await ensureDeviceRegistered();
+      } catch (_) {}
+    }
+    final expiresMs = result.expiresAtEpochMs();
+    await prefs.setCheckinExpiresAtMs(expiresMs);
+    await applyCheckinClub(result, fallbackSlug: clubSlug);
+    return result;
   }
 
   Future<void> applyCheckinClub(CheckinResult result, {String? fallbackSlug}) async {

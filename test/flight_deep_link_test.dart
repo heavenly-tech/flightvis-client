@@ -125,5 +125,57 @@ void main() {
     final raw = FlightDeepLink.parseCheckinScan('v1.only.token.here');
     expect(raw?.clubSlug, isNull);
     expect(raw?.token, 'v1.only.token.here');
+    expect(raw?.isClaimToken, isFalse);
+  });
+
+  group('PR #36 handoff/claim tokens (h1.…)', () {
+    test('parses https App Link carrying h1 claim token', () {
+      const claim = 'h1.club_1.abcdef0123456789abcdef0123456789';
+      const url = 'https://flight.heavenly.cl/c/demo-club/q/$claim';
+      final link = FlightDeepLink.parseIncoming(Uri.parse(url));
+      expect(link, isA<CheckinDeepLink>());
+      final checkin = link! as CheckinDeepLink;
+      expect(checkin.clubSlug, 'demo-club');
+      expect(checkin.token, claim);
+      expect(checkin.isClaimToken, isTrue);
+    });
+
+    test('parses intent:// fallback carrying h1 claim token', () {
+      const claim = 'h1.club_1.99887766554433221100';
+      final uri = Uri.parse(
+        'intent://flight.heavenly.cl/c/demo-club/q/$claim#Intent;'
+        'scheme=https;package=cl.heavenly.flightvis;end',
+      );
+      final link = FlightDeepLink.parseIncoming(uri);
+      expect(link, isA<CheckinDeepLink>());
+      final checkin = link! as CheckinDeepLink;
+      expect(checkin.clubSlug, 'demo-club');
+      expect(checkin.token, claim);
+      expect(checkin.isClaimToken, isTrue);
+    });
+
+    test('parses club URL with claim query parameter', () {
+      const claim = 'h1.club_1.querytoken123456';
+      final link = FlightDeepLink.parseIncoming(
+        Uri.parse('https://flight.heavenly.cl/c/demo-club?claim=$claim'),
+      );
+      expect(link, const CheckinDeepLink(clubSlug: 'demo-club', token: claim));
+      expect((link! as CheckinDeepLink).isClaimToken, isTrue);
+    });
+
+    test('parseCheckinScan preserves h1 claim token from URL or raw paste', () {
+      const claim = 'h1.club_1.rawclaimtoken9876';
+      final fromUrl = FlightDeepLink.parseCheckinScan(
+        'https://flight.heavenly.cl/c/aeroclub/q/$claim',
+      );
+      expect(fromUrl?.clubSlug, 'aeroclub');
+      expect(fromUrl?.token, claim);
+      expect(fromUrl?.isClaimToken, isTrue);
+
+      final raw = FlightDeepLink.parseCheckinScan(claim);
+      expect(raw?.clubSlug, isNull);
+      expect(raw?.token, claim);
+      expect(raw?.isClaimToken, isTrue);
+    });
   });
 }

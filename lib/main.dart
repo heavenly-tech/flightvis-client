@@ -175,6 +175,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
               initialClubSlug: link.clubSlug,
               onCheckedIn: () async {
                 await widget.repo.prefs.clearPendingCheckin();
+                if (mounted) setState(() {});
               },
               onLoginRequired: () {
                 if (mounted) setState(() => _flow = _Flow.login);
@@ -197,9 +198,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
     if (slug == null || token == null) return;
     final link = CheckinDeepLink(clubSlug: slug, token: token);
     _queuedCheckin = null;
-    if (_pilot != null && _pilot!.isApproved) {
-      await _presentCheckinDeepLink(link);
-    }
+    await _presentCheckinDeepLink(link);
   }
 
   Future<void> _restore() async {
@@ -215,27 +214,30 @@ class _FlightVisAppState extends State<FlightVisApp> {
     }
     widget.repo.refreshBaseUrl();
     widget.repo.syncClubFromPrefs();
-    final session = await widget.repo.secure.readSessionId();
-    final token = await widget.repo.secure.readDeviceToken();
-    if (session != null) {
-      widget.repo.client.setSessionId(session);
-    }
-    if (token != null) {
+    final rawSession = await widget.repo.secure.readSessionId();
+    final session = rawSession?.trim();
+    final hasSession = session != null && session.isNotEmpty;
+    final rawToken = await widget.repo.secure.readDeviceToken();
+    final token = rawToken?.trim();
+    widget.repo.client.setSessionId(hasSession ? session : null);
+    if (token != null && token.isNotEmpty) {
       widget.repo.client.setDeviceToken(token);
     }
-    try {
-      final register = widget.repo.ensureDeviceRegistered(
-        preferPilotRegistration: session != null,
-      );
-      if (AppConfig.screenshotTest) {
-        await register.timeout(const Duration(seconds: 20));
-      } else {
-        await register;
-      }
-    } catch (_) {}
+    if (hasSession) {
+      try {
+        final register = widget.repo.ensureDeviceRegistered(
+          preferPilotRegistration: true,
+        );
+        if (AppConfig.screenshotTest) {
+          await register.timeout(const Duration(seconds: 20));
+        } else {
+          await register;
+        }
+      } catch (_) {}
+    }
 
     PilotProfile? pilot;
-    if (session != null) {
+    if (hasSession) {
       try {
         pilot = await widget.repo.client.meProfile();
       } catch (_) {
@@ -246,7 +248,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     var activeFlight = widget.repo.prefs.activeFlightId();
     bool? serverSaysActive;
-    if (activeFlight != null && session != null) {
+    if (activeFlight != null && hasSession) {
       try {
         serverSaysActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
       } catch (e) {
@@ -313,6 +315,8 @@ class _FlightVisAppState extends State<FlightVisApp> {
     final queued = _queuedCheckin;
     if (queued != null) {
       await _presentCheckinDeepLink(queued);
+    } else if (widget.repo.prefs.pendingCheckinSlug() != null) {
+      await _resumePendingCheckin();
     }
   }
 

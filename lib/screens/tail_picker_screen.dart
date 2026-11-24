@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
+import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../state/checkin_gate.dart';
@@ -43,8 +44,9 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
         _loading = false;
       });
     } on FlightVisException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(context.pilotL10n, e);
         _loading = false;
       });
     }
@@ -78,8 +80,9 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
       );
       if (mounted) widget.onFlightStarted(result, tail);
     } on FlightVisException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(context.pilotL10n, e);
         _loading = false;
       });
     }

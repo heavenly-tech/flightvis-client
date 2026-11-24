@@ -6,11 +6,23 @@ import '../app_config.dart';
 import 'flight_vis_api_paths.dart';
 
 class FlightVisException implements Exception {
-  FlightVisException(this.message, {this.statusCode, this.body});
+  FlightVisException(
+    this.message, {
+    this.statusCode,
+    this.body,
+    this.reason,
+    this.serverMessage,
+  });
 
   final String message;
   final int? statusCode;
   final Map<String, dynamic>? body;
+
+  /// Machine reason code from server (`body['reason']`, e.g. `used_claim`, `expired_qr`).
+  final String? reason;
+
+  /// Optional human-readable message returned by server (`body['message']`).
+  final String? serverMessage;
 
   @override
   String toString() => message;
@@ -44,6 +56,7 @@ class PilotProfile {
       );
 
   bool get isApproved => status == 'approved';
+  bool get isGuest => status == 'guest';
 }
 
 class TailOption {
@@ -85,15 +98,35 @@ class ClubSummary {
 class CheckinResult {
   CheckinResult({
     required this.ok,
+    this.id,
     this.expiresAtUtc,
     this.clubSlug,
     this.clubName,
+    this.status,
+    this.needsSignup = false,
+    this.deviceId,
+    this.deviceToken,
   });
 
   final bool ok;
+  final String? id;
   final DateTime? expiresAtUtc;
   final String? clubSlug;
   final String? clubName;
+
+  /// Pilot status from server (`guest`, `approved`, `pending`, …).
+  final String? status;
+
+  /// Whether the server indicates the guest still needs to claim/create an account.
+  final bool needsSignup;
+
+  /// Raw device id minted by server on bearerless check-in (never sent as OsmAnd `id=`).
+  final String? deviceId;
+
+  /// Device token minted or rotated by server (`json['token']`), used as Bearer and OsmAnd `id=`.
+  final String? deviceToken;
+
+  bool get isGuest => status == 'guest' || needsSignup;
 
   factory CheckinResult.fromJson(Map<String, dynamic> json) {
     final raw = json['expiresAt'] as String?;
@@ -110,11 +143,18 @@ class CheckinResult {
     }
     slug ??= json['clubSlug'] as String?;
     name ??= json['clubName'] as String?;
+    final rawToken = (json['token'] as String?)?.trim();
+    final rawDeviceId = (json['deviceId'] as String?)?.trim();
     return CheckinResult(
       ok: json['ok'] == true,
+      id: json['id'] as String?,
       expiresAtUtc: expires,
       clubSlug: slug,
       clubName: name,
+      status: json['status'] as String?,
+      needsSignup: json['needsSignup'] == true,
+      deviceId: (rawDeviceId != null && rawDeviceId.isNotEmpty) ? rawDeviceId : null,
+      deviceToken: (rawToken != null && rawToken.isNotEmpty) ? rawToken : null,
     );
   }
 
@@ -135,12 +175,12 @@ class DeviceRegistration {
   final String? label;
 
   factory DeviceRegistration.fromJson(Map<String, dynamic> json) {
-    final token = json['token'] as String?;
+    final token = (json['token'] as String?)?.trim();
     if (token == null || token.isEmpty) {
       throw FlightVisException('device token missing in response');
     }
     return DeviceRegistration(
-      id: json['id'] as String,
+      id: json['id'] as String? ?? '',
       token: token,
       label: json['label'] as String?,
     );
@@ -206,6 +246,8 @@ class FlightVisClient {
 
   String? get sessionId => _sessionId;
   String? get deviceToken => _deviceToken;
+  bool get hasSession => _sessionId != null && _sessionId!.isNotEmpty;
+  bool get hasDeviceToken => _deviceToken != null && _deviceToken!.isNotEmpty;
 
   void setSessionId(String? value) => _sessionId = value;
   void setDeviceToken(String? value) => _deviceToken = value;
@@ -274,8 +316,19 @@ class FlightVisClient {
     try {
       body = _decodeJson(response);
     } catch (_) {}
-    final error = body?['error']?.toString() ?? 'HTTP ${response.statusCode}';
-    throw FlightVisException(error, statusCode: response.statusCode, body: body);
+    final rawReason = body?['reason']?.toString().trim();
+    final reason = (rawReason != null && rawReason.isNotEmpty) ? rawReason : null;
+    final rawServerMessage = body?['message']?.toString().trim();
+    final serverMessage =
+        (rawServerMessage != null && rawServerMessage.isNotEmpty) ? rawServerMessage : null;
+    final error = body?['error']?.toString() ?? reason ?? 'HTTP ${response.statusCode}';
+    throw FlightVisException(
+      error,
+      statusCode: response.statusCode,
+      body: body,
+      reason: reason,
+      serverMessage: serverMessage,
+    );
   }
 
   /// Login then enrich profile from `GET /api/club/me` (`licenseNo`).
@@ -303,7 +356,9 @@ class FlightVisClient {
   }
 
   Future<PilotProfile?> meProfile() async {
+    if (!hasSession) return null;
     final response = await _http.get(_uri(FlightVisApiPaths.clubMe), headers: _headers());
+    if (response.statusCode == 401) return null;
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
     final pilot = body['pilot'];
@@ -312,6 +367,10 @@ class FlightVisClient {
   }
 
   Future<void> logout({String? installId}) async {
+    if (!hasSession) {
+      _sessionId = null;
+      return;
+    }
     final response = await _http.post(
       _uri(FlightVisApiPaths.clubLogout),
       headers: _headers(jsonBody: installId != null),
@@ -401,19 +460,31 @@ class FlightVisClient {
     return me;
   }
 
-  Future<CheckinResult> checkin(String kioskToken, {String? clubSlug}) async {
+  Future<CheckinResult> checkin(
+    String kioskToken, {
+    String? clubSlug,
+    String? deviceId,
+  }) async {
     if (clubSlug != null && clubSlug.isNotEmpty) {
       _clubSlug = clubSlug;
     }
+    final trimmedDeviceId = deviceId?.trim();
     final response = await _http.post(
       _uri(FlightVisApiPaths.checkin),
       headers: _headers(jsonBody: true),
-      body: jsonEncode({'token': kioskToken.trim()}),
+      body: jsonEncode({
+        'token': kioskToken.trim(),
+        if (trimmedDeviceId != null && trimmedDeviceId.isNotEmpty)
+          'deviceId': trimmedDeviceId,
+      }),
     );
     if (response.statusCode != 200) _throwForError(response);
     final result = CheckinResult.fromJson(_decodeJson(response));
     if (!result.ok) {
       throw FlightVisException('check-in failed');
+    }
+    if (result.deviceToken != null && result.deviceToken!.isNotEmpty) {
+      _deviceToken = result.deviceToken;
     }
     _clubSlug = result.clubSlug ?? clubSlug ?? _clubSlug;
     return result;
@@ -466,12 +537,17 @@ class FlightVisClient {
     throw FlightVisException('guest session failed');
   }
 
-  /// Logged-in pilot device (`POST /api/me/devices` or club-scoped).
-  Future<DeviceRegistration> registerDevice({
+  /// Logged-in or guest-session pilot device (`POST /api/me/devices`).
+  ///
+  /// Skips the network call and returns `null` when there is no active session.
+  /// Also returns `null` when the server replies with `401` or a no-session
+  /// no-op (`{"ok": true, "ignored": true}`).
+  Future<DeviceRegistration?> registerDevice({
     String label = 'Android',
     required String installId,
     String? model,
   }) async {
+    if (!hasSession) return null;
     final response = await _http.post(
       _uri(FlightVisApiPaths.meDevices),
       headers: _headers(jsonBody: true),
@@ -481,11 +557,15 @@ class FlightVisClient {
         if (model != null && model.isNotEmpty) 'model': model,
       }),
     );
+    if (response.statusCode == 401) return null;
     if (response.statusCode != 200) _throwForError(response);
-    return DeviceRegistration.fromJson(_decodeJson(response));
+    final body = _decodeJson(response);
+    if (body['ignored'] == true) return null;
+    return DeviceRegistration.fromJson(body);
   }
 
   Future<List<MyFlightSummary>> myFlights() async {
+    if (!hasSession) return const [];
     final response = await _http.get(
       _uri(FlightVisApiPaths.meFlights),
       headers: _headers(),
