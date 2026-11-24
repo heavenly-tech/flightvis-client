@@ -29,6 +29,12 @@ void main() {
     expect(routes.containsKey('POST ${FlightVisApiPaths.passkeyLoginOptions}'), isTrue);
     expect(routes.containsKey('POST ${FlightVisApiPaths.passkeyLoginVerify}'), isTrue);
     expect(routes.containsKey('POST ${FlightVisApiPaths.devicesAnonymous}'), isTrue);
+    expect(routes.containsKey('POST ${FlightVisApiPaths.clubAuthClaim}'), isTrue);
+    expect(routes.containsKey('GET /api/c/{slug}/q/{token}/landing'), isTrue);
+    expect(
+      FlightVisApiPaths.checkinLanding('demo-club', 'h1.club1.tok'),
+      '/api/c/demo-club/q/h1.club1.tok/landing',
+    );
     expect(routes.containsKey('GET /api/clubs/{slug}'), isTrue);
     final clubFixture = jsonDecode(
       File('test/fixtures/contract/club_by_slug.json').readAsStringSync(),

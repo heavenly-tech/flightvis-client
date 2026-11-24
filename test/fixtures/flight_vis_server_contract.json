@@ -31,9 +31,34 @@
     "GET /api/club/me": { "response": { "pilot": {} } },
     "POST /api/me/devices": {
       "request": { "label": "string", "installId": "string", "model": "optional" },
-      "response": { "id": "", "token": "", "label": "", "created": true }
+      "response": { "id": "", "token": "", "label": "", "created": true },
+      "noSessionResponse": { "ok": true, "ignored": true }
     },
-    "POST /api/checkin": { "request": { "token": "string" }, "response": { "ok": true } },
+    "GET /api/c/{slug}/q/{token}/landing": {
+      "response": { "slug": "", "clubName": "", "claimToken": "h1.club.rand", "intentUrl": "https://flight.heavenly.cl/c/slug/q/h1.club.rand" }
+    },
+    "POST /api/club/auth/claim": {
+      "request": { "name": "string", "email": "string", "license_no": "optional string" },
+      "response": { "ok": true }
+    },
+    "POST /api/checkin": {
+      "request": { "token": "string (v1.* or h1.*)", "deviceId": "optional string" },
+      "response": { "ok": true, "id": "", "expiresAt": "iso8601", "status": "guest|approved", "needsSignup": false, "deviceId": "optional", "token": "optional" },
+      "reasons": [
+        "expired_qr",
+        "used_qr",
+        "expired_claim",
+        "used_claim",
+        "no_device",
+        "invalid_device",
+        "not_cleared",
+        "club_mismatch",
+        "wrong_club",
+        "club_unavailable",
+        "format",
+        "forged_hmac"
+      ]
+    },
     "POST /api/flights": { "request": { "tail": "string", "visibility": "string" }, "response": { "id": "" } },
     "POST /api/flights/{id}/end": { "errors": { "409": "not active" } }
   }

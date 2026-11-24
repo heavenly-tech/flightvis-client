@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../api/flight_vis_client.dart';
 import '../app_config.dart';
+import '../l10n/api_errors.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
@@ -104,11 +105,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
       _error = null;
     });
     try {
-      widget.repo.syncClubFromPrefs();
-      final result = await widget.repo.client.checkin(token, clubSlug: clubSlug);
-      final expiresMs = result.expiresAtEpochMs();
-      await widget.repo.prefs.setCheckinExpiresAtMs(expiresMs);
-      await widget.repo.applyCheckinClub(result, fallbackSlug: clubSlug);
+      await widget.repo.submitCheckin(token, clubSlug: clubSlug);
       if (mounted) {
         setState(() {
           _busy = false;
@@ -123,13 +120,16 @@ class _CheckinScreenState extends State<CheckinScreen> {
         );
         widget.onLoginRequired!();
       }
+      if (!mounted) return;
+      final l10n = context.pilotL10n;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(l10n, e);
         _busy = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = context.pilotL10n.errorGeneric;
         _busy = false;
       });
     }

@@ -6,9 +6,18 @@ import 'package:flight_vis/services/tracking_service.dart';
 
 class _FakeTraccarClientSdk extends Fake implements TraccarClientSdk {
   bool started = false;
+  final List<Config> initCalls = [];
+  final List<Config> setConfigCalls = [];
 
   @override
-  Future<void> init(Config config) async {}
+  Future<void> init(Config config) async {
+    initCalls.add(config);
+  }
+
+  @override
+  Future<void> setConfig(Config config) async {
+    setConfigCalls.add(config);
+  }
 
   @override
   Future<void> start() async {
@@ -52,5 +61,41 @@ void main() {
     final ok = await tracking.start();
     expect(ok, isTrue);
     expect(fake.started, isTrue);
+  });
+
+  test('initForFlight passes trimmed device token to /api/osmand via init and setConfig', () async {
+    final fake = _FakeTraccarClientSdk();
+    final tracking = TrackingService(tracker: fake);
+    const firstToken = 'tok_first_012345678901234567890123456789';
+    const rotatedToken = 'tok_rotated_9876543210987654321098765432';
+
+    await tracking.initForFlight(
+      baseUrl: 'https://flight.heavenly.cl/',
+      deviceToken: '  $firstToken  ',
+    );
+    expect(fake.initCalls.single.serverUrl, 'https://flight.heavenly.cl/api/osmand');
+    expect(fake.initCalls.single.deviceId, firstToken);
+    expect(fake.setConfigCalls.single.deviceId, firstToken);
+
+    await tracking.initForFlight(
+      baseUrl: 'https://flight.heavenly.cl',
+      deviceToken: rotatedToken,
+    );
+    expect(fake.setConfigCalls.last.deviceId, rotatedToken);
+    expect(fake.setConfigCalls.last.serverUrl, 'https://flight.heavenly.cl/api/osmand');
+  });
+
+  test('initForFlight rejects empty device token', () async {
+    final fake = _FakeTraccarClientSdk();
+    final tracking = TrackingService(tracker: fake);
+    await expectLater(
+      tracking.initForFlight(
+        baseUrl: 'https://flight.heavenly.cl',
+        deviceToken: '   ',
+      ),
+      throwsArgumentError,
+    );
+    expect(fake.initCalls, isEmpty);
+    expect(fake.setConfigCalls, isEmpty);
   });
 }

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../api/flight_vis_client.dart';
 import '../app_config.dart';
+import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/tracking_lifecycle.dart';
@@ -82,8 +83,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
       await _haltTracking();
       return;
     }
-    final token = await widget.repo.secure.readDeviceToken();
-    if (token == null) {
+    final token = (await widget.repo.secure.readDeviceToken())?.trim();
+    if (token == null || token.isEmpty) {
       if (mounted) setState(() => _error = _missingTokenMessage);
       return;
     }
@@ -151,7 +152,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
         if (mounted) widget.onStopped();
         return;
       }
-      setState(() => _error = e.message);
+      if (!mounted) return;
+      setState(() => _error = localizeApiException(context.pilotL10n, e));
     }
   }
 

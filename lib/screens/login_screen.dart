@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api/flight_vis_client.dart';
+import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../ci_test_keys.dart';
@@ -100,8 +101,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final pilot = await _passkeyAuth.login(email);
       await _afterPilot(pilot);
     } on FlightVisException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(context.pilotL10n, e);
         _busy = false;
       });
     } catch (e) {
@@ -131,8 +133,9 @@ class _LoginScreenState extends State<LoginScreen> {
         _info = context.pilotL10n.pilotMagicLinkSent;
       });
     } on FlightVisException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(context.pilotL10n, e);
         _busy = false;
       });
     }
@@ -164,8 +167,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final pilot = await widget.repo.client.login(_email.text, _password.text);
       await _afterPilot(pilot);
     } on FlightVisException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = localizeApiException(context.pilotL10n, e);
         _busy = false;
       });
     } catch (e) {

@@ -34,11 +34,18 @@ class _QrScanScreenState extends State<QrScanScreen> {
 
   void _onDetect(BarcodeCapture capture) {
     if (_scanned) return;
-    final raw = capture.barcodes.firstOrNull?.rawValue;
-    if (raw == null || raw.trim().isEmpty) return;
+    String? raw;
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue?.trim();
+      if (value != null && value.isNotEmpty) {
+        raw = value;
+        break;
+      }
+    }
+    if (raw == null) return;
     _scanned = true;
-    widget.onScanned(raw.trim());
-    if (mounted) Navigator.pop(context, raw.trim());
+    widget.onScanned(raw);
+    if (mounted) Navigator.pop(context, raw);
   }
 
   @override

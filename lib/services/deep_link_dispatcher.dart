@@ -26,7 +26,9 @@ class DeepLinkDispatcher {
     final initial = await _appLinks.getInitialLink();
     if (initial != null) {
       final parsed = FlightDeepLink.parseIncoming(initial);
-      if (parsed != null) await onLink(parsed);
+      if (parsed != null && parsed != fromPlatform) {
+        await onLink(parsed);
+      }
     }
     await _sub?.cancel();
     _sub = _appLinks.uriLinkStream.listen((uri) async {
