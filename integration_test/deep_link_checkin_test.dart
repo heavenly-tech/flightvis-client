@@ -20,7 +20,7 @@ void main() {
       await pumpFrames(tester, total: const Duration(seconds: 4));
 
       await advancePermissionsOnboardingIfNeeded(tester);
-      await waitForFound(tester, find.text('Check-in club'), label: 'hub ready');
+      await waitForFound(tester, find.text('Registro en el club'), label: 'hub ready');
 
       await DeepLinkTestHooks.dispatch(
         const CheckinDeepLink(
@@ -30,7 +30,7 @@ void main() {
       );
       await pumpFrames(tester, total: const Duration(seconds: 3));
 
-      expect(find.text('Check-in club'), findsWidgets);
+      expect(find.text('Registro en el club'), findsWidgets);
       expect(find.textContaining('v1.club1'), findsNothing);
       ciLog('deeplink: done');
     },

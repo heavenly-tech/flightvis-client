@@ -12,6 +12,7 @@ import '../state/checkin_gate.dart';
 import '../util/checkin_expiry_format.dart';
 import '../util/flight_deep_link.dart';
 import 'qr_scan_screen.dart';
+import 'tail_picker_screen.dart';
 import '../ci_test_keys.dart';
 
 class CheckinScreen extends StatefulWidget {
@@ -22,11 +23,13 @@ class CheckinScreen extends StatefulWidget {
     this.initialScan,
     this.initialClubSlug,
     this.onLoginRequired,
+    this.onStartFlight,
   });
 
   final AppRepository repo;
   final VoidCallback onCheckedIn;
   final VoidCallback? onLoginRequired;
+  final void Function(String flightId, String tailLabel)? onStartFlight;
   final String? initialScan;
   final String? initialClubSlug;
 
@@ -79,8 +82,18 @@ class _CheckinScreenState extends State<CheckinScreen> {
 
   void _continueAfterCheckin() {
     if (!mounted) return;
-    Navigator.maybePop(context);
     widget.onCheckedIn();
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (routeContext) => TailPickerScreen(
+          repo: widget.repo,
+          onFlightStarted: (flight, tail) {
+            Navigator.of(routeContext).maybePop();
+            widget.onStartFlight?.call(flight.id, tail);
+          },
+        ),
+      ),
+    );
   }
 
   String _successText(AppLocalizations l10n) {
@@ -149,6 +162,32 @@ class _CheckinScreenState extends State<CheckinScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(l10n.pilotCheckInIntro),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => QrScanScreen(
+                            title: l10n.pilotScanCheckInQr,
+                            onScanned: (_) {},
+                          ),
+                        ),
+                      ).then((value) {
+                        if (value is String) _submitRaw(value);
+                      });
+                    },
+              icon: const Icon(Icons.qr_code_scanner),
+              label: _busy
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(l10n.pilotScanCheckInQr),
+            ),
             if (_justCheckedIn) ...[
               const SizedBox(height: 16),
               Text(
@@ -181,44 +220,29 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _pasteController,
-              decoration: InputDecoration(
-                labelText: l10n.pilotPasteCheckInToken,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.tonal(
-              onPressed: _busy ? null : () => _submitRaw(_pasteController.text),
-              child: Text(l10n.pilotSubmitPastedToken),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => QrScanScreen(
-                            title: l10n.pilotScanCheckInQr,
-                            onScanned: (_) {},
-                          ),
-                        ),
-                      ).then((value) {
-                        if (value is String) _submitRaw(value);
-                      });
-                    },
-              icon: const Icon(Icons.qr_code_scanner),
-              label: _busy
-                  ? const SizedBox(
-                      height: 18,
-                      width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(l10n.pilotScanCheckInQr),
+            const SizedBox(height: 16),
+            ExpansionTile(
+              key: FlightVisTestKeys.checkinManualEntry,
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(top: 8, bottom: 8),
+              expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+              title: Text(l10n.pilotCheckInManualEntryTitle),
+              children: [
+                TextField(
+                  key: FlightVisTestKeys.checkinPasteField,
+                  controller: _pasteController,
+                  decoration: InputDecoration(
+                    labelText: l10n.pilotPasteCheckInToken,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonal(
+                  key: FlightVisTestKeys.checkinPasteSubmit,
+                  onPressed: _busy ? null : () => _submitRaw(_pasteController.text),
+                  child: Text(l10n.pilotSubmitPastedToken),
+                ),
+              ],
             ),
           ],
         ),

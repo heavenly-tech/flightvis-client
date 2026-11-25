@@ -100,9 +100,12 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
                 onCheckedIn: () {
                   if (mounted) setState(() {});
                 },
+                onStartFlight: widget.onStartFlight,
               ),
             ),
-          ),
+          ).then((_) {
+            if (mounted) setState(() {});
+          }),
         ),
       );
     }
@@ -195,15 +198,20 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
                   onCheckedIn: () {
                     if (mounted) setState(() {});
                   },
+                  onStartFlight: widget.onStartFlight,
                 ),
               ),
-            ),
+            ).then((_) {
+              if (mounted) setState(() {});
+            }),
           ),
           _navCard(
             context,
             key: FlightVisTestKeys.hubFlightDetails,
             title: l10n.pilotHubFlightTitle,
-            subtitle: l10n.pilotHubFlightSubtitle,
+            subtitle: gate.canStartFlight
+                ? l10n.pilotHubFlightSubtitle
+                : l10n.pilotHubFlightLockedSubtitle,
             icon: Icons.flight_takeoff,
             enabled: gate.canStartFlight,
             onTap: gate.canStartFlight

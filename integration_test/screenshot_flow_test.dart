@@ -76,9 +76,15 @@ void main() {
             label: 'check-in screen',
             timeout: const Duration(seconds: 30),
           );
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.checkinManualEntry),
+            label: 'check-in manual entry',
+            timeout: const Duration(seconds: 30),
+          );
           await waitForFound(
             tester,
-            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            find.byKey(FlightVisTestKeys.checkinPasteField),
             label: 'check-in paste field',
             timeout: const Duration(seconds: 30),
           );
@@ -86,13 +92,13 @@ void main() {
 
         await ciStep(tester, 'submit check-in', () async {
           await tester.enterText(
-            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            find.byKey(FlightVisTestKeys.checkinPasteField),
             _checkinUrl,
           );
           await tapWhenFound(
             tester,
-            find.text('Enviar token'),
-            label: 'submit token',
+            find.byKey(FlightVisTestKeys.checkinPasteSubmit),
+            label: 'submit code',
             timeout: const Duration(seconds: 45),
           );
           await waitForFound(
@@ -104,12 +110,8 @@ void main() {
         }, timeout: const Duration(seconds: 90));
         await saveEmulatorScreenshot(binding, '04-checkin-success');
 
-        await ciStep(tester, 'return to hub', () async {
-          await leaveCheckinForHub(tester);
-        }, timeout: const Duration(seconds: 90));
-
         await ciStep(tester, 'flight details + tracking', () async {
-          await openHubFlightDetails(tester);
+          await activateCheckinContinue(tester);
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailPicker),

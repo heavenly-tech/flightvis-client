@@ -180,6 +180,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
               onLoginRequired: () {
                 if (mounted) setState(() => _flow = _Flow.login);
               },
+              onStartFlight: _startFlight,
             ),
           ),
         )

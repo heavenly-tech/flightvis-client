@@ -82,6 +82,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _passkey() async {
     final l10n = context.pilotL10n;
+    final email = _email.text.trim();
+    if (email.isEmpty) {
+      setState(() {
+        _error = l10n.loginEmailRequired;
+        _info = null;
+        _busy = false;
+      });
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -90,14 +99,6 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       widget.repo.refreshBaseUrl();
       widget.repo.syncClubFromPrefs();
-      final email = _email.text.trim();
-      if (email.isEmpty) {
-        setState(() {
-          _error = l10n.pilotEmailLabel;
-          _busy = false;
-        });
-        return;
-      }
       final pilot = await _passkeyAuth.login(email);
       await _afterPilot(pilot);
     } on FlightVisException catch (e) {
@@ -107,6 +108,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _busy = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _busy = false;
@@ -115,8 +117,16 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _sendMagic() async {
+    final l10n = context.pilotL10n;
     final email = _email.text.trim();
-    if (email.isEmpty) return;
+    if (email.isEmpty) {
+      setState(() {
+        _error = l10n.loginEmailRequired;
+        _info = null;
+        _busy = false;
+      });
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -128,6 +138,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email,
         locale: widget.repo.client.acceptLanguage,
       );
+      if (!mounted) return;
       setState(() {
         _busy = false;
         _info = context.pilotL10n.pilotMagicLinkSent;
@@ -185,9 +196,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final l10n = context.pilotL10n;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.appName)),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
@@ -211,12 +223,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ],
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _passkey,
-              icon: const Icon(Icons.fingerprint),
-              label: Text(l10n.pilotSignInPasskey),
-            ),
-            const SizedBox(height: 12),
             TextField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
@@ -225,6 +231,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 labelText: l10n.pilotEmailLabel,
                 border: const OutlineInputBorder(),
               ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _busy ? null : _passkey,
+              icon: const Icon(Icons.fingerprint),
+              label: Text(l10n.pilotSignInPasskey),
             ),
             const SizedBox(height: 8),
             FilledButton.tonal(
@@ -261,13 +273,14 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ],
-            const Spacer(),
-            if (widget.onContinueAsGuest != null)
+            if (widget.onContinueAsGuest != null) ...[
+              const SizedBox(height: 24),
               TextButton(
                 key: FlightVisTestKeys.loginGuest,
                 onPressed: _busy ? null : widget.onContinueAsGuest,
                 child: Text(l10n.pilotContinueAsGuest),
               ),
+            ],
           ],
         ),
       ),

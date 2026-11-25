@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart' as http_testing;
 
 import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/ci_test_keys.dart';
@@ -30,13 +32,16 @@ class _FakeSecure extends SecureStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppRepository> mockRepo() async {
+  Future<AppRepository> mockRepo({http.Client? httpClient}) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await PreferencesStore.open();
     return AppRepository(
       secure: _FakeSecure(),
       prefs: prefs,
-      client: FlightVisClient(baseUrl: prefs.baseUrl()),
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        httpClient: httpClient,
+      ),
     );
   }
 
@@ -44,6 +49,7 @@ void main() {
     WidgetTester tester, {
     required AppRepository repo,
     Future<bool> Function(String baseUrl)? signupAvailabilityProbe,
+    VoidCallback? onContinueAsGuest,
   }) async {
     await tester.pumpWidget(
       PilotAppShell(
@@ -51,6 +57,7 @@ void main() {
         home: LoginScreen(
           repo: repo,
           onLoggedIn: () {},
+          onContinueAsGuest: onContinueAsGuest,
           signupAvailabilityProbe: signupAvailabilityProbe,
         ),
       ),
@@ -83,5 +90,88 @@ void main() {
     expect(find.byKey(FlightVisTestKeys.loginRegisterNote), findsNothing);
     expect(find.text('Crear cuenta'), findsNothing);
     expect(find.text('Enviar enlace mágico'), findsOneWidget);
+  });
+
+  testWidgets('email field is ordered above passkey, magic link, and password toggle', (tester) async {
+    final repo = await mockRepo();
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => false,
+    );
+
+    final emailTop = tester.getTopLeft(find.widgetWithText(TextField, 'Correo')).dy;
+    final passkeyTop = tester.getTopLeft(find.text('Iniciar con passkey')).dy;
+    final magicTop = tester.getTopLeft(find.text('Enviar enlace mágico')).dy;
+    final passwordToggleTop = tester.getTopLeft(find.text('Usar contraseña')).dy;
+
+    expect(emailTop, lessThan(passkeyTop));
+    expect(passkeyTop, lessThan(magicTop));
+    expect(magicTop, lessThan(passwordToggleTop));
+  });
+
+  testWidgets('empty email shows required error for passkey and magic link', (tester) async {
+    var networkCalls = 0;
+    final client = http_testing.MockClient((request) async {
+      networkCalls++;
+      return http.Response('{}', 200);
+    });
+
+    final repo = await mockRepo(httpClient: client);
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => false,
+    );
+
+    await tester.tap(find.text('Iniciar con passkey'));
+    await tester.pump();
+    expect(find.text('Ingresa tu correo para continuar.'), findsOneWidget);
+    expect(networkCalls, 0);
+
+    // Re-pump fresh state and verify magic link also displays the error instead of returning silently.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => false,
+    );
+    expect(find.text('Ingresa tu correo para continuar.'), findsNothing);
+
+    await tester.tap(find.text('Enviar enlace mágico'));
+    await tester.pump();
+    expect(find.text('Ingresa tu correo para continuar.'), findsOneWidget);
+    expect(networkCalls, 0);
+  });
+
+  testWidgets('no overflow on small screen with keyboard inset', (tester) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetViewInsets();
+    });
+
+    final repo = await mockRepo();
+    await pumpLogin(
+      tester,
+      repo: repo,
+      signupAvailabilityProbe: (_) async => true,
+      onContinueAsGuest: () {},
+    );
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.ensureVisible(find.text('Usar contraseña'));
+    await tester.tap(find.text('Usar contraseña'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    await tester.ensureVisible(find.byKey(FlightVisTestKeys.loginGuest));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 }
