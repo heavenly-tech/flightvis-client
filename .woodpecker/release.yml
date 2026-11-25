@@ -1,0 +1,204 @@
+# Replaces GitHub Actions job `release-android` (flutter-ci.yml).
+
+labels:
+  platform: linux/amd64
+
+when:
+  - event: push
+    branch: main
+  - event: tag
+    ref: refs/tags/v**
+
+depends_on:
+  - name: ci
+    optional: true
+
+variables:
+  - &flutter_image registry.heavenly.cl/flightvis/flutter-android-ci:3.50.0-ndk28.2.13676358
+
+steps:
+  - name: release-pub-get
+    image: *flutter_image
+    pull: false
+    environment:
+      FLIGHTVIS_NDK_VERSION: "28.2.13676358"
+    commands:
+      - set -euo pipefail
+      - flutter pub get
+
+  - name: validate-signing-secrets
+    image: *flutter_image
+    pull: false
+    environment:
+      FLIGHTVIS_KEYSTORE_BASE64:
+        from_secret: flightvis_keystore_base64
+      FLIGHTVIS_KEYSTORE_PASSWORD:
+        from_secret: flightvis_keystore_password
+      FLIGHTVIS_KEY_ALIAS:
+        from_secret: flightvis_key_alias
+      FLIGHTVIS_KEY_PASSWORD:
+        from_secret: flightvis_key_password
+    commands:
+      - set -euo pipefail
+      - |
+        missing=0
+        for name in FLIGHTVIS_KEYSTORE_BASE64 FLIGHTVIS_KEYSTORE_PASSWORD FLIGHTVIS_KEY_ALIAS FLIGHTVIS_KEY_PASSWORD; do
+          eval "val=\$$name"
+          if [ -z "$val" ]; then
+            echo "Missing secret configuration ($name)"
+            missing=1
+          fi
+        done
+        [ "$missing" -eq 0 ]
+
+  - name: decode-release-keystore
+    image: *flutter_image
+    pull: false
+    environment:
+      FLIGHTVIS_KEYSTORE_BASE64:
+        from_secret: flightvis_keystore_base64
+      FLIGHTVIS_KEYSTORE_PASSWORD:
+        from_secret: flightvis_keystore_password
+      FLIGHTVIS_KEY_ALIAS:
+        from_secret: flightvis_key_alias
+      FLIGHTVIS_KEY_PASSWORD:
+        from_secret: flightvis_key_password
+    commands:
+      - set -euo pipefail
+      - printf '%s' "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+      - |
+        cat > android/key.properties <<EOF
+        storePassword=${FLIGHTVIS_KEYSTORE_PASSWORD}
+        keyPassword=${FLIGHTVIS_KEY_PASSWORD}
+        keyAlias=${FLIGHTVIS_KEY_ALIAS}
+        storeFile=release.keystore
+        EOF
+
+  - name: build-release-apk
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - flutter build apk --release --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+
+  - name: package-metadata
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - |
+        APK=build/app/outputs/flutter-apk/app-release.apk
+        SHA=$(sha256sum "$APK" | awk '{print $1}')
+        echo "$SHA" > build/app-release.apk.sha256
+        VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+        VERSION_NAME=${VERSION%%+*}
+        VERSION_CODE=${VERSION##*+}
+        cat > build/app-release.json <<EOF
+        {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${CI_COMMIT_SHA}","releaseSigned":true}
+        EOF
+
+  - name: extract-cert-sha256
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - |
+        APK=build/app/outputs/flutter-apk/app-release.apk
+        SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
+        APKSIGNER="$(find "$SDK_ROOT/build-tools" -path '*/apksigner' -type f 2>/dev/null | sort -V | tail -1)"
+        if [ -z "$APKSIGNER" ]; then
+          echo "apksigner not found under $SDK_ROOT/build-tools"
+          exit 1
+        fi
+        set +e
+        "$APKSIGNER" verify --print-certs "$APK" > build/app-release.cert-sha256.txt 2>&1
+        VERIFY_EXIT=$?
+        set -e
+        OUT="$(cat build/app-release.cert-sha256.txt)"
+        if ! echo "$OUT" | grep -qi 'SHA-256 digest:'; then
+          echo "apksigner did not print a SHA-256 digest (exit $VERIFY_EXIT)"
+          exit 1
+        fi
+        DIGEST="$(echo "$OUT" | grep -i 'certificate SHA-256 digest:' | head -1 | sed -E 's/.*SHA-256 digest:[[:space:]]*//')"
+        DIGEST="${DIGEST//$'\r'/}"
+        FINGERPRINT="$(DIGEST="$DIGEST" python3 -c "import os,sys;h=os.environ['DIGEST'].replace(':','').strip().upper();(len(h)!=64 or any(c not in '0123456789ABCDEF' for c in h)) and sys.exit(1);print(':'.join(h[i:i+2] for i in range(0,len(h),2)))")"
+        echo "$FINGERPRINT" > build/app-release.cert-sha256
+        echo "$FINGERPRINT" > build/ci-actual-cert-sha256.txt
+
+  - name: assert-release-cert-pin
+    image: *flutter_image
+    pull: false
+    environment:
+      ANDROID_CERT_SHA256:
+        from_secret: android_cert_sha256
+    commands:
+      - set -euo pipefail
+      - |
+        ACTUAL="$(cat build/ci-actual-cert-sha256.txt)"
+        if [ -z "${ANDROID_CERT_SHA256:-}" ]; then
+          echo "Release build requires android_cert_sha256 secret"
+          exit 1
+        fi
+        normalize() {
+          DIGEST="$1" python3 -c "import os;h=os.environ['DIGEST'].replace(':','').strip().upper();print(':'.join(h[i:i+2] for i in range(0,len(h),2)))"
+        }
+        EXPECTED_N="$(normalize "$ANDROID_CERT_SHA256")"
+        ACTUAL_N="$(normalize "$ACTUAL")"
+        if [ "$EXPECTED_N" != "$ACTUAL_N" ]; then
+          echo "APK cert SHA-256 mismatch"
+          exit 1
+        fi
+
+  - name: guard-no-keystores-in-build
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - |
+        if find build -type f \( -name '*.keystore' -o -name '*.jks' \) | grep -q .; then
+          echo "Keystore material under build/"
+          exit 1
+        fi
+
+  - name: stage-release-bundle
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - mkdir -p build/ci-release-bundle
+      - cp build/app/outputs/flutter-apk/app-release.apk build/ci-release-bundle/
+      - cp build/app-release.apk.sha256 build/app-release.json build/app-release.cert-sha256 build/ci-release-bundle/
+      - |
+        tar -czf "build/flight-vis-android-${CI_COMMIT_SHA}.tgz" -C build/ci-release-bundle .
+
+  - name: github-release-assets
+    image: woodpeckerci/plugin-release:1.0.0
+    pull: false
+    settings:
+      api_key:
+        from_secret: github_release_token
+      files:
+        - build/app/outputs/flutter-apk/app-release.apk
+        - build/app-release.apk.sha256
+        - build/app-release.json
+        - build/app-release.cert-sha256
+    when:
+      - event: tag
+        ref: refs/tags/v**
+
+  - name: remove-decoded-keystore
+    image: alpine:3.20.3
+    pull: false
+    commands:
+      - rm -f android/app/release.keystore android/key.properties
+    when:
+      - status: [success, failure]
+
+  - name: workspace-cleanup
+    image: alpine:3.20.3
+    pull: false
+    commands:
+      - set -euo pipefail
+      - rm -rf build .dart_tool
+    when:
+      - status: [success, failure]
