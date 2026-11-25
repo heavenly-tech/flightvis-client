@@ -68,9 +68,9 @@ steps:
       - printf '%s' "$FLIGHTVIS_KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
       - |
         cat > android/key.properties <<EOF
-        storePassword=${FLIGHTVIS_KEYSTORE_PASSWORD}
-        keyPassword=${FLIGHTVIS_KEY_PASSWORD}
-        keyAlias=${FLIGHTVIS_KEY_ALIAS}
+        storePassword=$${FLIGHTVIS_KEYSTORE_PASSWORD}
+        keyPassword=$${FLIGHTVIS_KEY_PASSWORD}
+        keyAlias=$${FLIGHTVIS_KEY_ALIAS}
         storeFile=release.keystore
         EOF
 
@@ -91,8 +91,8 @@ steps:
         SHA=$(sha256sum "$APK" | awk '{print $1}')
         echo "$SHA" > build/app-release.apk.sha256
         VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
-        VERSION_NAME=${VERSION%%+*}
-        VERSION_CODE=${VERSION##*+}
+        VERSION_NAME=$${VERSION%%+*}
+        VERSION_CODE=$${VERSION##*+}
         cat > build/app-release.json <<EOF
         {"version":"$VERSION_NAME","versionCode":$VERSION_CODE,"sha256":"$SHA","commit":"${CI_COMMIT_SHA}","releaseSigned":true}
         EOF
@@ -104,7 +104,7 @@ steps:
       - set -euo pipefail
       - |
         APK=build/app/outputs/flutter-apk/app-release.apk
-        SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
+        SDK_ROOT="$${ANDROID_HOME:-$${ANDROID_SDK_ROOT:-/opt/android-sdk}}"
         APKSIGNER="$(find "$SDK_ROOT/build-tools" -path '*/apksigner' -type f 2>/dev/null | sort -V | tail -1)"
         if [ -z "$APKSIGNER" ]; then
           echo "apksigner not found under $SDK_ROOT/build-tools"
@@ -120,7 +120,7 @@ steps:
           exit 1
         fi
         DIGEST="$(echo "$OUT" | grep -i 'certificate SHA-256 digest:' | head -1 | sed -E 's/.*SHA-256 digest:[[:space:]]*//')"
-        DIGEST="${DIGEST//$'\r'/}"
+        DIGEST="$${DIGEST//$'\r'/}"
         FINGERPRINT="$(DIGEST="$DIGEST" python3 -c "import os,sys;h=os.environ['DIGEST'].replace(':','').strip().upper();(len(h)!=64 or any(c not in '0123456789ABCDEF' for c in h)) and sys.exit(1);print(':'.join(h[i:i+2] for i in range(0,len(h),2)))")"
         echo "$FINGERPRINT" > build/app-release.cert-sha256
         echo "$FINGERPRINT" > build/ci-actual-cert-sha256.txt
@@ -135,7 +135,7 @@ steps:
       - set -euo pipefail
       - |
         ACTUAL="$(cat build/ci-actual-cert-sha256.txt)"
-        if [ -z "${ANDROID_CERT_SHA256:-}" ]; then
+        if [ -z "$${ANDROID_CERT_SHA256:-}" ]; then
           echo "Release build requires android_cert_sha256 secret"
           exit 1
         fi
@@ -187,7 +187,7 @@ steps:
         ref: refs/tags/v**
 
   - name: remove-decoded-keystore
-    image: alpine:3.20.3
+    image: alpine:3.20
     pull: false
     commands:
       - rm -f android/app/release.keystore android/key.properties
@@ -195,7 +195,7 @@ steps:
       - status: [success, failure]
 
   - name: workspace-cleanup
-    image: alpine:3.20.3
+    image: alpine:3.20
     pull: false
     commands:
       - set -euo pipefail
