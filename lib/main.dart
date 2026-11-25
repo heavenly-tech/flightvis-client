@@ -14,6 +14,7 @@ import 'screens/permissions_onboarding_screen.dart';
 import 'screens/tracking_screen.dart';
 import 'services/app_repository.dart';
 import 'services/deep_link_dispatcher.dart';
+import 'services/flight_permissions.dart';
 import 'services/tracking_lifecycle.dart';
 import 'services/tracking_service.dart';
 import 'ci_test_keys.dart';
@@ -37,6 +38,7 @@ class FlightVisApp extends StatefulWidget {
     required this.repo,
     this.bindPlatformDeepLinks = true,
     this.stopStickyTrackerOnRestore = true,
+    this.permissions,
   });
 
   final AppRepository repo;
@@ -48,6 +50,9 @@ class FlightVisApp extends StatefulWidget {
   /// When false, widget tests avoid native Traccar [TrackingService.stop] on restore (L-33).
   @visibleForTesting
   final bool stopStickyTrackerOnRestore;
+
+  /// Optional injectable permissions adapter for widget tests.
+  final FlightPermissionsClient? permissions;
 
   @override
   State<FlightVisApp> createState() => _FlightVisAppState();
@@ -171,6 +176,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
           MaterialPageRoute(
             builder: (_) => CheckinScreen(
               repo: widget.repo,
+              permissions: widget.permissions,
               initialScan: link.token,
               initialClubSlug: link.clubSlug,
               onCheckedIn: () async {
@@ -365,6 +371,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
       _Flow.permissions => PermissionsOnboardingScreen(
           repo: widget.repo,
           onComplete: _afterPermissions,
+          permissions: widget.permissions,
         ),
       _Flow.hub => HomeHubScreen(
           repo: widget.repo,
@@ -373,6 +380,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
           onRequestLogin: () => setState(() => _flow = _Flow.login),
           onLogout: _logout,
           onLocaleChanged: _refreshLocale,
+          permissions: widget.permissions,
         ),
       _Flow.tracking => TrackingScreen(
           repo: widget.repo,

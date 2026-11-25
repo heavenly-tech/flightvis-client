@@ -116,12 +116,13 @@
       "tail": {"type": "String"}
     }
   },
-  "pilotFlightIdLine": "Flight: {id}",
-  "@pilotFlightIdLine": {
+  "pilotEndFlightConfirmTitle": "Finish tracking {tail}?",
+  "@pilotEndFlightConfirmTitle": {
     "placeholders": {
-      "id": {"type": "String"}
+      "tail": {"type": "String"}
     }
   },
+  "pilotEndFlightConfirmAction": "Finish",
   "pilotBroadcasting": "Broadcasting position",
   "pilotBroadcastingPaused": "Broadcasting paused",
   "pilotDeviceTokenMissing": "Device token missing — pair your device first.",
@@ -139,6 +140,26 @@
   "permBatteryTitle": "Unrestricted battery",
   "permBatteryBody": "Exclude flight_vis from battery optimization so Android does not stop tracking.",
   "permBatteryAction": "Open battery settings",
+  "permStepIndicator": "Step {current} of {total}",
+  "@permStepIndicator": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "permDeniedInline": "This permission was not granted. You can open settings to enable it or continue anyway.",
+  "permOpenAppSettings": "Open settings",
+  "permContinueAnyway": "Continue anyway",
+  "permDoneTitle": "Permissions ready",
+  "permDoneBody": "You can now check in for your flight with the club QR.",
+  "permDoneMissingTitle": "Some permissions are missing",
+  "permDoneMissingBody": "Missing permissions: {missing}. You can enable them later in settings.",
+  "@permDoneMissingBody": {
+    "placeholders": {
+      "missing": {"type": "String"}
+    }
+  },
+  "permGapBackgroundName": "Background location",
   "permContinue": "Continue",
   "permFinish": "Ready to fly",
   "permWarningTitle": "Missing permissions to track",
@@ -148,10 +169,6 @@
   "appName": "flight_vis",
   "pilotCheckInInvalidCode": "Invalid check-in code.",
   "pilotGpsStartFailed": "Could not start GPS — check location permissions.",
-  "pilotSaveToHistoryTitle": "Save to my history?",
-  "pilotSaveToHistoryBody": "If you are signed in, you can save this flight to your personal history.",
-  "pilotSaveToHistoryYes": "Yes, save",
-  "pilotSaveToHistoryNo": "No",
   "permLegacyTitle": "Permissions",
   "permLegacyIntro": "flight_vis needs location and battery settings so your track continues in the background during a flight.",
   "permLegacyLocationTitle": "Location — Allow all the time",

@@ -4,7 +4,9 @@ import '../api/flight_vis_client.dart';
 import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
+import '../services/flight_permissions.dart';
 import '../state/checkin_gate.dart';
+import '../widgets/permission_warning_card.dart';
 import '../ci_test_keys.dart';
 
 class TailPickerScreen extends StatefulWidget {
@@ -12,27 +14,55 @@ class TailPickerScreen extends StatefulWidget {
     super.key,
     required this.repo,
     required this.onFlightStarted,
+    this.permissions,
   });
 
   final AppRepository repo;
   final void Function(StartFlightResult flight, String tail) onFlightStarted;
+  final FlightPermissionsClient? permissions;
 
   @override
   State<TailPickerScreen> createState() => _TailPickerScreenState();
 }
 
-class _TailPickerScreenState extends State<TailPickerScreen> {
+class _TailPickerScreenState extends State<TailPickerScreen>
+    with WidgetsBindingObserver {
   List<TailOption> _tails = [];
   String? _selectedTail;
   String _visibility = 'club';
   bool _showPilotNamePublic = false;
   bool _loading = true;
   String? _error;
+  FlightPermissionStatus? _permissionStatus;
+
+  FlightPermissionsClient get _permissions =>
+      widget.permissions ?? FlightPermissions.instance;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshPermissions();
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissions();
+    }
+  }
+
+  Future<void> _refreshPermissions() async {
+    final status = await _permissions.check();
+    if (!mounted) return;
+    setState(() => _permissionStatus = status);
   }
 
   Future<void> _load() async {
@@ -128,6 +158,15 @@ class _TailPickerScreenState extends State<TailPickerScreen> {
                         padding: const EdgeInsets.all(12),
                         child: Text(blockMsg),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_permissionStatus != null &&
+                      _permissionStatus!.hasTrackingPermissionGaps) ...[
+                    PermissionWarningCard(
+                      status: _permissionStatus!,
+                      permissions: widget.permissions,
+                      onChanged: _refreshPermissions,
                     ),
                     const SizedBox(height: 12),
                   ],

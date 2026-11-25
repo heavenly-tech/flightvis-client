@@ -8,6 +8,7 @@ import '../l10n/api_errors.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
+import '../services/flight_permissions.dart';
 import '../state/checkin_gate.dart';
 import '../util/checkin_expiry_format.dart';
 import '../util/flight_deep_link.dart';
@@ -24,6 +25,7 @@ class CheckinScreen extends StatefulWidget {
     this.initialClubSlug,
     this.onLoginRequired,
     this.onStartFlight,
+    this.permissions,
   });
 
   final AppRepository repo;
@@ -32,6 +34,7 @@ class CheckinScreen extends StatefulWidget {
   final void Function(String flightId, String tailLabel)? onStartFlight;
   final String? initialScan;
   final String? initialClubSlug;
+  final FlightPermissionsClient? permissions;
 
   @override
   State<CheckinScreen> createState() => _CheckinScreenState();
@@ -87,6 +90,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
       MaterialPageRoute<void>(
         builder: (routeContext) => TailPickerScreen(
           repo: widget.repo,
+          permissions: widget.permissions,
           onFlightStarted: (flight, tail) {
             Navigator.of(routeContext).maybePop();
             widget.onStartFlight?.call(flight.id, tail);

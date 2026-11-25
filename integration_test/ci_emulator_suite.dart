@@ -70,8 +70,8 @@ void main() {
 
       await pumpFrames(tester, total: const Duration(seconds: 2));
       await tapWhenFound(tester, find.text('Comenzar vuelo'), timeout: const Duration(seconds: 25));
-      await waitForFound(tester, find.text('Finalizar tracking'), timeout: const Duration(seconds: 30));
-      expect(find.text('Finalizar tracking'), findsOneWidget);
+      await waitForFound(tester, find.text('Finalizar seguimiento'), timeout: const Duration(seconds: 30));
+      expect(find.text('Finalizar seguimiento'), findsOneWidget);
       ciLog('suite: tracking OK');
 
       await DeepLinkTestHooks.dispatch(

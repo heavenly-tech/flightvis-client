@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'spanish_voseo.dart';
 
-/// Files and trees scanned for Spanish voseo in pilot UI copy.
+/// Files and trees scanned for Spanish register/anglicism violations in pilot UI copy.
 const _arbPath = 'lib/l10n/app_es.arb';
 const _androidStrings = 'android/app/src/main/res/values/strings.xml';
 const _dartUiRoots = ['lib/screens', 'lib/widgets'];
@@ -19,10 +19,10 @@ void main() {
   violations += _scanReadmeEs();
 
   if (violations > 0) {
-    stderr.writeln('$violations Spanish voseo violation(s) — use neutral tú forms.');
+    stderr.writeln('$violations Spanish copy violation(s) — use es-CL tú without anglicisms.');
     exit(1);
   }
-  stdout.writeln('Spanish copy: no voseo patterns detected.');
+  stdout.writeln('Spanish copy: no voseo, usted, or anglicism patterns detected.');
 }
 
 int _scanArb(String path) {
@@ -37,7 +37,7 @@ int _scanArb(String path) {
     if (entry.key.startsWith('@') || entry.key.startsWith('@@')) continue;
     final value = entry.value;
     if (value is! String) continue;
-    final hits = findSpanishVoseoViolations(value);
+    final hits = findSpanishCopyViolations(value);
     if (hits.isNotEmpty) {
       count++;
       stderr.writeln('$path key "${entry.key}": $value');
@@ -55,7 +55,7 @@ int _scanXmlStrings(String path) {
   var count = 0;
   for (final m in re.allMatches(text)) {
     final value = m.group(1)!;
-    final hits = findSpanishVoseoViolations(value);
+    final hits = findSpanishCopyViolations(value);
     if (hits.isNotEmpty) {
       count++;
       stderr.writeln('$path: $value');
@@ -75,7 +75,7 @@ int _scanDartTree(String root) {
     for (final m in RegExp(r'''(?:'|")([^\n'"\\]{3,200})(?:'|")''').allMatches(content)) {
       final literal = m.group(1)!;
       if (!RegExp(r'[áéíóúñÁÉÍÓÚÑ]').hasMatch(literal)) continue;
-      final hits = findSpanishVoseoViolations(literal);
+      final hits = findSpanishCopyViolations(literal);
       if (hits.isEmpty) continue;
       count++;
       stderr.writeln('${file.path}: "$literal"');
