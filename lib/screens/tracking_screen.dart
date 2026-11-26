@@ -95,7 +95,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
     try {
       await widget.tracking.start();
-      setState(() => _active = true);
+      if (mounted) setState(() => _active = true);
     } on PlatformException {
       if (mounted) {
         setState(() => _error = context.pilotL10n.pilotGpsStartFailed);
@@ -112,28 +112,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
   Future<void> _endFlight() async {
     setState(() => _error = null);
     final l10n = context.pilotL10n;
-    final signedIn =
-        widget.repo.client.sessionId != null && widget.repo.client.sessionId!.isNotEmpty;
-    if (signedIn && mounted && !AppConfig.screenshotTest) {
-      final save = await showDialog<bool>(
+    if (mounted && !AppConfig.screenshotTest) {
+      final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(l10n.pilotSaveToHistoryTitle),
-          content: Text(l10n.pilotSaveToHistoryBody),
+          title: Text(l10n.pilotEndFlightConfirmTitle(widget.tail)),
           actions: [
             TextButton(
+              key: FlightVisTestKeys.trackingStopCancel,
               onPressed: () => Navigator.pop(ctx, false),
-              child: Text(l10n.pilotSaveToHistoryNo),
+              child: Text(l10n.cancelButton),
             ),
             FilledButton(
+              key: FlightVisTestKeys.trackingStopConfirm,
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error,
+                foregroundColor: Theme.of(ctx).colorScheme.onError,
+              ),
               onPressed: () => Navigator.pop(ctx, true),
-              child: Text(l10n.pilotSaveToHistoryYes),
+              child: Text(l10n.pilotEndFlightConfirmAction),
             ),
           ],
         ),
       );
-      if (save == null) return;
-      // Server personal-history API not wired yet; choice is recorded for future use.
+      if (confirmed != true) return;
     }
     try {
       await widget.tracking.stop();
@@ -171,7 +173,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
             Text(l10n.pilotTailLine(widget.tail), style: Theme.of(context).textTheme.titleLarge),
-            Text(l10n.pilotFlightIdLine(widget.flightId)),
             const SizedBox(height: 12),
             Row(
               children: [

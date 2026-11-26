@@ -42,31 +42,36 @@ void main() {
       await tapWhenFound(tester, find.text('Iniciar sesión'), label: 'login', timeout: const Duration(seconds: 20));
       await waitForFound(tester, find.text('Continuar sin iniciar sesión'), timeout: const Duration(seconds: 20));
       await tapWhenFound(tester, find.text('Continuar sin iniciar sesión'), label: 'guest', timeout: const Duration(seconds: 20));
-      await waitForFound(tester, find.text('Check-in club'), timeout: const Duration(seconds: 25));
+      await waitForFound(tester, find.text('Registro en el club'), timeout: const Duration(seconds: 25));
       ciLog('suite: guest hub');
 
-      await tapWhenFound(tester, find.text('Check-in club'), label: 'check-in', timeout: const Duration(seconds: 20));
+      await tapWhenFound(tester, find.text('Registro en el club'), label: 'check-in', timeout: const Duration(seconds: 20));
+      await tapWhenFound(
+        tester,
+        find.text('¿No funciona la cámara? Pegar código manual'),
+        label: 'manual entry',
+        timeout: const Duration(seconds: 20),
+      );
       await waitForFound(
         tester,
-        find.widgetWithText(TextField, 'O pegue el token de check-in'),
+        find.widgetWithText(TextField, 'Pega el código de registro'),
         timeout: const Duration(seconds: 25),
       );
       await tester.enterText(
-        find.widgetWithText(TextField, 'O pegue el token de check-in'),
+        find.widgetWithText(TextField, 'Pega el código de registro'),
         _checkinUrl,
       );
-      await tapWhenFound(tester, find.text('Enviar token'), timeout: const Duration(seconds: 20));
+      await tapWhenFound(tester, find.text('Enviar código'), timeout: const Duration(seconds: 20));
       await waitForFound(tester, find.text('Continuar'), label: 'check-in ok', timeout: const Duration(seconds: 30));
       ciLog('suite: check-in OK');
 
-      await tapWhenFound(tester, find.text('Continuar'), label: 'pop check-in', timeout: const Duration(seconds: 20));
+      await tapWhenFound(tester, find.text('Continuar'), label: 'continue to tail picker', timeout: const Duration(seconds: 20));
       await waitForFound(tester, find.text('Detalles del vuelo'), timeout: const Duration(seconds: 25));
 
-      await tapWhenFound(tester, find.text('Detalles del vuelo'), timeout: const Duration(seconds: 20));
       await pumpFrames(tester, total: const Duration(seconds: 2));
-      await tapWhenFound(tester, find.text('Comenzar tracking'), timeout: const Duration(seconds: 25));
-      await waitForFound(tester, find.text('Finalizar tracking'), timeout: const Duration(seconds: 30));
-      expect(find.text('Finalizar tracking'), findsOneWidget);
+      await tapWhenFound(tester, find.text('Comenzar vuelo'), timeout: const Duration(seconds: 25));
+      await waitForFound(tester, find.text('Finalizar seguimiento'), timeout: const Duration(seconds: 30));
+      expect(find.text('Finalizar seguimiento'), findsOneWidget);
       ciLog('suite: tracking OK');
 
       await DeepLinkTestHooks.dispatch(
@@ -76,7 +81,7 @@ void main() {
         ),
       );
       await pumpFrames(tester, total: const Duration(seconds: 3));
-      expect(find.text('Check-in club'), findsWidgets);
+      expect(find.text('Registro en el club'), findsWidgets);
       expect(find.textContaining('v1.club1'), findsNothing);
       ciLog('suite: deep link OK — done');
     },

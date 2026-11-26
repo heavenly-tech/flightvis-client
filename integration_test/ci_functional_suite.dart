@@ -73,20 +73,26 @@ void main() {
             label: 'hub check-in',
             timeout: const Duration(seconds: 45),
           );
+          await tapWhenFound(
+            tester,
+            find.byKey(FlightVisTestKeys.checkinManualEntry),
+            label: 'check-in manual entry',
+            timeout: const Duration(seconds: 45),
+          );
           await waitForFound(
             tester,
-            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            find.byKey(FlightVisTestKeys.checkinPasteField),
             label: 'check-in paste field',
             timeout: const Duration(seconds: 45),
           );
           await tester.enterText(
-            find.widgetWithText(TextField, 'O pegue el token de check-in'),
+            find.byKey(FlightVisTestKeys.checkinPasteField),
             _checkinUrl,
           );
           await tapWhenFound(
             tester,
-            find.text('Enviar token'),
-            label: 'submit token',
+            find.byKey(FlightVisTestKeys.checkinPasteSubmit),
+            label: 'submit code',
             timeout: const Duration(seconds: 45),
           );
           await waitForFound(
@@ -98,18 +104,17 @@ void main() {
         }, timeout: const Duration(seconds: 120));
         ciLog('functional-flow: check-in OK');
 
-        await ciStep(tester, 'pop check-in to hub', () async {
-          await leaveCheckinForHub(tester);
-        }, timeout: const Duration(seconds: 90));
-
-        await ciStep(tester, 'start tracking', () async {
-          await openHubFlightDetails(tester);
+        await ciStep(tester, 'continue check-in to tail picker', () async {
+          await activateCheckinContinue(tester);
           await waitForFound(
             tester,
             find.byKey(FlightVisTestKeys.tailPicker),
             label: 'tail picker',
             timeout: const Duration(seconds: 90),
           );
+        }, timeout: const Duration(seconds: 90));
+
+        await ciStep(tester, 'start tracking', () async {
           await waitForAbsent(
             tester,
             find.byType(CircularProgressIndicator),
@@ -150,7 +155,7 @@ void main() {
             ),
           );
           await pumpFrames(tester, total: const Duration(seconds: 3));
-          expect(find.text('Check-in club'), findsWidgets);
+          expect(find.text('Registro en el club'), findsWidgets);
           expect(find.textContaining('v1.club1'), findsNothing);
         }, timeout: const Duration(seconds: 30));
         ciLog('functional-flow: deep link OK — done');

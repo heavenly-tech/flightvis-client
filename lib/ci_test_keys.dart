@@ -10,12 +10,22 @@ abstract final class FlightVisTestKeys {
   static const hubFlightDetails = ValueKey<String>('flightvis_hub_flight_details');
   static const permissionsScreen = ValueKey<String>('flightvis_permissions');
   static const permissionsPrimary = ValueKey<String>('flightvis_permissions_primary');
+  static const permissionsStepIndicator = ValueKey<String>('flightvis_permissions_step');
+  static const permissionsDeniedMessage = ValueKey<String>('flightvis_permissions_denied');
+  static const permissionsOpenSettings = ValueKey<String>('flightvis_permissions_open_settings');
+  static const permissionsSkip = ValueKey<String>('flightvis_permissions_skip');
+  static const permissionWarningCard = ValueKey<String>('flightvis_permission_warning_card');
   static const loginGuest = ValueKey<String>('flightvis_login_guest');
   static const loginRegister = ValueKey<String>('flightvis_login_register');
   static const loginRegisterNote = ValueKey<String>('flightvis_login_register_note');
   static const checkinContinue = ValueKey<String>('flightvis_checkin_continue');
+  static const checkinManualEntry = ValueKey<String>('flightvis_checkin_manual_entry');
+  static const checkinPasteField = ValueKey<String>('flightvis_checkin_paste_field');
+  static const checkinPasteSubmit = ValueKey<String>('flightvis_checkin_paste_submit');
   static const tailPicker = ValueKey<String>('flightvis_tail_picker');
   static const tailStart = ValueKey<String>('flightvis_tail_start');
   static const trackingScreen = ValueKey<String>('flightvis_tracking');
   static const trackingStop = ValueKey<String>('flightvis_tracking_stop');
+  static const trackingStopCancel = ValueKey<String>('flightvis_tracking_stop_cancel');
+  static const trackingStopConfirm = ValueKey<String>('flightvis_tracking_stop_confirm');
 }

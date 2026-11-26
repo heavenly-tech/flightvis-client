@@ -8,12 +8,14 @@ import '../dev/dev_tools_gate.dart';
 import '../l10n/pilot_l10n.dart';
 import '../util/checkin_expiry_format.dart';
 import '../services/app_repository.dart';
+import '../services/flight_permissions.dart';
 import '../state/checkin_gate.dart';
 import 'checkin_screen.dart';
 import 'hidden_settings_screen.dart';
 import 'pairing_screen.dart';
 import 'tail_picker_screen.dart';
 import '../widgets/language_picker_sheet.dart';
+import '../widgets/permission_warning_card.dart';
 import '../ci_test_keys.dart';
 
 class HomeHubScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class HomeHubScreen extends StatefulWidget {
     required this.onLogout,
     this.pilot,
     this.onLocaleChanged,
+    this.permissions,
   });
 
   final AppRepository repo;
@@ -33,18 +36,26 @@ class HomeHubScreen extends StatefulWidget {
   final VoidCallback onRequestLogin;
   final VoidCallback onLogout;
   final VoidCallback? onLocaleChanged;
+  final FlightPermissionsClient? permissions;
 
   @override
   State<HomeHubScreen> createState() => _HomeHubScreenState();
 }
 
-class _HomeHubScreenState extends State<HomeHubScreen> {
+class _HomeHubScreenState extends State<HomeHubScreen>
+    with WidgetsBindingObserver {
   int _secretTaps = 0;
   Timer? _tick;
+  FlightPermissionStatus? _permissionStatus;
+
+  FlightPermissionsClient get _permissions =>
+      widget.permissions ?? FlightPermissions.instance;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshPermissions();
     if (!AppConfig.screenshotTest) {
       _tick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted) setState(() {});
@@ -54,8 +65,22 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tick?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissions();
+    }
+  }
+
+  Future<void> _refreshPermissions() async {
+    final status = await _permissions.check();
+    if (!mounted) return;
+    setState(() => _permissionStatus = status);
   }
 
   CheckinGate get _gate => CheckinGate(
@@ -100,9 +125,12 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
                 onCheckedIn: () {
                   if (mounted) setState(() {});
                 },
+                onStartFlight: widget.onStartFlight,
               ),
             ),
-          ),
+          ).then((_) {
+            if (mounted) setState(() {});
+          }),
         ),
       );
     }
@@ -181,6 +209,15 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
             _checkinBanner(context)!,
             const SizedBox(height: 12),
           ],
+          if (_permissionStatus != null &&
+              _permissionStatus!.hasTrackingPermissionGaps) ...[
+            PermissionWarningCard(
+              status: _permissionStatus!,
+              permissions: widget.permissions,
+              onChanged: _refreshPermissions,
+            ),
+            const SizedBox(height: 12),
+          ],
           _navCard(
             context,
             key: FlightVisTestKeys.hubCheckIn,
@@ -192,18 +229,24 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
               MaterialPageRoute(
                 builder: (_) => CheckinScreen(
                   repo: widget.repo,
+                  permissions: widget.permissions,
                   onCheckedIn: () {
                     if (mounted) setState(() {});
                   },
+                  onStartFlight: widget.onStartFlight,
                 ),
               ),
-            ),
+            ).then((_) {
+              if (mounted) setState(() {});
+            }),
           ),
           _navCard(
             context,
             key: FlightVisTestKeys.hubFlightDetails,
             title: l10n.pilotHubFlightTitle,
-            subtitle: l10n.pilotHubFlightSubtitle,
+            subtitle: gate.canStartFlight
+                ? l10n.pilotHubFlightSubtitle
+                : l10n.pilotHubFlightLockedSubtitle,
             icon: Icons.flight_takeoff,
             enabled: gate.canStartFlight,
             onTap: gate.canStartFlight
@@ -212,6 +255,7 @@ class _HomeHubScreenState extends State<HomeHubScreen> {
                       MaterialPageRoute(
                         builder: (_) => TailPickerScreen(
                           repo: widget.repo,
+                          permissions: widget.permissions,
                           onFlightStarted: (flight, tail) {
                             Navigator.pop(context);
                             widget.onStartFlight(flight.id, tail);
