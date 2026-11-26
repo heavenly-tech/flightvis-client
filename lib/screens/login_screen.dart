@@ -16,12 +16,16 @@ class LoginScreen extends StatefulWidget {
     required this.repo,
     required this.onLoggedIn,
     this.onContinueAsGuest,
+    this.notice,
     this.signupAvailabilityProbe,
   });
 
   final AppRepository repo;
   final VoidCallback onLoggedIn;
   final VoidCallback? onContinueAsGuest;
+
+  /// Optional banner text (e.g. session expiry reason).
+  final String? notice;
 
   /// Tests inject a probe; production uses [AccountSignupAvailability.isAvailable].
   final AccountSignupAvailabilityProbe? signupAvailabilityProbe;
@@ -73,6 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     await widget.repo.persistSession();
+    await widget.repo.prefs.setCachedPilotProfile(pilot);
     await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
     if (mounted) {
       setState(() => _busy = false);
@@ -206,6 +211,21 @@ class _LoginScreenState extends State<LoginScreen> {
               l10n.pilotSignInTitle,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
             ),
+            if (widget.notice != null && widget.notice!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    widget.notice!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
             Text(l10n.pilotSignInIntro),
             if (_signupAvailable) ...[

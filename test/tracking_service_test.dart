@@ -98,4 +98,22 @@ void main() {
     expect(fake.initCalls, isEmpty);
     expect(fake.setConfigCalls, isEmpty);
   });
+
+  test('start returns false and does not throw when Traccar SDK start() throws', () async {
+    final throwingTracker = _ThrowingStartTracker();
+    final tracking = TrackingService(tracker: throwingTracker);
+    await tracking.initForFlight(
+      baseUrl: 'https://flight.heavenly.cl',
+      deviceToken: '01234567890123456789012345678901',
+    );
+    final ok = await tracking.start();
+    expect(ok, isFalse);
+  });
+}
+
+class _ThrowingStartTracker extends _FakeTraccarClientSdk {
+  @override
+  Future<void> start() async {
+    throw PlatformException(code: 'gps_error', message: 'Location provider disabled');
+  }
 }

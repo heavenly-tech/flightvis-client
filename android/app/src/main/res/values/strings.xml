@@ -3,5 +3,7 @@
     <string name="app_name">flight_vis</string>
     <string name="tracking_notification_channel_name">Seguimiento en vuelo</string>
     <string name="tracking_notification_text">Transmitiendo posición del vuelo</string>
+    <string name="local_recording_notification_channel_name">Grabación local de vuelo</string>
+    <string name="local_recording_notification_text">Grabando recorrido localmente en tu teléfono</string>
     <string name="location_permission_rationale">flight_vis necesita ubicación en segundo plano para transmitir tu vuelo.</string>
 </resources>

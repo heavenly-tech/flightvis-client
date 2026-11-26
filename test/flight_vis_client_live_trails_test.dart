@@ -8,8 +8,9 @@ import 'package:flight_vis/api/flight_vis_api_paths.dart';
 import 'package:flight_vis/api/flight_vis_client.dart';
 
 void main() {
-  test('FlightVisApiPaths.meLiveTrails matches server contract', () {
+  test('FlightVisApiPaths.meLiveTrails and publicLiveTrails match server contract', () {
     expect(FlightVisApiPaths.meLiveTrails, '/api/me/live-trails');
+    expect(FlightVisApiPaths.publicLiveTrails, '/api/public/live-trails');
   });
 
   group('fetchLiveTrails', () {
@@ -285,6 +286,103 @@ void main() {
           isA<FlightVisException>().having((e) => e.statusCode, 'statusCode', 400),
         ),
       );
+    });
+  });
+
+  group('fetchPublicLiveTrails (anonymous endpoint)', () {
+    test('sends lat/lon/radius_km and Accept-Language with ZERO auth headers', () async {
+      final seenRequests = <http.Request>[];
+      final client = FlightVisClient(
+        baseUrl: 'https://example.test',
+        sessionId: 'secret-sess-must-not-be-sent',
+        deviceToken: 'secret-tok-must-not-be-sent',
+        httpClient: MockClient((request) async {
+          seenRequests.add(request);
+          if (request.headers['If-None-Match'] == 'W/"pub-1"') {
+            return http.Response('', 304, headers: {'etag': 'W/"pub-1"'});
+          }
+          return http.Response(
+            jsonEncode({
+              'flights': [
+                {
+                  'flightId': 'flt_pub',
+                  'tail': 'CC-PUB',
+                  'layer': 'public',
+                  'trailMinutes': 5,
+                  'points': [
+                    [1700000000000, -33.456, -70.548, 950.0],
+                  ],
+                },
+              ],
+              'caps': {
+                'maxFlights': 50,
+                'maxPointsPerFlight': 300,
+                'maxWindowMinutes': 120,
+              },
+            }),
+            200,
+            headers: {'etag': 'W/"pub-1"'},
+          );
+        }),
+      )..setAcceptLanguage('es-CL');
+
+      final res = await client.fetchPublicLiveTrails(
+        lat: -33.4567891,
+        lon: -70.5481234,
+        radiusKm: 20,
+      );
+
+      expect(seenRequests, hasLength(1));
+      final req = seenRequests.single;
+      expect(req.method, 'GET');
+      expect(req.url.path, '/api/public/live-trails');
+      expect(req.url.queryParameters, {
+        'lat': '-33.456789',
+        'lon': '-70.548123',
+        'radius_km': '20',
+      });
+      expect(req.headers['Accept-Language'], 'es-CL');
+      expect(req.headers.containsKey('Cookie'), isFalse);
+      expect(req.headers.containsKey('Authorization'), isFalse);
+      expect(res.flights, hasLength(1));
+      expect(res.flights.single.tail, 'CC-PUB');
+      expect(res.etag, 'W/"pub-1"');
+
+      // 304 with If-None-Match
+      final res304 = await client.fetchPublicLiveTrails(
+        lat: -33.4567891,
+        lon: -70.5481234,
+        radiusKm: 20,
+        ifNoneMatch: 'W/"pub-1"',
+      );
+      expect(res304.notModified, isTrue);
+      expect(seenRequests.last.headers['If-None-Match'], 'W/"pub-1"');
+      expect(seenRequests.last.headers.containsKey('Cookie'), isFalse);
+      expect(seenRequests.last.headers.containsKey('Authorization'), isFalse);
+    });
+
+    test('clamps radius_km to 5..500 and skips request on invalid coords', () async {
+      final seenRequests = <http.Request>[];
+      final client = FlightVisClient(
+        baseUrl: 'https://example.test',
+        httpClient: MockClient((request) async {
+          seenRequests.add(request);
+          return http.Response(jsonEncode({'flights': []}), 200);
+        }),
+      );
+
+      final invalid = await client.fetchPublicLiveTrails(
+        lat: double.nan,
+        lon: -70.5,
+        radiusKm: 20,
+      );
+      expect(invalid.flights, isEmpty);
+      expect(seenRequests, isEmpty);
+
+      await client.fetchPublicLiveTrails(lat: -33.4, lon: -70.5, radiusKm: 1);
+      await client.fetchPublicLiveTrails(lat: -33.4, lon: -70.5, radiusKm: 999);
+      expect(seenRequests[0].url.queryParameters['radius_km'], '5');
+      expect(seenRequests[1].url.queryParameters['radius_km'], '500');
     });
   });
 }

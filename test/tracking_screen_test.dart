@@ -481,4 +481,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(FlightVisTestKeys.trackingStop), findsOneWidget);
   });
+
+  testWidgets('surfaces localized error when Traccar SDK start() throws instead of failing silently', (tester) async {
+    final repo = await _buildRepo(
+      sessionId: 'sess-1',
+      httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+    );
+    final failingTracker = _ThrowingTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: failingTracker),
+          onStopped: () {},
+          enableMapPolling: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('No se pudo iniciar el GPS. Revisa los permisos de ubicación.'),
+      findsOneWidget,
+    );
+    expect(find.text('Transmisión pausada'), findsOneWidget);
+  });
+}
+
+class _ThrowingTracker extends _FakeTracker {
+  @override
+  Future<void> start() async {
+    throw PlatformException(code: 'gps_denied', message: 'Denied by OS');
+  }
 }
