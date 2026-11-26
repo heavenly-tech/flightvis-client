@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
@@ -58,9 +59,38 @@ class MainActivity : FlutterActivity() {
                         cancelCheckinExpiryStop()
                         result.success(null)
                     }
+                    "startLocalFixRecorder" -> {
+                        LocalPositionRecorder.startObserving()
+                        result.success(null)
+                    }
+                    "getRecentPositions" -> {
+                        result.success(LocalPositionRecorder.snapshot())
+                    }
+                    "clearRecentPositions" -> {
+                        LocalPositionRecorder.clear()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "cl.heavenly.flightvis/tracking_positions",
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(
+                    arguments: Any?,
+                    events: EventChannel.EventSink?,
+                ) {
+                    LocalPositionRecorder.setSink(events)
+                    LocalPositionRecorder.startObserving()
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    LocalPositionRecorder.setSink(null)
+                }
+            },
+        )
     }
 
     private fun scheduleCheckinExpiryStop(expiresAtMs: Long) {

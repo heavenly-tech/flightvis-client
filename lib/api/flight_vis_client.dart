@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../app_config.dart';
+import '../map/trail_styles.dart';
 import 'flight_vis_api_paths.dart';
 
 class FlightVisException implements Exception {
@@ -240,6 +241,118 @@ class StartFlightResult {
         trailMinutes: _parseTrailMinutes(json['trailMinutes']),
         hasTrailMinutes: json.containsKey('trailMinutes'),
       );
+}
+
+/// Single point `[t_ms, lat, lon, alt|null]` returned by `GET /api/me/live-trails`.
+class LiveTrailPoint {
+  const LiveTrailPoint({
+    required this.timeMs,
+    required this.latitude,
+    required this.longitude,
+    this.altitude,
+  });
+
+  final int timeMs;
+  final double latitude;
+  final double longitude;
+  final double? altitude;
+
+  static LiveTrailPoint? fromJsonList(dynamic raw) {
+    if (raw is! List || raw.length < 3) return null;
+    final t = raw[0];
+    final lat = raw[1];
+    final lon = raw[2];
+    if (t is! num || lat is! num || lon is! num) return null;
+    final latD = lat.toDouble();
+    final lonD = lon.toDouble();
+    if (!latD.isFinite || !lonD.isFinite || latD < -90 || latD > 90 || lonD < -180 || lonD > 180) {
+      return null;
+    }
+    final altRaw = raw.length >= 4 ? raw[3] : null;
+    final altD = altRaw is num && altRaw.toDouble().isFinite ? altRaw.toDouble() : null;
+    return LiveTrailPoint(
+      timeMs: t.toInt(),
+      latitude: latD,
+      longitude: lonD,
+      altitude: altD,
+    );
+  }
+}
+
+/// Another aircraft's live trail returned by `GET /api/me/live-trails`.
+class LiveTrailFlight {
+  const LiveTrailFlight({
+    required this.flightId,
+    required this.tail,
+    required this.layer,
+    required this.trailMinutes,
+    required this.points,
+  });
+
+  final String flightId;
+  final String tail;
+  final String layer;
+  final int trailMinutes;
+  final List<LiveTrailPoint> points;
+
+  bool get isPublic => layer == 'public';
+  bool get isClub => layer == 'club';
+  LiveTrailPoint? get latestPoint => points.isEmpty ? null : points.last;
+
+  factory LiveTrailFlight.fromJson(Map<String, dynamic> json) {
+    final rawPoints = json['points'] as List<dynamic>? ?? const [];
+    final parsedPoints = <LiveTrailPoint>[];
+    for (final entry in rawPoints) {
+      final point = LiveTrailPoint.fromJsonList(entry);
+      if (point != null) parsedPoints.add(point);
+    }
+    return LiveTrailFlight(
+      flightId: json['flightId'] as String? ?? '',
+      tail: json['tail'] as String? ?? '',
+      layer: json['layer'] as String? ?? 'club',
+      trailMinutes: _parseTrailMinutes(json['trailMinutes']) ?? 0,
+      points: List<LiveTrailPoint>.unmodifiable(parsedPoints),
+    );
+  }
+}
+
+/// Server-enforced bounds reported by `GET /api/me/live-trails`.
+class LiveTrailsCaps {
+  const LiveTrailsCaps({
+    required this.maxFlights,
+    required this.maxPointsPerFlight,
+    required this.maxWindowMinutes,
+  });
+
+  final int maxFlights;
+  final int maxPointsPerFlight;
+  final int maxWindowMinutes;
+
+  factory LiveTrailsCaps.fromJson(Map<String, dynamic> json) => LiveTrailsCaps(
+        maxFlights: (json['maxFlights'] as num?)?.toInt() ?? 50,
+        maxPointsPerFlight: (json['maxPointsPerFlight'] as num?)?.toInt() ?? 300,
+        maxWindowMinutes: (json['maxWindowMinutes'] as num?)?.toInt() ?? 120,
+      );
+}
+
+/// Parsed response from `GET /api/me/live-trails` (supports `200` and `304`).
+class LiveTrailsResponse {
+  const LiveTrailsResponse({
+    required this.flights,
+    this.caps,
+    this.etag,
+    this.notModified = false,
+  });
+
+  const LiveTrailsResponse.notModified({this.etag})
+      : flights = const [],
+        caps = null,
+        notModified = true;
+
+  final List<LiveTrailFlight> flights;
+  final LiveTrailsCaps? caps;
+  final String? etag;
+  final bool notModified;
 }
 
 /// Typed HTTP client for heavenly-tech/flight_vis club APIs (PR #15).
@@ -624,6 +737,86 @@ class FlightVisClient {
   Future<bool> isFlightActiveOnServer(String flightId) async {
     final flights = await myFlights();
     return flights.any((f) => f.id == flightId && f.isActive);
+  }
+
+  /// Polls other aircraft trails (`GET /api/me/live-trails?layers=...`).
+  ///
+  /// When both [includeClub] and [includePublic] are `false`, makes NO network
+  /// call and returns an empty response. When [includePublic] is `true`, finite
+  /// [lat] and [lon] coordinates are required: if missing or invalid, `public`
+  /// is omitted from `layers` (sending club-only when [includeClub] is `true`,
+  /// or skipping the network call otherwise). When [includePublic] is `false`,
+  /// `lat`, `lon`, and `radius_km` are never sent. Supports weak ETag caching
+  /// via [ifNoneMatch] (`304 Not Modified`).
+  Future<LiveTrailsResponse> fetchLiveTrails({
+    required bool includeClub,
+    required bool includePublic,
+    double? lat,
+    double? lon,
+    int? radiusKm,
+    String? ifNoneMatch,
+  }) async {
+    final hasValidCoords = _hasValidCoordinates(lat, lon);
+    final effectiveIncludePublic = includePublic && hasValidCoords;
+    final layers = buildLiveTrailsLayersParam(
+      includeClub: includeClub,
+      includePublic: effectiveIncludePublic,
+    );
+    if (layers == null) {
+      return const LiveTrailsResponse(flights: []);
+    }
+    final queryParameters = <String, String>{
+      'layers': layers,
+      if (effectiveIncludePublic) ...{
+        'lat': _formatCoordinate(lat!),
+        'lon': _formatCoordinate(lon!),
+        if (radiusKm != null) 'radius_km': radiusKm.toString(),
+      },
+    };
+    final uri = _uri(FlightVisApiPaths.meLiveTrails).replace(
+      queryParameters: queryParameters,
+    );
+    final headers = _headers();
+    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+      headers['If-None-Match'] = ifNoneMatch;
+    }
+    final response = await _http.get(uri, headers: headers);
+    final responseEtag = response.headers['etag'];
+    if (response.statusCode == 304) {
+      return LiveTrailsResponse.notModified(etag: responseEtag ?? ifNoneMatch);
+    }
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    final rawFlights = body['flights'] as List<dynamic>? ?? const [];
+    final flights = rawFlights
+        .whereType<Map<String, dynamic>>()
+        .map(LiveTrailFlight.fromJson)
+        .toList(growable: false);
+    final rawCaps = body['caps'];
+    final caps = rawCaps is Map<String, dynamic>
+        ? LiveTrailsCaps.fromJson(rawCaps)
+        : null;
+    return LiveTrailsResponse(
+      flights: flights,
+      caps: caps,
+      etag: responseEtag,
+    );
+  }
+
+  static bool _hasValidCoordinates(double? lat, double? lon) {
+    return lat != null &&
+        lon != null &&
+        lat.isFinite &&
+        lon.isFinite &&
+        lat >= -90.0 &&
+        lat <= 90.0 &&
+        lon >= -180.0 &&
+        lon <= 180.0;
+  }
+
+  static String _formatCoordinate(double value) {
+    final normalized = value.abs() < 1e-9 ? 0.0 : value;
+    return normalized.toStringAsFixed(6);
   }
 
   /// Updates live trail length override (`PATCH /api/flights/{id}/trail`).

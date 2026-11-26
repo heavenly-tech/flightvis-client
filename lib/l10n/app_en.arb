@@ -241,5 +241,40 @@
       "option": {"type": "String"}
     }
   },
-  "pilotTrailUpdateFailed": "We couldn't change the trail. Please try again."
+  "pilotTrailUpdateFailed": "We couldn't change the trail. Please try again.",
+  "pilotMapLayersLabel": "Map layers",
+  "pilotMapLayerMine": "Mine",
+  "pilotMapLayerClub": "Club",
+  "pilotMapLayerPublic": "Public",
+  "pilotMapLayerSemantic": "Map layer: {layer}",
+  "@pilotMapLayerSemantic": {
+    "placeholders": {
+      "layer": {"type": "String"}
+    }
+  },
+  "pilotMapFollowOn": "Following your position",
+  "pilotMapRecenter": "Center on your position",
+  "pilotMapZoomIn": "Zoom in",
+  "pilotMapZoomOut": "Zoom out",
+  "pilotMapWaitingGps": "Waiting for GPS fix…",
+  "pilotMapPublicRadius": "Radius: {km} km",
+  "@pilotMapPublicRadius": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicRadiusKm": "{km} km",
+  "@pilotMapPublicRadiusKm": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicRadiusTooltip": "Public flights radius",
+  "pilotMapPublicRadiusSemantic": "Public flights radius: {km} km",
+  "@pilotMapPublicRadiusSemantic": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicWaitingPosition": "Waiting for your position to show nearby public flights"
 }

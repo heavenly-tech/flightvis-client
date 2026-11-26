@@ -242,5 +242,40 @@
     }
   },
   "pilotTrailUpdateFailed": "No pudimos cambiar la estela. Inténtalo de nuevo.",
+  "pilotMapLayersLabel": "Capas del mapa",
+  "pilotMapLayerMine": "Mío",
+  "pilotMapLayerClub": "Club",
+  "pilotMapLayerPublic": "Público",
+  "pilotMapLayerSemantic": "Capa {layer}",
+  "@pilotMapLayerSemantic": {
+    "placeholders": {
+      "layer": {"type": "String"}
+    }
+  },
+  "pilotMapFollowOn": "Siguiendo tu posición",
+  "pilotMapRecenter": "Centrar en tu posición",
+  "pilotMapZoomIn": "Acercar mapa",
+  "pilotMapZoomOut": "Alejar mapa",
+  "pilotMapWaitingGps": "Esperando señal GPS…",
+  "pilotMapPublicRadius": "Radio: {km} km",
+  "@pilotMapPublicRadius": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicRadiusKm": "{km} km",
+  "@pilotMapPublicRadiusKm": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicRadiusTooltip": "Radio de vuelos públicos",
+  "pilotMapPublicRadiusSemantic": "Radio de vuelos públicos: {km} km",
+  "@pilotMapPublicRadiusSemantic": {
+    "placeholders": {
+      "km": {"type": "int"}
+    }
+  },
+  "pilotMapPublicWaitingPosition": "Esperando tu posición para mostrar vuelos públicos cercanos",
   "@@locale": "es"
 }

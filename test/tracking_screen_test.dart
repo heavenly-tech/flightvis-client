@@ -12,11 +12,14 @@ import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 import 'package:flight_vis/api/flight_vis_client.dart';
 import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/ci_test_keys.dart';
+import 'package:flight_vis/map/map_tile_config.dart';
 import 'package:flight_vis/screens/tracking_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
 import 'package:flight_vis/services/tracking_service.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
 import 'package:flight_vis/storage/secure_store.dart';
+
+import 'helpers/fake_tile_provider.dart';
 
 const _deviceToken = '01234567890123456789012345678901';
 const _flightUuid = '550e8400-e29b-41d4-a716-446655440000';
@@ -100,11 +103,13 @@ void main() {
   const trackingChannel = MethodChannel('cl.heavenly.flightvis/tracking');
 
   setUp(() {
+    TrackingMapTestHooks.tileProviderOverride = FakeTileProvider();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, (_) async => null);
   });
 
   tearDown(() {
+    TrackingMapTestHooks.tileProviderOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, null);
   });
