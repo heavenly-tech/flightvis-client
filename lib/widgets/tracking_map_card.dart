@@ -85,14 +85,17 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   late bool _showOwn;
   late bool _showClub;
   late bool _showPublic;
+  late int _publicRadiusKm;
   bool _followOwn = true;
   bool _mapReady = false;
   bool _isForeground = true;
   bool _pollInFlight = false;
+  bool _pollQueued = false;
+  int _pollConfigSeq = 0;
 
   List<LiveTrailFlight> _remoteFlights = const [];
   String? _lastEtag;
-  String? _lastEtagLayers;
+  String? _lastEtagCacheKey;
 
   StreamSubscription<LocalFix>? _fixSub;
   Timer? _remotePollTimer;
@@ -100,6 +103,9 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   DateTime? _lastRedrawAt;
 
   bool get _pollingEnabled => widget.enablePolling ?? !AppConfig.screenshotTest;
+
+  bool get _hasPollableRemoteLayer =>
+      _showClub || (_showPublic && _ownBuffer.latestFix != null);
 
   DateTime _now() => widget.clock?.call() ?? DateTime.now();
 
@@ -114,6 +120,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     _showOwn = widget.prefs.mapLayerOwn();
     _showClub = widget.prefs.mapLayerClub();
     _showPublic = widget.prefs.mapLayerPublic();
+    _publicRadiusKm = widget.prefs.mapPublicRadiusKm();
 
     _ownBuffer.addAll(widget.initialOwnFixes);
     _remoteFlights = _filterRemoteFlights(widget.initialRemoteFlights);
@@ -144,6 +151,8 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   }
 
   void _pauseForegroundActivity() {
+    _pollConfigSeq++;
+    _pollQueued = false;
     _remotePollTimer?.cancel();
     _remotePollTimer = null;
     _redrawThrottleTimer?.cancel();
@@ -153,19 +162,42 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   }
 
   void _resumeForegroundActivity({required bool triggerImmediatePoll}) {
-    unawaited(_syncRecentOwnFixes());
     unawaited(_fixSub?.cancel());
     _fixSub = widget.fixSource.watchFixes().listen(_onOwnFix);
+    if (_showPublic && triggerImmediatePoll) {
+      unawaited(
+        _syncRecentOwnFixesAndStartPolling(
+          triggerImmediatePoll: triggerImmediatePoll,
+        ),
+      );
+    } else {
+      unawaited(_syncRecentOwnFixes());
+      _reconfigureRemotePolling(triggerImmediate: triggerImmediatePoll);
+    }
+  }
+
+  Future<void> _syncRecentOwnFixesAndStartPolling({
+    required bool triggerImmediatePoll,
+  }) async {
+    final configSeq = _pollConfigSeq;
+    await _syncRecentOwnFixes(triggerPublicPollOnFirstFix: false);
+    if (!mounted || !_isForeground || configSeq != _pollConfigSeq) return;
     _reconfigureRemotePolling(triggerImmediate: triggerImmediatePoll);
   }
 
-  Future<void> _syncRecentOwnFixes() async {
+  Future<void> _syncRecentOwnFixes({
+    bool triggerPublicPollOnFirstFix = true,
+  }) async {
     final recent = await widget.fixSource.getRecentFixes();
     if (!mounted || recent.isEmpty) return;
     final hadFix = _ownBuffer.latestFix != null;
     final changed = _ownBuffer.addAll(recent);
     if (!changed || !_isForeground) return;
     _applyOwnFixRedraw(_now(), snapZoom: !hadFix);
+    if (!hadFix && _showPublic && triggerPublicPollOnFirstFix) {
+      _invalidateEtag();
+      _reconfigureRemotePolling(triggerImmediate: true);
+    }
   }
 
   void _onOwnFix(LocalFix fix) {
@@ -181,17 +213,21 @@ class _TrackingMapCardState extends State<TrackingMapCard>
       _redrawThrottleTimer?.cancel();
       _redrawThrottleTimer = null;
       _applyOwnFixRedraw(now, snapZoom: !hadFix);
-      return;
+    } else {
+      _redrawThrottleTimer ??= Timer(
+        widget.redrawThrottle - now.difference(last),
+        () {
+          _redrawThrottleTimer = null;
+          if (!mounted || !_isForeground) return;
+          _applyOwnFixRedraw(_now());
+        },
+      );
     }
 
-    _redrawThrottleTimer ??= Timer(
-      widget.redrawThrottle - now.difference(last),
-      () {
-        _redrawThrottleTimer = null;
-        if (!mounted || !_isForeground) return;
-        _applyOwnFixRedraw(_now());
-      },
-    );
+    if (!hadFix && _showPublic) {
+      _invalidateEtag();
+      _reconfigureRemotePolling(triggerImmediate: true);
+    }
   }
 
   void _applyOwnFixRedraw(DateTime now, {bool snapZoom = false}) {
@@ -204,14 +240,36 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     }
   }
 
+  void _invalidateEtag() {
+    _lastEtag = null;
+    _lastEtagCacheKey = null;
+  }
+
+  String? _etagCacheKey({
+    required bool includeClub,
+    required bool includePublic,
+    required int radiusKm,
+  }) {
+    final layers = buildLiveTrailsLayersParam(
+      includeClub: includeClub,
+      includePublic: includePublic,
+    );
+    if (layers == null) return null;
+    return includePublic ? '$layers|r=$radiusKm' : layers;
+  }
+
   void _reconfigureRemotePolling({required bool triggerImmediate}) {
+    _pollConfigSeq++;
     _remotePollTimer?.cancel();
     _remotePollTimer = null;
     if (!_isForeground || !_pollingEnabled) return;
-    if (!_showClub && !_showPublic) return;
+    if (!_hasPollableRemoteLayer) {
+      _pollQueued = false;
+      return;
+    }
 
     if (triggerImmediate) {
-      unawaited(_pollRemoteTrails());
+      unawaited(_pollRemoteTrails(forceImmediate: true));
     }
     _remotePollTimer = Timer.periodic(
       widget.pollInterval,
@@ -225,37 +283,52 @@ class _TrackingMapCardState extends State<TrackingMapCard>
         .toList(growable: false);
   }
 
-  Future<void> _pollRemoteTrails() async {
-    if (!mounted || !_isForeground || !_pollingEnabled || _pollInFlight) return;
+  Future<void> _pollRemoteTrails({bool forceImmediate = false}) async {
+    if (!mounted || !_isForeground || !_pollingEnabled) return;
     final includeClub = _showClub;
-    final includePublic = _showPublic;
-    final requestedLayers = buildLiveTrailsLayersParam(
+    final ownFix = _ownBuffer.latestFix;
+    final includePublic = _showPublic && ownFix != null;
+    final requestedRadiusKm = _publicRadiusKm;
+    final requestedCacheKey = _etagCacheKey(
       includeClub: includeClub,
       includePublic: includePublic,
+      radiusKm: requestedRadiusKm,
     );
-    if (requestedLayers == null) return;
+    if (requestedCacheKey == null) {
+      _pollQueued = false;
+      return;
+    }
+    if (_pollInFlight) {
+      if (forceImmediate) _pollQueued = true;
+      return;
+    }
 
     final etagToSend =
-        _lastEtagLayers == requestedLayers ? _lastEtag : null;
+        _lastEtagCacheKey == requestedCacheKey ? _lastEtag : null;
     _pollInFlight = true;
     try {
       final response = await widget.client.fetchLiveTrails(
         includeClub: includeClub,
         includePublic: includePublic,
+        lat: includePublic ? ownFix.latitude : null,
+        lon: includePublic ? ownFix.longitude : null,
+        radiusKm: includePublic ? requestedRadiusKm : null,
         ifNoneMatch: etagToSend,
       );
       if (!mounted) return;
-      final currentLayers = buildLiveTrailsLayersParam(
+      final currentCacheKey = _etagCacheKey(
         includeClub: _showClub,
-        includePublic: _showPublic,
+        includePublic: _showPublic && _ownBuffer.latestFix != null,
+        radiusKm: _publicRadiusKm,
       );
-      if (currentLayers != requestedLayers) {
-        // User toggled layers while request was in flight; discard stale result.
+      if (currentCacheKey != requestedCacheKey) {
+        // User toggled layers/radius or position state changed while request
+        // was in flight; discard stale result.
         return;
       }
       if (response.etag != null) {
         _lastEtag = response.etag;
-        _lastEtagLayers = requestedLayers;
+        _lastEtagCacheKey = requestedCacheKey;
       }
       if (!response.notModified) {
         setState(() {
@@ -263,9 +336,14 @@ class _TrackingMapCardState extends State<TrackingMapCard>
         });
       }
     } catch (_) {
-      // Keep the last received data and stay silent on transient poll errors.
+      // Keep the last received data and stay silent on transient poll errors
+      // (including 400 responses).
     } finally {
       _pollInFlight = false;
+      if (_pollQueued && mounted && _isForeground && _pollingEnabled) {
+        _pollQueued = false;
+        unawaited(_pollRemoteTrails());
+      }
     }
   }
 
@@ -279,8 +357,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     if (selected == _showClub) return;
     setState(() {
       _showClub = selected;
-      _lastEtag = null;
-      _lastEtagLayers = null;
+      _invalidateEtag();
       _remoteFlights = (!_showClub && !_showPublic)
           ? const []
           : _filterRemoteFlights(_remoteFlights);
@@ -293,14 +370,26 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     if (selected == _showPublic) return;
     setState(() {
       _showPublic = selected;
-      _lastEtag = null;
-      _lastEtagLayers = null;
+      _invalidateEtag();
       _remoteFlights = (!_showClub && !_showPublic)
           ? const []
           : _filterRemoteFlights(_remoteFlights);
     });
     unawaited(widget.prefs.setMapLayerPublic(selected));
     _reconfigureRemotePolling(triggerImmediate: true);
+  }
+
+  void _changePublicRadius(int radiusKm) {
+    final normalized = PreferencesStore.normalizePublicRadiusKm(radiusKm);
+    if (normalized == _publicRadiusKm) return;
+    setState(() {
+      _publicRadiusKm = normalized;
+      _invalidateEtag();
+    });
+    unawaited(widget.prefs.setMapPublicRadiusKm(normalized));
+    if (_showPublic && _ownBuffer.latestFix != null) {
+      _reconfigureRemotePolling(triggerImmediate: true);
+    }
   }
 
   void _onRecenterTap() {
@@ -499,6 +588,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
           child: Wrap(
             spacing: 8,
             runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _LayerChip(
                 key: FlightVisTestKeys.mapLayerMine,
@@ -525,9 +615,43 @@ class _TrackingMapCardState extends State<TrackingMapCard>
                 selected: _showPublic,
                 onSelected: _togglePublic,
               ),
+              if (_showPublic)
+                _PublicRadiusMenu(
+                  key: FlightVisTestKeys.mapPublicRadiusButton,
+                  radiusKm: _publicRadiusKm,
+                  label: l10n.pilotMapPublicRadius(_publicRadiusKm),
+                  tooltip: l10n.pilotMapPublicRadiusTooltip,
+                  semanticLabel:
+                      l10n.pilotMapPublicRadiusSemantic(_publicRadiusKm),
+                  optionLabel: l10n.pilotMapPublicRadiusKm,
+                  onSelected: _changePublicRadius,
+                ),
             ],
           ),
         ),
+        if (_showPublic && _ownBuffer.latestFix == null) ...[
+          const SizedBox(height: 6),
+          Row(
+            key: FlightVisTestKeys.mapPublicWaitingPosition,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.location_searching,
+                size: 14,
+                color: TrailPalette.publicColor,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  l10n.pilotMapPublicWaitingPosition,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 8),
         SizedBox(
           key: FlightVisTestKeys.trackingMap,
@@ -743,6 +867,78 @@ class _LayerChip extends StatelessWidget {
       ),
       selected: selected,
       onSelected: onSelected,
+    );
+  }
+}
+
+class _PublicRadiusMenu extends StatelessWidget {
+  const _PublicRadiusMenu({
+    super.key,
+    required this.radiusKm,
+    required this.label,
+    required this.tooltip,
+    required this.semanticLabel,
+    required this.optionLabel,
+    required this.onSelected,
+  });
+
+  final int radiusKm;
+  final String label;
+  final String tooltip;
+  final String semanticLabel;
+  final String Function(int km) optionLabel;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PopupMenuButton<int>(
+      initialValue: radiusKm,
+      tooltip: tooltip,
+      onSelected: onSelected,
+      position: PopupMenuPosition.under,
+      itemBuilder: (context) => [
+        for (final km in PreferencesStore.publicRadiusKmOptions)
+          CheckedPopupMenuItem<int>(
+            key: FlightVisTestKeys.mapPublicRadiusOption(km),
+            value: km,
+            checked: km == radiusKm,
+            child: Text(optionLabel(km)),
+          ),
+      ],
+      child: Semantics(
+        button: true,
+        label: semanticLabel,
+        excludeSemantics: true,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: TrailPalette.publicColor.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: TrailPalette.publicColor),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontSize: 13,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                const Icon(
+                  Icons.arrow_drop_down,
+                  size: 18,
+                  color: TrailPalette.publicColor,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

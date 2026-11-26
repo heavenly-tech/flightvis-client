@@ -59,4 +59,56 @@ void main() {
     expect(reloaded.mapLayerClub(), isFalse);
     expect(reloaded.mapLayerPublic(), isTrue);
   });
+
+  test('map public radius defaults to 20 km, persists, and clamps/snaps out-of-range values', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await PreferencesStore.open();
+    expect(store.mapPublicRadiusKm(), 20);
+
+    await store.setMapPublicRadiusKm(50);
+    final reloaded = await PreferencesStore.open();
+    expect(reloaded.mapPublicRadiusKm(), 50);
+
+    // Out-of-range and non-option stored values clamp to 5..500 and snap to
+    // the nearest discrete option in [5, 10, 20, 50, 100, 200, 500].
+    final cases = <int, int>{
+      -20: 5,
+      0: 5,
+      4: 5,
+      5: 5,
+      7: 5,
+      8: 10,
+      10: 10,
+      25: 20,
+      40: 50,
+      75: 50,
+      80: 100,
+      140: 100,
+      160: 200,
+      340: 200,
+      360: 500,
+      500: 500,
+      9999: 500,
+    };
+    for (final entry in cases.entries) {
+      SharedPreferences.setMockInitialValues({
+        PreferencesStore.mapPublicRadiusKmKey: entry.key,
+      });
+      final s = await PreferencesStore.open();
+      expect(
+        s.mapPublicRadiusKm(),
+        entry.value,
+        reason: 'stored=${entry.key} should normalize to ${entry.value}',
+      );
+      expect(PreferencesStore.publicRadiusKmOptions, contains(s.mapPublicRadiusKm()));
+      expect(s.mapPublicRadiusKm(), inInclusiveRange(5, 500));
+    }
+
+    // setMapPublicRadiusKm also normalizes before persisting.
+    SharedPreferences.setMockInitialValues({});
+    final normStore = await PreferencesStore.open();
+    await normStore.setMapPublicRadiusKm(999);
+    final normReloaded = await PreferencesStore.open();
+    expect(normReloaded.mapPublicRadiusKm(), 500);
+  });
 }

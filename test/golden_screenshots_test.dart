@@ -12,6 +12,7 @@ import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 
 import 'package:flight_vis/api/flight_vis_client.dart';
 import 'package:flight_vis/app_shell.dart';
+import 'package:flight_vis/ci_test_keys.dart';
 import 'package:flight_vis/map/map_tile_config.dart';
 import 'package:flight_vis/map/own_trail_buffer.dart';
 import 'package:flight_vis/screens/checkin_screen.dart';
@@ -334,8 +335,15 @@ void main() {
     );
     await _maybeExportShot(tester, 'tracking-map-trails-390x844.png');
 
-    // Also capture a 360x640 small-screen verification shot when SHOTS_DIR is set.
+    // Also capture a 360x640 small-screen shot and an open radius menu shot when SHOTS_DIR is set.
     if ((Platform.environment['SHOTS_DIR'] ?? '').trim().isNotEmpty) {
+      await tester.tap(find.byKey(FlightVisTestKeys.mapPublicRadiusButton));
+      await tester.pumpAndSettle();
+      await _maybeExportShot(tester, 'tracking-map-radius-390x844.png');
+      // Dismiss popup menu before resizing to 360x640.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
       await tester.binding.setSurfaceSize(const Size(360, 640));
       await tester.pumpAndSettle();
       await _maybeExportShot(tester, 'tracking-map-trails-360x640.png');

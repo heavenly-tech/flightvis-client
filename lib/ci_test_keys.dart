@@ -34,10 +34,17 @@ abstract final class FlightVisTestKeys {
   static const mapLayerMine = ValueKey<String>('flightvis_map_layer_mine');
   static const mapLayerClub = ValueKey<String>('flightvis_map_layer_club');
   static const mapLayerPublic = ValueKey<String>('flightvis_map_layer_public');
+  static const mapPublicRadiusButton =
+      ValueKey<String>('flightvis_map_public_radius');
+  static const mapPublicWaitingPosition =
+      ValueKey<String>('flightvis_map_public_waiting_position');
   static const mapFollowToggle = ValueKey<String>('flightvis_map_follow_toggle');
   static const mapZoomIn = ValueKey<String>('flightvis_map_zoom_in');
   static const mapZoomOut = ValueKey<String>('flightvis_map_zoom_out');
   static const mapAttribution = ValueKey<String>('flightvis_map_attribution');
+
+  static ValueKey<String> mapPublicRadiusOption(int km) =>
+      ValueKey<String>('flightvis_map_public_radius_$km');
 
   static ValueKey<String> trailChip(int? minutes) => ValueKey<String>(
         minutes == null

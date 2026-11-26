@@ -260,7 +260,27 @@ Future<void> main() async {
       }
       final includeClub = tokens.contains('club');
       final includePublic = tokens.contains('public');
-      final etag = 'W/"mock-$layersRaw"';
+      int? effectiveRadiusKm;
+      if (includePublic) {
+        final lat = double.tryParse(request.uri.queryParameters['lat'] ?? '');
+        final lon = double.tryParse(request.uri.queryParameters['lon'] ?? '');
+        if (lat == null ||
+            lon == null ||
+            !lat.isFinite ||
+            !lon.isFinite ||
+            lat < -90 ||
+            lat > 90 ||
+            lon < -180 ||
+            lon > 180) {
+          await jsonResponse(400, {'error': 'lat and lon required for public layer'});
+          continue;
+        }
+        final rawRadius = int.tryParse(request.uri.queryParameters['radius_km'] ?? '');
+        effectiveRadiusKm = (rawRadius ?? 20).clamp(5, 500);
+      }
+      final etag = includePublic
+          ? 'W/"mock-$layersRaw-r$effectiveRadiusKm"'
+          : 'W/"mock-$layersRaw"';
       if (request.headers.value('if-none-match') == etag) {
         request.response.statusCode = 304;
         request.response.headers.set('etag', etag);

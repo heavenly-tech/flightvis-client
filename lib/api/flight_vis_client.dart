@@ -742,22 +742,39 @@ class FlightVisClient {
   /// Polls other aircraft trails (`GET /api/me/live-trails?layers=...`).
   ///
   /// When both [includeClub] and [includePublic] are `false`, makes NO network
-  /// call and returns an empty response. Supports weak ETag caching via
-  /// [ifNoneMatch] (`304 Not Modified`).
+  /// call and returns an empty response. When [includePublic] is `true`, finite
+  /// [lat] and [lon] coordinates are required: if missing or invalid, `public`
+  /// is omitted from `layers` (sending club-only when [includeClub] is `true`,
+  /// or skipping the network call otherwise). When [includePublic] is `false`,
+  /// `lat`, `lon`, and `radius_km` are never sent. Supports weak ETag caching
+  /// via [ifNoneMatch] (`304 Not Modified`).
   Future<LiveTrailsResponse> fetchLiveTrails({
     required bool includeClub,
     required bool includePublic,
+    double? lat,
+    double? lon,
+    int? radiusKm,
     String? ifNoneMatch,
   }) async {
+    final hasValidCoords = _hasValidCoordinates(lat, lon);
+    final effectiveIncludePublic = includePublic && hasValidCoords;
     final layers = buildLiveTrailsLayersParam(
       includeClub: includeClub,
-      includePublic: includePublic,
+      includePublic: effectiveIncludePublic,
     );
     if (layers == null) {
       return const LiveTrailsResponse(flights: []);
     }
+    final queryParameters = <String, String>{
+      'layers': layers,
+      if (effectiveIncludePublic) ...{
+        'lat': _formatCoordinate(lat!),
+        'lon': _formatCoordinate(lon!),
+        if (radiusKm != null) 'radius_km': radiusKm.toString(),
+      },
+    };
     final uri = _uri(FlightVisApiPaths.meLiveTrails).replace(
-      queryParameters: {'layers': layers},
+      queryParameters: queryParameters,
     );
     final headers = _headers();
     if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
@@ -784,6 +801,22 @@ class FlightVisClient {
       caps: caps,
       etag: responseEtag,
     );
+  }
+
+  static bool _hasValidCoordinates(double? lat, double? lon) {
+    return lat != null &&
+        lon != null &&
+        lat.isFinite &&
+        lon.isFinite &&
+        lat >= -90.0 &&
+        lat <= 90.0 &&
+        lon >= -180.0 &&
+        lon <= 180.0;
+  }
+
+  static String _formatCoordinate(double value) {
+    final normalized = value.abs() < 1e-9 ? 0.0 : value;
+    return normalized.toStringAsFixed(6);
   }
 
   /// Updates live trail length override (`PATCH /api/flights/{id}/trail`).

@@ -15,7 +15,32 @@ class PreferencesStore {
   static const mapLayerOwnKey = 'fv_map_layer_own';
   static const mapLayerClubKey = 'fv_map_layer_club';
   static const mapLayerPublicKey = 'fv_map_layer_public';
+  static const mapPublicRadiusKmKey = 'fv_map_public_radius_km';
   static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
+
+  /// Discrete pilot-selectable radii (km) for the Público map layer, matching
+  /// the server's `5..500` clamp and `20` km default.
+  static const List<int> publicRadiusKmOptions = [5, 10, 20, 50, 100, 200, 500];
+  static const int defaultPublicRadiusKm = 20;
+  static const int minPublicRadiusKm = 5;
+  static const int maxPublicRadiusKm = 500;
+
+  /// Clamps [raw] into `5..500` and snaps to the nearest allowed option in
+  /// [publicRadiusKmOptions] (defaults to [defaultPublicRadiusKm] when `null`).
+  static int normalizePublicRadiusKm(int? raw) {
+    if (raw == null) return defaultPublicRadiusKm;
+    final clamped = raw.clamp(minPublicRadiusKm, maxPublicRadiusKm);
+    var best = publicRadiusKmOptions.first;
+    var bestDiff = (clamped - best).abs();
+    for (final option in publicRadiusKmOptions.skip(1)) {
+      final diff = (clamped - option).abs();
+      if (diff < bestDiff) {
+        best = option;
+        bestDiff = diff;
+      }
+    }
+    return best;
+  }
   static const activeClubSlugKey = 'fv_active_club_slug';
   static const activeClubNameKey = 'fv_active_club_name';
   static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
@@ -111,6 +136,16 @@ class PreferencesStore {
 
   Future<void> setMapLayerPublic(bool value) =>
       _prefs.setBool(mapLayerPublicKey, value);
+
+  /// Radius in km for the Público map layer (default: 20, clamped/snapped to
+  /// [publicRadiusKmOptions] within `5..500`).
+  int mapPublicRadiusKm() =>
+      normalizePublicRadiusKm(_prefs.getInt(mapPublicRadiusKmKey));
+
+  Future<void> setMapPublicRadiusKm(int radiusKm) => _prefs.setInt(
+        mapPublicRadiusKmKey,
+        normalizePublicRadiusKm(radiusKm),
+      );
 
   String? activeClubSlug() => _prefs.getString(activeClubSlugKey);
 
