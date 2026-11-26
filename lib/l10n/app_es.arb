@@ -218,5 +218,29 @@
   "errorNotApproved": "Necesitas que el club apruebe tu cuenta para administrar dispositivos.",
   "pilotForegroundNotificationText": "Transmitiendo posición del vuelo",
   "pilotForegroundNotificationChannel": "Seguimiento en vuelo",
+  "pilotTrailTitle": "Estela en el mapa",
+  "pilotTrailHint": "Cuántos minutos de tu recorrido se ven detrás de tu avión en el mapa del club.",
+  "pilotTrailClubDefault": "Usar predeterminado del club",
+  "pilotTrailClubDefaultWithValue": "Usar predeterminado del club ({value})",
+  "@pilotTrailClubDefaultWithValue": {
+    "placeholders": {
+      "value": {"type": "String"}
+    }
+  },
+  "pilotTrailOff": "No",
+  "pilotTrailMinutes": "{minutes} min",
+  "@pilotTrailMinutes": {
+    "placeholders": {
+      "minutes": {"type": "int"}
+    }
+  },
+  "pilotTrailAll": "Todo",
+  "pilotTrailChipSemantic": "Estela en el mapa: {option}",
+  "@pilotTrailChipSemantic": {
+    "placeholders": {
+      "option": {"type": "String"}
+    }
+  },
+  "pilotTrailUpdateFailed": "No pudimos cambiar la estela. Inténtalo de nuevo.",
   "@@locale": "es"
 }

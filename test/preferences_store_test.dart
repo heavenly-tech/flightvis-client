@@ -18,4 +18,27 @@ void main() {
     await store.setCheckinExpiresAtMs(null);
     expect(store.checkinExpiresAtMs(), isNull);
   });
+
+  test('persists active flight trail minutes and clears when active flight ends', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await PreferencesStore.open();
+
+    expect(store.activeFlightTrailMinutes(), isNull);
+    await store.setActiveFlightId('f-1');
+    await store.setActiveFlightTrailMinutes(0);
+    expect(store.activeFlightTrailMinutes(), 0);
+    await store.setActiveFlightTrailMinutes(-1);
+    expect(store.activeFlightTrailMinutes(), -1);
+    await store.setActiveFlightTrailMinutes(15);
+    expect(store.activeFlightTrailMinutes(), 15);
+
+    await store.setActiveFlightId(null);
+    expect(store.activeFlightId(), isNull);
+    expect(store.activeFlightTrailMinutes(), isNull);
+
+    await store.setClubTrailMinutesDefault(5);
+    expect(store.clubTrailMinutesDefault(), 5);
+    await store.setClubTrailMinutesDefault(null);
+    expect(store.clubTrailMinutesDefault(), isNull);
+  });
 }

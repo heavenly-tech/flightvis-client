@@ -10,6 +10,7 @@ import '../l10n/pilot_l10n.dart';
 import '../services/app_repository.dart';
 import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
+import '../widgets/trail_length_chips.dart';
 import '../ci_test_keys.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -37,6 +38,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
   String? _error;
   String? _missingTokenMessage;
   Timer? _poll;
+  int? _trailMinutes;
+  int? _confirmedTrailMinutes;
+  int _trailRequestSeq = 0;
+
+  int? get _clubTrailMinutesDefault =>
+      widget.repo.client.clubTrailMinutesDefault ??
+      widget.repo.prefs.clubTrailMinutesDefault();
 
   @override
   void didChangeDependencies() {
@@ -47,9 +55,37 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
+    _trailMinutes = widget.repo.prefs.activeFlightTrailMinutes();
+    _confirmedTrailMinutes = _trailMinutes;
     _bootstrap();
     if (!AppConfig.screenshotTest) {
       _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    }
+  }
+
+  Future<void> _onSelectTrail(int? minutes) async {
+    if (minutes == _trailMinutes) return;
+    final seq = ++_trailRequestSeq;
+    setState(() => _trailMinutes = minutes);
+    try {
+      final confirmed = await widget.repo.client.setFlightTrail(
+        widget.flightId,
+        minutes,
+      );
+      if (!mounted || seq != _trailRequestSeq) return;
+      _confirmedTrailMinutes = confirmed;
+      if (_trailMinutes != confirmed) {
+        setState(() => _trailMinutes = confirmed);
+      }
+      await widget.repo.prefs.setActiveFlightTrailMinutes(confirmed);
+    } catch (_) {
+      if (!mounted || seq != _trailRequestSeq) return;
+      setState(() => _trailMinutes = _confirmedTrailMinutes);
+      ScaffoldMessenger.maybeOf(context)
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(context.pilotL10n.pilotTrailUpdateFailed)),
+        );
     }
   }
 
@@ -181,8 +217,18 @@ class _TrackingScreenState extends State<TrackingScreen> {
                   color: _active ? Colors.green : Colors.grey,
                 ),
                 const SizedBox(width: 8),
-                Text(_active ? l10n.pilotBroadcasting : l10n.pilotBroadcastingPaused),
+                Expanded(
+                  child: Text(
+                    _active ? l10n.pilotBroadcasting : l10n.pilotBroadcastingPaused,
+                  ),
+                ),
               ],
+            ),
+            const SizedBox(height: 16),
+            TrailLengthChips(
+              selectedMinutes: _trailMinutes,
+              clubDefaultMinutes: _clubTrailMinutesDefault,
+              onSelected: _onSelectTrail,
             ),
             if (_error != null) ...[
               const SizedBox(height: 12),

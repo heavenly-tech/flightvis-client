@@ -38,9 +38,9 @@ void main() {
       );
     });
 
-    test('allows allowlisted quizás and inglés', () {
+    test('allows allowlisted quizás, detrás, and inglés', () {
       expect(
-        findSpanishVoseoViolations('Quizás prefiera inglés o francés.'),
+        findSpanishVoseoViolations('Quizás prefiera inglés o francés detrás del avión.'),
         isEmpty,
       );
     });

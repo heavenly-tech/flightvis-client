@@ -11,6 +11,7 @@ final Set<String> spanishVoseoAllowlist = {
   'también',
   'después',
   'atrás',
+  'detrás',
   'quizás',
   'jamás',
   'demás',

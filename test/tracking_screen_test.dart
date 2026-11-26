@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -68,11 +69,17 @@ class _FakeTracker extends Fake implements TraccarClientSdk {
 Future<AppRepository> _buildRepo({
   http.Client? httpClient,
   String? sessionId,
+  int? activeTrailMinutes,
+  int? clubTrailDefault,
 }) async {
   SharedPreferences.setMockInitialValues({
     PreferencesStore.activeFlightIdKey: _flightUuid,
     PreferencesStore.checkinExpiresAtKey:
         DateTime.now().millisecondsSinceEpoch + 3600 * 1000,
+    if (activeTrailMinutes != null)
+      PreferencesStore.activeFlightTrailMinutesKey: activeTrailMinutes,
+    if (clubTrailDefault != null)
+      PreferencesStore.clubTrailMinutesDefaultKey: clubTrailDefault,
   });
   final prefs = await PreferencesStore.open();
   return AppRepository(
@@ -213,5 +220,260 @@ void main() {
     expect(tracker.stopCalls, 1);
     expect(stopped, isTrue);
     expect(repo.prefs.activeFlightId(), isNull);
+  });
+
+  testWidgets('restores persisted trail selection, PATCHes on change, and persists update', (tester) async {
+    final patchBodies = <Map<String, dynamic>>[];
+    String? patchAuth;
+    String? patchCookie;
+    final repo = await _buildRepo(
+      sessionId: 'sess-trail',
+      activeTrailMinutes: 10,
+      clubTrailDefault: 5,
+      httpClient: http_testing.MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path == '/api/flights/$_flightUuid/trail') {
+          patchAuth = request.headers['Authorization'];
+          patchCookie = request.headers['Cookie'];
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          patchBodies.add(body);
+          return http.Response(
+            jsonEncode({'trailMinutes': body['trailMinutes']}),
+            200,
+          );
+        }
+        if (request.method == 'POST' &&
+            request.url.path == '/api/flights/$_flightUuid/end') {
+          return http.Response(jsonEncode({'ok': true}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final tracker = _FakeTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: tracker),
+          onStopped: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Estela en el mapa'), findsOneWidget);
+    expect(find.text('Usar predeterminado del club (5 min)'), findsOneWidget);
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(10))).selected,
+      isTrue,
+    );
+
+    // Change to Todo (-1).
+    await tester.tap(find.byKey(FlightVisTestKeys.trailChip(-1)));
+    await tester.pumpAndSettle();
+
+    expect(patchBodies, [{'trailMinutes': -1}]);
+    expect(patchAuth, 'Bearer $_deviceToken');
+    expect(patchCookie, 'fv_club_session=sess-trail');
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(-1))).selected,
+      isTrue,
+    );
+    expect(repo.prefs.activeFlightTrailMinutes(), -1);
+
+    // Change back to club default (null).
+    await tester.tap(find.byKey(FlightVisTestKeys.trailChip(null)));
+    await tester.pumpAndSettle();
+
+    expect(patchBodies, [
+      {'trailMinutes': -1},
+      {'trailMinutes': null},
+    ]);
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(null))).selected,
+      isTrue,
+    );
+    expect(repo.prefs.activeFlightTrailMinutes(), isNull);
+  });
+
+  testWidgets('optimistically selects trail chip, reverts and shows SnackBar on PATCH failure', (tester) async {
+    final completer = Completer<http.Response>();
+    final repo = await _buildRepo(
+      sessionId: 'sess-trail',
+      activeTrailMinutes: 5,
+      httpClient: http_testing.MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path == '/api/flights/$_flightUuid/trail') {
+          return completer.future;
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final tracker = _FakeTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: tracker),
+          onStopped: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(5))).selected,
+      isTrue,
+    );
+
+    // Tap 30 min -> optimistically selected while PATCH is in flight.
+    await tester.tap(find.byKey(FlightVisTestKeys.trailChip(30)));
+    await tester.pump();
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(30))).selected,
+      isTrue,
+    );
+
+    // Server rejects with 403 -> reverts to 5 and shows localized SnackBar.
+    completer.complete(http.Response(jsonEncode({'error': 'forbidden'}), 403));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(5))).selected,
+      isTrue,
+    );
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(30))).selected,
+      isFalse,
+    );
+    expect(repo.prefs.activeFlightTrailMinutes(), 5);
+    expect(
+      find.text('No pudimos cambiar la estela. Inténtalo de nuevo.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('treats 409 on trail PATCH as no-op without error SnackBar', (tester) async {
+    final repo = await _buildRepo(
+      sessionId: 'sess-trail',
+      httpClient: http_testing.MockClient((request) async {
+        if (request.method == 'PATCH' &&
+            request.url.path == '/api/flights/$_flightUuid/trail') {
+          return http.Response(jsonEncode({'error': 'not active'}), 409);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final tracker = _FakeTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: tracker),
+          onStopped: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(FlightVisTestKeys.trailChip(0)));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('No pudimos cambiar la estela. Inténtalo de nuevo.'),
+      findsNothing,
+    );
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(0))).selected,
+      isTrue,
+    );
+  });
+
+  testWidgets('ending flight clears persisted activeFlightTrailMinutes', (tester) async {
+    final repo = await _buildRepo(
+      sessionId: 'sess-1',
+      activeTrailMinutes: 15,
+      httpClient: http_testing.MockClient((request) async {
+        if (request.method == 'POST' &&
+            request.url.path == '/api/flights/$_flightUuid/end') {
+          return http.Response(jsonEncode({'ok': true}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final tracker = _FakeTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: tracker),
+          onStopped: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.prefs.activeFlightTrailMinutes(), 15);
+
+    await tester.tap(find.byKey(FlightVisTestKeys.trackingStop));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(FlightVisTestKeys.trackingStopConfirm));
+    await tester.pumpAndSettle();
+
+    expect(repo.prefs.activeFlightId(), isNull);
+    expect(repo.prefs.activeFlightTrailMinutes(), isNull);
+  });
+
+  testWidgets('wraps body in SingleChildScrollView with no overflow on small screen and Stop reachable', (tester) async {
+    tester.view.physicalSize = const Size(320, 420);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final repo = await _buildRepo(
+      sessionId: 'sess-1',
+      clubTrailDefault: 5,
+      httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+    );
+    final tracker = _FakeTracker();
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TrackingScreen(
+          repo: repo,
+          flightId: _flightUuid,
+          tail: 'CC-ABC',
+          tracking: TrackingService(tracker: tracker),
+          onStopped: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.ensureVisible(find.byKey(FlightVisTestKeys.trackingStop));
+    await tester.pumpAndSettle();
+    expect(find.byKey(FlightVisTestKeys.trackingStop), findsOneWidget);
   });
 }

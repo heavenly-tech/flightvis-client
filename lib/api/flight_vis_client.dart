@@ -28,6 +28,12 @@ class FlightVisException implements Exception {
   String toString() => message;
 }
 
+int? _parseTrailMinutes(dynamic raw) {
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return null;
+}
+
 /// Pilot profile from login (no `licenseNo`) or `/api/club/me` (includes `licenseNo`).
 class PilotProfile {
   PilotProfile({
@@ -37,6 +43,7 @@ class PilotProfile {
     required this.status,
     required this.role,
     this.licenseNo,
+    this.clubTrailMinutesDefault,
   });
 
   final String id;
@@ -45,14 +52,21 @@ class PilotProfile {
   final String status;
   final String role;
   final String? licenseNo;
+  final int? clubTrailMinutesDefault;
 
-  factory PilotProfile.fromJson(Map<String, dynamic> json) => PilotProfile(
+  factory PilotProfile.fromJson(
+    Map<String, dynamic> json, {
+    int? clubTrailMinutesDefault,
+  }) =>
+      PilotProfile(
         id: json['id'] as String,
         name: json['name'] as String,
         email: json['email'] as String,
         status: json['status'] as String,
         role: json['role'] as String,
         licenseNo: json['licenseNo'] as String?,
+        clubTrailMinutesDefault: clubTrailMinutesDefault ??
+            _parseTrailMinutes(json['clubTrailMinutesDefault']),
       );
 
   bool get isApproved => status == 'approved';
@@ -208,17 +222,23 @@ class StartFlightResult {
     required this.id,
     required this.visibility,
     required this.showPilotNamePublic,
+    this.trailMinutes,
+    this.hasTrailMinutes = false,
   });
 
   final String id;
   final String visibility;
   final bool showPilotNamePublic;
+  final int? trailMinutes;
+  final bool hasTrailMinutes;
 
   factory StartFlightResult.fromJson(Map<String, dynamic> json) =>
       StartFlightResult(
         id: json['id'] as String,
         visibility: json['visibility'] as String,
         showPilotNamePublic: json['showPilotNamePublic'] as bool? ?? false,
+        trailMinutes: _parseTrailMinutes(json['trailMinutes']),
+        hasTrailMinutes: json.containsKey('trailMinutes'),
       );
 }
 
@@ -243,14 +263,17 @@ class FlightVisClient {
   String? _deviceToken;
   String? _clubSlug;
   String? _acceptLanguage;
+  int? _clubTrailMinutesDefault;
 
   String? get sessionId => _sessionId;
   String? get deviceToken => _deviceToken;
+  int? get clubTrailMinutesDefault => _clubTrailMinutesDefault;
   bool get hasSession => _sessionId != null && _sessionId!.isNotEmpty;
   bool get hasDeviceToken => _deviceToken != null && _deviceToken!.isNotEmpty;
 
   void setSessionId(String? value) => _sessionId = value;
   void setDeviceToken(String? value) => _deviceToken = value;
+  void setClubTrailMinutesDefault(int? value) => _clubTrailMinutesDefault = value;
   void setAcceptLanguage(String? tag) {
     if (tag == null || tag.trim().isEmpty) {
       _acceptLanguage = null;
@@ -358,17 +381,32 @@ class FlightVisClient {
   Future<PilotProfile?> meProfile() async {
     if (!hasSession) return null;
     final response = await _http.get(_uri(FlightVisApiPaths.clubMe), headers: _headers());
-    if (response.statusCode == 401) return null;
+    if (response.statusCode == 401) {
+      _clubTrailMinutesDefault = null;
+      return null;
+    }
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
+    final topDefault = _parseTrailMinutes(body['clubTrailMinutesDefault']);
     final pilot = body['pilot'];
-    if (pilot == null) return null;
-    return PilotProfile.fromJson(pilot as Map<String, dynamic>);
+    if (pilot == null) {
+      _clubTrailMinutesDefault = topDefault;
+      return null;
+    }
+    final pilotMap = pilot as Map<String, dynamic>;
+    final clubDefault =
+        topDefault ?? _parseTrailMinutes(pilotMap['clubTrailMinutesDefault']);
+    _clubTrailMinutesDefault = clubDefault;
+    return PilotProfile.fromJson(
+      pilotMap,
+      clubTrailMinutesDefault: clubDefault,
+    );
   }
 
   Future<void> logout({String? installId}) async {
     if (!hasSession) {
       _sessionId = null;
+      _clubTrailMinutesDefault = null;
       return;
     }
     final response = await _http.post(
@@ -378,6 +416,7 @@ class FlightVisClient {
     );
     if (response.statusCode != 200) _throwForError(response);
     _sessionId = null;
+    _clubTrailMinutesDefault = null;
   }
 
   Future<ClubSummary> fetchClub(String slug) async {
@@ -505,6 +544,8 @@ class FlightVisClient {
     required String tail,
     String visibility = 'club',
     bool showPilotNamePublic = false,
+    int? trailMinutes,
+    bool sendTrail = true,
   }) async {
     final response = await _http.post(
       _uri(FlightVisApiPaths.flights),
@@ -513,6 +554,7 @@ class FlightVisClient {
         'tail': tail,
         'visibility': visibility,
         'show_pilot_name_public': showPilotNamePublic,
+        if (sendTrail && trailMinutes != null) 'trailMinutes': trailMinutes,
       }),
     );
     if (response.statusCode != 200) _throwForError(response);
@@ -582,6 +624,20 @@ class FlightVisClient {
   Future<bool> isFlightActiveOnServer(String flightId) async {
     final flights = await myFlights();
     return flights.any((f) => f.id == flightId && f.isActive);
+  }
+
+  /// Updates live trail length override (`PATCH /api/flights/{id}/trail`).
+  /// Treats 409 (flight already ended) as a no-op.
+  Future<int?> setFlightTrail(String flightId, int? trailMinutes) async {
+    final response = await _http.patch(
+      _uri(FlightVisApiPaths.flightTrail(flightId)),
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({'trailMinutes': trailMinutes}),
+    );
+    if (response.statusCode == 409) return trailMinutes;
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    return _parseTrailMinutes(body['trailMinutes']);
   }
 
   /// Ends flight; treats 409/404 as already ended (C-3).
