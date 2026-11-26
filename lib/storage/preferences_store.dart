@@ -10,6 +10,8 @@ class PreferencesStore {
   static const baseUrlKey = 'fv_base_url';
   static const checkinExpiresAtKey = 'fv_checkin_expires_at_ms';
   static const activeFlightIdKey = 'fv_active_flight_id';
+  static const activeFlightTrailMinutesKey = 'fv_active_flight_trail_minutes';
+  static const clubTrailMinutesDefaultKey = 'fv_club_trail_minutes_default';
   static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
   static const activeClubSlugKey = 'fv_active_club_slug';
   static const activeClubNameKey = 'fv_active_club_name';
@@ -63,8 +65,29 @@ class PreferencesStore {
   Future<void> setActiveFlightId(String? id) async {
     if (id == null) {
       await _prefs.remove(activeFlightIdKey);
+      await _prefs.remove(activeFlightTrailMinutesKey);
     } else {
       await _prefs.setString(activeFlightIdKey, id);
+    }
+  }
+
+  int? activeFlightTrailMinutes() => _prefs.getInt(activeFlightTrailMinutesKey);
+
+  Future<void> setActiveFlightTrailMinutes(int? minutes) async {
+    if (minutes == null) {
+      await _prefs.remove(activeFlightTrailMinutesKey);
+    } else {
+      await _prefs.setInt(activeFlightTrailMinutesKey, minutes);
+    }
+  }
+
+  int? clubTrailMinutesDefault() => _prefs.getInt(clubTrailMinutesDefaultKey);
+
+  Future<void> setClubTrailMinutesDefault(int? minutes) async {
+    if (minutes == null) {
+      await _prefs.remove(clubTrailMinutesDefaultKey);
+    } else {
+      await _prefs.setInt(clubTrailMinutesDefaultKey, minutes);
     }
   }
 

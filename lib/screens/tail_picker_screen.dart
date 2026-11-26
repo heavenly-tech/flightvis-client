@@ -7,6 +7,7 @@ import '../services/app_repository.dart';
 import '../services/flight_permissions.dart';
 import '../state/checkin_gate.dart';
 import '../widgets/permission_warning_card.dart';
+import '../widgets/trail_length_chips.dart';
 import '../ci_test_keys.dart';
 
 class TailPickerScreen extends StatefulWidget {
@@ -31,12 +32,17 @@ class _TailPickerScreenState extends State<TailPickerScreen>
   String? _selectedTail;
   String _visibility = 'club';
   bool _showPilotNamePublic = false;
+  int? _trailMinutes;
   bool _loading = true;
   String? _error;
   FlightPermissionStatus? _permissionStatus;
 
   FlightPermissionsClient get _permissions =>
       widget.permissions ?? FlightPermissions.instance;
+
+  int? get _clubTrailMinutesDefault =>
+      widget.repo.client.clubTrailMinutesDefault ??
+      widget.repo.prefs.clubTrailMinutesDefault();
 
   @override
   void initState() {
@@ -121,7 +127,12 @@ class _TailPickerScreenState extends State<TailPickerScreen>
         tail: tail,
         visibility: _visibility,
         showPilotNamePublic: showPilotNamePublic,
+        trailMinutes: _trailMinutes,
+        sendTrail: _trailMinutes != null,
       );
+      final effectiveTrail =
+          result.hasTrailMinutes ? result.trailMinutes : _trailMinutes;
+      await widget.repo.prefs.setActiveFlightTrailMinutes(effectiveTrail);
       if (mounted) widget.onFlightStarted(result, tail);
     } on FlightVisException catch (e) {
       if (!mounted) return;
@@ -228,6 +239,13 @@ class _TailPickerScreenState extends State<TailPickerScreen>
                       value: _showPilotNamePublic,
                       onChanged: (v) => setState(() => _showPilotNamePublic = v),
                     ),
+                  const SizedBox(height: 16),
+                  TrailLengthChips(
+                    selectedMinutes: _trailMinutes,
+                    clubDefaultMinutes: _clubTrailMinutesDefault,
+                    enabled: !_loading,
+                    onSelected: (minutes) => setState(() => _trailMinutes = minutes),
+                  ),
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),

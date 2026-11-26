@@ -28,4 +28,12 @@ abstract final class FlightVisTestKeys {
   static const trackingStop = ValueKey<String>('flightvis_tracking_stop');
   static const trackingStopCancel = ValueKey<String>('flightvis_tracking_stop_cancel');
   static const trackingStopConfirm = ValueKey<String>('flightvis_tracking_stop_confirm');
+  static const trailChips = ValueKey<String>('flightvis_trail_chips');
+  static const trailChipClubDefault = ValueKey<String>('flightvis_trail_chip_default');
+
+  static ValueKey<String> trailChip(int? minutes) => ValueKey<String>(
+        minutes == null
+            ? 'flightvis_trail_chip_default'
+            : 'flightvis_trail_chip_$minutes',
+      );
 }

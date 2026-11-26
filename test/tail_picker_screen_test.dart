@@ -313,4 +313,119 @@ void main() {
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('trail chips default to club default (omits trailMinutes) and show club default label', (tester) async {
+    Map<String, dynamic>? lastStartBody;
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == FlightVisApiPaths.flights) {
+          lastStartBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'f-default',
+              'visibility': 'club',
+              'showPilotNamePublic': false,
+              'trailMinutes': null,
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    repo.client.setClubTrailMinutesDefault(5);
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          onFlightStarted: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Estela en el mapa'), findsOneWidget);
+    expect(find.text('Usar predeterminado del club (5 min)'), findsOneWidget);
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(null))).selected,
+      isTrue,
+    );
+
+    await tester.tap(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.pumpAndSettle();
+
+    expect(lastStartBody, isNotNull);
+    expect(lastStartBody!.containsKey('trailMinutes'), isFalse);
+    expect(repo.prefs.activeFlightTrailMinutes(), isNull);
+  });
+
+  testWidgets('selecting a trail chip sends trailMinutes on POST /api/flights and persists it', (tester) async {
+    Map<String, dynamic>? lastStartBody;
+    StartFlightResult? startedFlight;
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == FlightVisApiPaths.flights) {
+          lastStartBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'f-trail',
+              'visibility': 'club',
+              'showPilotNamePublic': false,
+              'trailMinutes': lastStartBody!['trailMinutes'],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          onFlightStarted: (flight, _) => startedFlight = flight,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(FlightVisTestKeys.trailChip(15)));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ChoiceChip>(find.byKey(FlightVisTestKeys.trailChip(15))).selected,
+      isTrue,
+    );
+
+    await tester.tap(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.pumpAndSettle();
+
+    expect(lastStartBody, isNotNull);
+    expect(lastStartBody!['trailMinutes'], 15);
+    expect(startedFlight?.trailMinutes, 15);
+    expect(repo.prefs.activeFlightTrailMinutes(), 15);
+  });
 }

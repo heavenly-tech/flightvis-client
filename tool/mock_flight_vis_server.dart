@@ -8,6 +8,9 @@ Future<void> main() async {
   const clubName = 'Club Demo';
   int? checkinExpiresAtMs;
   String? activeFlightId;
+  int? activeFlightTrailMinutes;
+  const clubTrailMinutesDefault = 5;
+  const allowedTrailMinutes = {-1, 0, 2, 5, 10, 15, 30};
   const deviceToken =
       'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0';
 
@@ -159,6 +162,7 @@ Future<void> main() async {
       final cookie = request.headers.value('cookie') ?? '';
       if (cookie.contains(session)) {
         await jsonResponse(200, {
+          'clubTrailMinutesDefault': clubTrailMinutesDefault,
           'pilot': {
             'id': 'p1',
             'name': 'Demo Pilot',
@@ -253,12 +257,49 @@ Future<void> main() async {
         await jsonResponse(409, {'error': 'flight already active'});
         continue;
       }
+      final raw = await utf8.decoder.bind(request).join();
+      final body = raw.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(raw) as Map<String, dynamic>;
+      final rawTrail = body['trailMinutes'];
+      int? trail;
+      if (rawTrail != null) {
+        if (rawTrail is! int || !allowedTrailMinutes.contains(rawTrail)) {
+          await jsonResponse(400, {'error': 'invalid trailMinutes'});
+          continue;
+        }
+        trail = rawTrail;
+      }
       activeFlightId = 'flight-ci-1';
+      activeFlightTrailMinutes = trail;
       await jsonResponse(200, {
         'id': activeFlightId,
-        'visibility': 'club',
-        'showPilotNamePublic': false,
+        'visibility': body['visibility'] ?? 'club',
+        'showPilotNamePublic': body['show_pilot_name_public'] == true,
+        'trailMinutes': activeFlightTrailMinutes,
       });
+      continue;
+    }
+
+    final trailMatch = RegExp(r'^/api/flights/([^/]+)/trail$').firstMatch(path);
+    if (method == 'PATCH' && trailMatch != null) {
+      final flightId = trailMatch.group(1)!;
+      if (activeFlightId == null || activeFlightId != flightId) {
+        await jsonResponse(409, {'error': 'not active'});
+        continue;
+      }
+      final raw = await utf8.decoder.bind(request).join();
+      final body = raw.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(raw) as Map<String, dynamic>;
+      final rawTrail = body['trailMinutes'];
+      if (rawTrail != null &&
+          (rawTrail is! int || !allowedTrailMinutes.contains(rawTrail))) {
+        await jsonResponse(400, {'error': 'invalid trailMinutes'});
+        continue;
+      }
+      activeFlightTrailMinutes = rawTrail as int?;
+      await jsonResponse(200, {'trailMinutes': activeFlightTrailMinutes});
       continue;
     }
 
@@ -269,6 +310,7 @@ Future<void> main() async {
         continue;
       }
       activeFlightId = null;
+      activeFlightTrailMinutes = null;
       await jsonResponse(200, {'ok': true});
       continue;
     }

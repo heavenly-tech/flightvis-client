@@ -247,6 +247,9 @@ class _FlightVisAppState extends State<FlightVisApp> {
     if (hasSession) {
       try {
         pilot = await widget.repo.client.meProfile();
+        await widget.repo.prefs.setClubTrailMinutesDefault(
+          widget.repo.client.clubTrailMinutesDefault,
+        );
       } catch (_) {
         pilot = null;
       }
@@ -347,6 +350,7 @@ class _FlightVisAppState extends State<FlightVisApp> {
   Future<void> _logout() async {
     await widget.repo.client.logout();
     await widget.repo.secure.clearSessionId();
+    await widget.repo.prefs.setClubTrailMinutesDefault(null);
     await _restore();
   }
 

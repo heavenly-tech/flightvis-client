@@ -217,5 +217,29 @@
   "errorInvalidInstallId": "Invalid installation identifier. Reinstall the app and try again.",
   "errorNotApproved": "The club needs to approve your account to manage devices.",
   "pilotForegroundNotificationText": "Broadcasting flight position",
-  "pilotForegroundNotificationChannel": "In-flight tracking"
+  "pilotForegroundNotificationChannel": "In-flight tracking",
+  "pilotTrailTitle": "Map trail",
+  "pilotTrailHint": "How many minutes of your track show behind your aircraft on the club map.",
+  "pilotTrailClubDefault": "Use club default",
+  "pilotTrailClubDefaultWithValue": "Use club default ({value})",
+  "@pilotTrailClubDefaultWithValue": {
+    "placeholders": {
+      "value": {"type": "String"}
+    }
+  },
+  "pilotTrailOff": "Off",
+  "pilotTrailMinutes": "{minutes} min",
+  "@pilotTrailMinutes": {
+    "placeholders": {
+      "minutes": {"type": "int"}
+    }
+  },
+  "pilotTrailAll": "All",
+  "pilotTrailChipSemantic": "Map trail: {option}",
+  "@pilotTrailChipSemantic": {
+    "placeholders": {
+      "option": {"type": "String"}
+    }
+  },
+  "pilotTrailUpdateFailed": "We couldn't change the trail. Please try again."
 }
