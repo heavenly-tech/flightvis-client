@@ -2,16 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 
 import '../api/flight_vis_client.dart';
 import '../app_config.dart';
+import '../ci_test_keys.dart';
 import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
+import '../map/own_trail_buffer.dart';
 import '../services/app_repository.dart';
+import '../services/local_fix_source.dart';
 import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
+import '../widgets/tracking_map_card.dart';
 import '../widgets/trail_length_chips.dart';
-import '../ci_test_keys.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({
@@ -21,6 +25,12 @@ class TrackingScreen extends StatefulWidget {
     required this.tail,
     required this.tracking,
     required this.onStopped,
+    this.tileProvider,
+    this.fixSource,
+    this.enableMapPolling,
+    this.mapPollInterval = const Duration(seconds: 5),
+    this.initialOwnFixes = const [],
+    this.initialRemoteFlights = const [],
   });
 
   final AppRepository repo;
@@ -28,12 +38,19 @@ class TrackingScreen extends StatefulWidget {
   final String tail;
   final TrackingService tracking;
   final VoidCallback onStopped;
+  final TileProvider? tileProvider;
+  final LocalFixSource? fixSource;
+  final bool? enableMapPolling;
+  final Duration mapPollInterval;
+  final List<LocalFix> initialOwnFixes;
+  final List<LiveTrailFlight> initialRemoteFlights;
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
-class _TrackingScreenState extends State<TrackingScreen> {
+class _TrackingScreenState extends State<TrackingScreen>
+    with WidgetsBindingObserver {
   bool _active = false;
   String? _error;
   String? _missingTokenMessage;
@@ -41,6 +58,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
   int? _trailMinutes;
   int? _confirmedTrailMinutes;
   int _trailRequestSeq = 0;
+  bool _mapPointerActive = false;
 
   int? get _clubTrailMinutesDefault =>
       widget.repo.client.clubTrailMinutesDefault ??
@@ -55,11 +73,30 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _trailMinutes = widget.repo.prefs.activeFlightTrailMinutes();
     _confirmedTrailMinutes = _trailMinutes;
     _bootstrap();
-    if (!AppConfig.screenshotTest) {
-      _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle == null || lifecycle == AppLifecycleState.resumed) {
+      _startStatusPoll();
+    }
+  }
+
+  void _startStatusPoll() {
+    if (AppConfig.screenshotTest) return;
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(seconds: 2), (_) => _tick());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_tick());
+      _startStatusPoll();
+    } else {
+      _poll?.cancel();
+      _poll = null;
     }
   }
 
@@ -141,6 +178,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     super.dispose();
   }
@@ -198,54 +236,114 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
+    final theme = Theme.of(context);
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final mapHeight = (screenHeight * 0.30).clamp(168.0, 260.0);
+
     return Scaffold(
       key: FlightVisTestKeys.trackingScreen,
       appBar: AppBar(title: Text(l10n.pilotTrackingTitle)),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-            Text(l10n.pilotTailLine(widget.tail), style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(
-                  _active ? Icons.gps_fixed : Icons.gps_off,
-                  color: _active ? Colors.green : Colors.grey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                physics: _mapPointerActive
+                    ? const NeverScrollableScrollPhysics()
+                    : null,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      l10n.pilotTailLine(widget.tail),
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          _active ? Icons.gps_fixed : Icons.gps_off,
+                          size: 16,
+                          color: _active ? Colors.green : Colors.grey,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _active
+                                ? l10n.pilotBroadcasting
+                                : l10n.pilotBroadcastingPaused,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TrackingMapCard(
+                      client: widget.repo.client,
+                      prefs: widget.repo.prefs,
+                      ownTail: widget.tail,
+                      trailMinutesOverride: _trailMinutes,
+                      clubDefaultMinutes: _clubTrailMinutesDefault,
+                      fixSource: widget.fixSource ?? widget.tracking.fixSource,
+                      mapHeight: mapHeight,
+                      tileProvider: widget.tileProvider,
+                      pollInterval: widget.mapPollInterval,
+                      enablePolling: widget.enableMapPolling,
+                      initialOwnFixes: widget.initialOwnFixes,
+                      initialRemoteFlights: widget.initialRemoteFlights,
+                      onMapPointerActiveChanged: (active) {
+                        if (_mapPointerActive != active && mounted) {
+                          setState(() => _mapPointerActive = active);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TrailLengthChips(
+                      selectedMinutes: _trailMinutes,
+                      clubDefaultMinutes: _clubTrailMinutesDefault,
+                      onSelected: _onSelectTrail,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _active ? l10n.pilotBroadcasting : l10n.pilotBroadcastingPaused,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            TrailLengthChips(
-              selectedMinutes: _trailMinutes,
-              clubDefaultMinutes: _clubTrailMinutesDefault,
-              onSelected: _onSelectTrail,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ],
-            const SizedBox(height: 16),
-            FilledButton(
-              key: FlightVisTestKeys.trackingStop,
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
               ),
-              onPressed: _endFlight,
-              child: Text(l10n.pilotStop),
             ),
-            ],
-          ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_error != null) ...[
+                      Text(
+                        _error!,
+                        style: TextStyle(color: theme.colorScheme.error),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    FilledButton(
+                      key: FlightVisTestKeys.trackingStop,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: theme.colorScheme.error,
+                        foregroundColor: theme.colorScheme.onError,
+                      ),
+                      onPressed: _endFlight,
+                      child: Text(l10n.pilotStop),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

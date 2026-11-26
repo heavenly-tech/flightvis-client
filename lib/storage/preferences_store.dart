@@ -12,6 +12,9 @@ class PreferencesStore {
   static const activeFlightIdKey = 'fv_active_flight_id';
   static const activeFlightTrailMinutesKey = 'fv_active_flight_trail_minutes';
   static const clubTrailMinutesDefaultKey = 'fv_club_trail_minutes_default';
+  static const mapLayerOwnKey = 'fv_map_layer_own';
+  static const mapLayerClubKey = 'fv_map_layer_club';
+  static const mapLayerPublicKey = 'fv_map_layer_public';
   static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
   static const activeClubSlugKey = 'fv_active_club_slug';
   static const activeClubNameKey = 'fv_active_club_name';
@@ -90,6 +93,24 @@ class PreferencesStore {
       await _prefs.setInt(clubTrailMinutesDefaultKey, minutes);
     }
   }
+
+  /// Map layer toggle: own live trail/marker (default: ON).
+  bool mapLayerOwn() => _prefs.getBool(mapLayerOwnKey) ?? true;
+
+  Future<void> setMapLayerOwn(bool value) =>
+      _prefs.setBool(mapLayerOwnKey, value);
+
+  /// Map layer toggle: club aircraft (default: ON).
+  bool mapLayerClub() => _prefs.getBool(mapLayerClubKey) ?? true;
+
+  Future<void> setMapLayerClub(bool value) =>
+      _prefs.setBool(mapLayerClubKey, value);
+
+  /// Map layer toggle: public aircraft (default: OFF).
+  bool mapLayerPublic() => _prefs.getBool(mapLayerPublicKey) ?? false;
+
+  Future<void> setMapLayerPublic(bool value) =>
+      _prefs.setBool(mapLayerPublicKey, value);
 
   String? activeClubSlug() => _prefs.getString(activeClubSlugKey);
 

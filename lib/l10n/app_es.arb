@@ -242,5 +242,20 @@
     }
   },
   "pilotTrailUpdateFailed": "No pudimos cambiar la estela. Inténtalo de nuevo.",
+  "pilotMapLayersLabel": "Capas del mapa",
+  "pilotMapLayerMine": "Mío",
+  "pilotMapLayerClub": "Club",
+  "pilotMapLayerPublic": "Público",
+  "pilotMapLayerSemantic": "Capa {layer}",
+  "@pilotMapLayerSemantic": {
+    "placeholders": {
+      "layer": {"type": "String"}
+    }
+  },
+  "pilotMapFollowOn": "Siguiendo tu posición",
+  "pilotMapRecenter": "Centrar en tu posición",
+  "pilotMapZoomIn": "Acercar mapa",
+  "pilotMapZoomOut": "Alejar mapa",
+  "pilotMapWaitingGps": "Esperando señal GPS…",
   "@@locale": "es"
 }

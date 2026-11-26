@@ -4,18 +4,23 @@ import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 import '../app_config.dart' show AppConfig;
 import '../geolocation_service.dart';
 import 'checkin_expiry_alarm.dart';
+import 'local_fix_source.dart';
 import 'tracking_session.dart';
 
 class TrackingService {
-  TrackingService({TraccarClientSdk? tracker}) {
+  TrackingService({TraccarClientSdk? tracker, LocalFixSource? fixSource}) {
     final resolved = tracker ?? GeolocationService.tracker;
     _tracker = resolved;
     _session = TrackingSession(tracker: resolved);
+    _fixSource = fixSource ?? const PlatformLocalFixSource();
   }
 
   late final TraccarClientSdk _tracker;
   late final TrackingSession _session;
+  late final LocalFixSource _fixSource;
   int? _checkinExpiresAtMs;
+
+  LocalFixSource get fixSource => _fixSource;
 
   @visibleForTesting
   TraccarClientSdk get trackerForTest => _tracker;
@@ -61,6 +66,7 @@ class TrackingService {
     } catch (_) {
       return false;
     }
+    await _fixSource.startRecording();
     await CheckinExpiryAlarm.scheduleStopAt(_checkinExpiresAtMs);
     return true;
   }
@@ -72,6 +78,9 @@ class TrackingService {
     } catch (_) {}
     try {
       await _tracker.stop();
+    } catch (_) {}
+    try {
+      await _fixSource.clear();
     } catch (_) {}
   }
 

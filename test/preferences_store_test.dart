@@ -41,4 +41,22 @@ void main() {
     await store.setClubTrailMinutesDefault(null);
     expect(store.clubTrailMinutesDefault(), isNull);
   });
+
+  test('map layer defaults (own/club ON, public OFF) and persistence', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await PreferencesStore.open();
+
+    expect(store.mapLayerOwn(), isTrue);
+    expect(store.mapLayerClub(), isTrue);
+    expect(store.mapLayerPublic(), isFalse);
+
+    await store.setMapLayerOwn(false);
+    await store.setMapLayerClub(false);
+    await store.setMapLayerPublic(true);
+
+    final reloaded = await PreferencesStore.open();
+    expect(reloaded.mapLayerOwn(), isFalse);
+    expect(reloaded.mapLayerClub(), isFalse);
+    expect(reloaded.mapLayerPublic(), isTrue);
+  });
 }

@@ -248,6 +248,64 @@ Future<void> main() async {
       continue;
     }
 
+    if (method == 'GET' && path == '/api/me/live-trails') {
+      final layersRaw = request.uri.queryParameters['layers'] ?? 'club';
+      final tokens = layersRaw.split(',');
+      final valid = tokens.isNotEmpty &&
+          tokens.every((t) => t == 'club' || t == 'public') &&
+          tokens.toSet().length == tokens.length;
+      if (!valid) {
+        await jsonResponse(400, {'error': 'invalid layers'});
+        continue;
+      }
+      final includeClub = tokens.contains('club');
+      final includePublic = tokens.contains('public');
+      final etag = 'W/"mock-$layersRaw"';
+      if (request.headers.value('if-none-match') == etag) {
+        request.response.statusCode = 304;
+        request.response.headers.set('etag', etag);
+        await request.response.close();
+        continue;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final flights = <Map<String, dynamic>>[
+        if (includeClub)
+          {
+            'flightId': 'flt-club-1',
+            'tail': 'CC-CLB',
+            'layer': 'club',
+            'trailMinutes': 5,
+            'points': [
+              [now - 180000, -33.448, -70.540, 880.0],
+              [now - 90000, -33.445, -70.536, 910.0],
+              [now - 10000, -33.442, -70.532, 930.0],
+            ],
+          },
+        if (includePublic)
+          {
+            'flightId': 'flt-pub-1',
+            'tail': 'CC-PUB',
+            'layer': 'public',
+            'trailMinutes': 5,
+            'points': [
+              [now - 180000, -33.465, -70.562, 1020.0],
+              [now - 90000, -33.462, -70.558, 1040.0],
+              [now - 10000, -33.459, -70.555, null],
+            ],
+          },
+      ];
+      request.response.headers.set('etag', etag);
+      await jsonResponse(200, {
+        'flights': flights,
+        'caps': {
+          'maxFlights': 50,
+          'maxPointsPerFlight': 300,
+          'maxWindowMinutes': 120,
+        },
+      });
+      continue;
+    }
+
     if (method == 'POST' && path == '/api/flights') {
       if (!checkinValid()) {
         await jsonResponse(403, {'error': 'check-in required'});

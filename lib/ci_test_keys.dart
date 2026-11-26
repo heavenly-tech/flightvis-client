@@ -30,6 +30,14 @@ abstract final class FlightVisTestKeys {
   static const trackingStopConfirm = ValueKey<String>('flightvis_tracking_stop_confirm');
   static const trailChips = ValueKey<String>('flightvis_trail_chips');
   static const trailChipClubDefault = ValueKey<String>('flightvis_trail_chip_default');
+  static const trackingMap = ValueKey<String>('flightvis_tracking_map');
+  static const mapLayerMine = ValueKey<String>('flightvis_map_layer_mine');
+  static const mapLayerClub = ValueKey<String>('flightvis_map_layer_club');
+  static const mapLayerPublic = ValueKey<String>('flightvis_map_layer_public');
+  static const mapFollowToggle = ValueKey<String>('flightvis_map_follow_toggle');
+  static const mapZoomIn = ValueKey<String>('flightvis_map_zoom_in');
+  static const mapZoomOut = ValueKey<String>('flightvis_map_zoom_out');
+  static const mapAttribution = ValueKey<String>('flightvis_map_attribution');
 
   static ValueKey<String> trailChip(int? minutes) => ValueKey<String>(
         minutes == null
