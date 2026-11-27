@@ -12,7 +12,9 @@ import '../app_config.dart';
 import '../ci_test_keys.dart';
 import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
+import '../map/globe_bridge.dart';
 import '../map/own_trail_buffer.dart';
+import '../services/native_fix_queue.dart';
 import '../services/app_repository.dart';
 import '../services/device_location_provider.dart';
 import '../services/fix_upload_worker.dart';
@@ -21,6 +23,7 @@ import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
 import '../storage/fix_upload_queue.dart';
 import '../storage/local_flight_store.dart';
+import '../widgets/globe_view.dart';
 import '../widgets/tracking_map_card.dart';
 import '../widgets/trail_length_chips.dart';
 
@@ -45,6 +48,11 @@ class TrackingScreen extends StatefulWidget {
     this.mapPollInterval = const Duration(seconds: 5),
     this.initialOwnFixes = const [],
     this.initialRemoteFlights = const [],
+    this.globeControllerFactory,
+    this.isOnline,
+    this.globeReadyTimeout = globeBridgeReadyTimeout,
+    this.globeThrottleInterval = globeBridgeThrottleInterval,
+    this.externalUrlLauncher,
   });
 
   final AppRepository repo;
@@ -77,6 +85,11 @@ class TrackingScreen extends StatefulWidget {
   final Duration mapPollInterval;
   final List<LocalFix> initialOwnFixes;
   final List<LiveTrailFlight> initialRemoteFlights;
+  final GlobeViewControllerFactory? globeControllerFactory;
+  final GlobeConnectivityCheck? isOnline;
+  final Duration globeReadyTimeout;
+  final Duration globeThrottleInterval;
+  final GlobeExternalUrlLauncher? externalUrlLauncher;
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
@@ -175,7 +188,11 @@ class _TrackingScreenState extends State<TrackingScreen>
     final worker = _uploadWorker;
     if (worker == null) return;
     try {
-      await widget.tracking.nativeFixQueue.importIntoStore(worker.queue);
+      await widget.tracking.nativeFixQueue.importIntoStore(
+        worker.queue,
+        activeFlightId: widget.flightId,
+        activeFlightStartedAtMs: _flightStartedAtMs,
+      );
     } catch (_) {}
     try {
       await worker.queue.pruneOrphaned(activeFlightId: widget.flightId);
@@ -186,16 +203,31 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
   }
 
+  int? get _flightStartedAtMs => widget.repo.prefs.activeFlightStartedAtMs();
+
+  QueuedFixInput? _queuedFixFromLocal(LocalFix fix) {
+    if (!fix.hasValidCoordinates) return null;
+    final input = tagFixForActiveFlight(
+      activeFlightId: widget.flightId,
+      activeFlightMode: widget.flightMode,
+      activeFlightStartedAtMs: _flightStartedAtMs,
+      tMs: fix.timeMs,
+      lat: fix.latitude,
+      lon: fix.longitude,
+      alt: fix.altitude,
+      speed: fix.speed,
+      course: fix.bearing,
+    );
+    return input;
+  }
+
   void _onLiveFixCaptured(LocalFix fix) {
-    if (!fix.hasValidCoordinates) return;
+    final input = _queuedFixFromLocal(fix);
+    if (input == null) return;
     if (_traccarDegraded) {
       unawaited(
         _uploadWorker?.enqueue(
-          QueuedFixInput.fromLocalFix(
-            fix,
-            flightId: widget.flightId,
-            flightMode: widget.flightMode,
-          ),
+          input,
           triggerFlush: false,
         ),
       );
@@ -220,14 +252,13 @@ class _TrackingScreenState extends State<TrackingScreen>
       candidates.addAll(recent);
     }
     if (candidates.isEmpty) return;
+    final inputs = <QueuedFixInput>[
+      for (final f in candidates)
+        if (_queuedFixFromLocal(f) case final input?) input,
+    ];
+    if (inputs.isEmpty) return;
     await worker.enqueueAll(
-      candidates.map(
-        (f) => QueuedFixInput.fromLocalFix(
-          f,
-          flightId: widget.flightId,
-          flightMode: widget.flightMode,
-        ),
-      ),
+      inputs,
       triggerFlush: false,
     );
   }
@@ -357,6 +388,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       checkinExpiresAtMs: expiresMs,
       flightId: widget.flightId,
       flightMode: widget.flightMode,
+      flightStartedAtMs: _flightStartedAtMs,
     );
     try {
       final started = await widget.tracking.start();
@@ -461,7 +493,11 @@ class _TrackingScreenState extends State<TrackingScreen>
         var importedNativeCount = 0;
         try {
           final res =
-              await widget.tracking.nativeFixQueue.importIntoStore(worker.queue);
+              await widget.tracking.nativeFixQueue.importIntoStore(
+        worker.queue,
+        activeFlightId: widget.flightId,
+        activeFlightStartedAtMs: _flightStartedAtMs,
+      );
           importedNativeCount = res.readCount;
         } catch (_) {}
         final hasInjectedQueue =
@@ -618,6 +654,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                       client: widget.repo.client,
                       prefs: widget.repo.prefs,
                       ownTail: widget.tail,
+                      ownFlightId: widget.flightId,
+                      ownFlightMode: widget.flightMode,
+                      minOwnFixTimeMs: _flightStartedAtMs,
+                      enable3dToggle: true,
                       trailMinutesOverride: _trailMinutes,
                       clubDefaultMinutes: _clubTrailMinutesDefault,
                       fixSource: _effectiveFixSource,
@@ -625,6 +665,11 @@ class _TrackingScreenState extends State<TrackingScreen>
                       onSessionExpired: widget.onSessionExpired,
                       mapHeight: mapHeight,
                       tileProvider: widget.tileProvider,
+                      globeControllerFactory: widget.globeControllerFactory,
+                      isOnline: widget.isOnline,
+                      globeReadyTimeout: widget.globeReadyTimeout,
+                      globeThrottleInterval: widget.globeThrottleInterval,
+                      externalUrlLauncher: widget.externalUrlLauncher,
                       pollInterval: widget.mapPollInterval,
                       enablePolling: widget.enableMapPolling,
                       initialOwnFixes: widget.initialOwnFixes,

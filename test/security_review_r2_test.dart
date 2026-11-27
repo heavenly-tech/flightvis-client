@@ -175,16 +175,27 @@ void main() {
 
   const trackingChannel = MethodChannel('cl.heavenly.flightvis/tracking');
 
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
+
   setUp(() {
     TrackingMapTestHooks.tileProviderOverride = FakeTileProvider();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, (_) async => null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, (call) async {
+      if (call.method == 'getApplicationDocumentsDirectory') {
+        return '/tmp/flightvis-test-docs';
+      }
+      return null;
+    });
   });
 
   tearDown(() {
     TrackingMapTestHooks.tileProviderOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, null);
   });
 
   // ---------------------------------------------------------------------------
@@ -1244,8 +1255,9 @@ void main() {
       final f2 = DeepLinkTestHooks.dispatch(jwtLink);
       await tester.pumpAndSettle();
       expect(find.byKey(FlightVisTestKeys.magicLinkConfirmDialog), findsOneWidget);
+      // M-33: JWT/query email must not drive the dialog title (stale request wins).
       expect(
-        find.text('¿Iniciar sesión como confirmed@example.cl?'),
+        find.text('¿Iniciar sesión como old@example.cl?'),
         findsOneWidget,
       );
       expect(completeCalls, 0);
@@ -1350,20 +1362,24 @@ void main() {
       );
       // Cancel -> stays signed in as userA, no complete call.
       final fCancel = DeepLinkTestHooks.dispatch(link);
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       expect(find.byKey(FlightVisTestKeys.magicLinkConfirmDialog), findsOneWidget);
       expect(find.text('¿Iniciar sesión como userB@example.cl?'), findsOneWidget);
       await tester.tap(find.byKey(FlightVisTestKeys.magicLinkConfirmCancel));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       await fCancel;
       expect(completeCalls, 0);
       expect(await secure.readAccountSessionId(), 'sess-userA');
 
       // Confirm -> completes and switches to userB (and M-31 clears userA's personal token!).
       final fConfirm = DeepLinkTestHooks.dispatch(link);
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(find.byKey(FlightVisTestKeys.magicLinkConfirmProceed));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
       await fConfirm;
       expect(completeCalls, 1);
       expect(await secure.readAccountSessionId(), 'sess-userB');
@@ -1567,6 +1583,7 @@ void main() {
           ),
           permissions: _TestPermissions(),
           localFlightStore: InMemoryLocalFlightStore(),
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),

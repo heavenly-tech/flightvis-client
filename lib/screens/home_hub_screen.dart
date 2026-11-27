@@ -60,8 +60,12 @@ class HomeHubScreen extends StatefulWidget {
   final PilotProfile? pilot;
   final AccountProfile? accountProfile;
   final void Function(String flightId, String tailLabel) onStartFlight;
-  final void Function(String flightId, String tailLabel, {String flightMode})?
-      onStartBroadcastFlight;
+  final void Function(
+    String flightId,
+    String tailLabel, {
+    String flightMode,
+    int? startedAtMs,
+  })? onStartBroadcastFlight;
   final Future<void> Function(AccountMembership membership)? onSwitchClub;
   final VoidCallback onRequestLogin;
   final VoidCallback onLogout;
@@ -255,9 +259,15 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     String flightId,
     String tail, {
     String flightMode = 'club',
+    int? startedAtMs,
   }) {
     if (widget.onStartBroadcastFlight != null) {
-      widget.onStartBroadcastFlight!(flightId, tail, flightMode: flightMode);
+      widget.onStartBroadcastFlight!(
+        flightId,
+        tail,
+        flightMode: flightMode,
+        startedAtMs: startedAtMs,
+      );
     } else {
       widget.onStartFlight(flightId, tail);
     }
@@ -279,7 +289,12 @@ class _HomeHubScreenState extends State<HomeHubScreen>
           permissions: widget.permissions,
           onFlightStarted: (flight, tail) {
             Navigator.of(routeContext).pop();
-            _notifyStartBroadcast(flight.id, tail, flightMode: 'personal');
+            _notifyStartBroadcast(
+              flight.id,
+              tail,
+              flightMode: 'personal',
+              startedAtMs: flight.startedAtMs,
+            );
           },
         ),
       ),
@@ -433,7 +448,12 @@ class _HomeHubScreenState extends State<HomeHubScreen>
             permissions: widget.permissions,
             onFlightStarted: (flight, tail) {
               Navigator.of(routeContext).pop();
-              _notifyStartBroadcast(flight.id, tail, flightMode: 'club');
+              _notifyStartBroadcast(
+                flight.id,
+                tail,
+                flightMode: 'club',
+                startedAtMs: flight.startedAtMs,
+              );
             },
           ),
         ),
@@ -826,6 +846,7 @@ class _HomeHubScreenState extends State<HomeHubScreen>
                                 flight.id,
                                 tail,
                                 flightMode: 'club',
+                                startedAtMs: flight.startedAtMs,
                               );
                             },
                           ),

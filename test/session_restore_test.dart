@@ -18,6 +18,7 @@ import 'package:flight_vis/services/app_repository.dart';
 import 'package:flight_vis/services/flight_permissions.dart';
 import 'package:flight_vis/services/local_fix_source.dart';
 import 'package:flight_vis/services/tracking_service.dart';
+import 'package:flight_vis/storage/fix_upload_queue.dart';
 import 'package:flight_vis/storage/local_flight_store.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
 import 'package:flight_vis/storage/secure_store.dart';
@@ -323,6 +324,7 @@ void main() {
           trackingService: trackingService,
           permissions: _GrantedPermissions(),
           localFlightStore: InMemoryLocalFlightStore(),
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),

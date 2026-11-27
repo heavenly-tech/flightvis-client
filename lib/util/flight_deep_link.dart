@@ -62,7 +62,7 @@ class AccountMagicLinkDeepLink extends ParsedDeepLink {
   final String? purpose;
 
   /// Optional email extracted from the link query parameter or JWT token
-  /// claims when present (never inferred from unrelated local state; M-30).
+  /// claims when present (never used for confirm UI copy — see M-33).
   final String? email;
 
   @override

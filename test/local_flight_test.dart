@@ -29,6 +29,7 @@ import 'package:flight_vis/services/local_fix_source.dart';
 import 'package:flight_vis/services/local_flight_recorder.dart';
 import 'package:flight_vis/services/tracking_service.dart';
 import 'package:flight_vis/state/checkin_gate.dart';
+import 'package:flight_vis/storage/fix_upload_queue.dart';
 import 'package:flight_vis/storage/local_flight_migration.dart';
 import 'package:flight_vis/storage/local_flight_store.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
@@ -119,17 +120,27 @@ void main() {
   CheckinExpiryFormat.ensureInitialized();
 
   const trackingChannel = MethodChannel('cl.heavenly.flightvis/tracking');
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
 
   setUp(() {
     TrackingMapTestHooks.tileProviderOverride = FakeTileProvider();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, (_) async => null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, (call) async {
+      if (call.method == 'getApplicationDocumentsDirectory') {
+        return '/tmp/flightvis-test-docs';
+      }
+      return null;
+    });
   });
 
   tearDown(() {
     TrackingMapTestHooks.tileProviderOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(trackingChannel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, null);
   });
 
   group('FlightStartMode resolver', () {
@@ -1006,6 +1017,7 @@ void main() {
           ),
           permissions: perms,
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),
@@ -1435,6 +1447,7 @@ void main() {
           ),
           permissions: allGrantedPerms(),
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),
@@ -1518,6 +1531,7 @@ void main() {
           ),
           permissions: allGrantedPerms(),
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),
@@ -1584,6 +1598,7 @@ void main() {
           ),
           permissions: allGrantedPerms(),
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),
@@ -1630,6 +1645,7 @@ void main() {
           ),
           permissions: allGrantedPerms(),
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),
@@ -1720,6 +1736,7 @@ void main() {
           ),
           permissions: allGrantedPerms(),
           localFlightStore: store,
+          uploadQueue: InMemoryFixUploadQueueStore(),
           tileProvider: FakeTileProvider(),
           enableMapPolling: false,
         ),

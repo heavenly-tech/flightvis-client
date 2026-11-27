@@ -34,6 +34,18 @@ class FlightVisException implements Exception {
   /// Raw `Retry-After` HTTP header value (integer seconds or HTTP-date).
   final String? retryAfterRaw;
 
+  /// PR #54: flight write/share management may return `404` instead of `403`
+  /// when the resource is missing or not owned by the current pilot.
+  bool get isFlightNotYoursOrMissing {
+    if (statusCode != 403 && statusCode != 404) return false;
+    final err = body?['error']?.toString().trim().toLowerCase();
+    if (err == 'not found' || err == 'forbidden' || err == 'not yours') {
+      return true;
+    }
+    if (statusCode == 404) return true;
+    return false;
+  }
+
   /// True when the server rejected the request with `403` because the club is
   /// suspended/unavailable (distinct from session expiry).
   bool get isClubUnavailable {
@@ -1599,7 +1611,9 @@ class FlightVisClient {
       headers: _headers(jsonBody: true, bearerOverride: deviceToken),
       body: jsonEncode({'trailMinutes': trailMinutes}),
     );
-    if (response.statusCode == 409) return trailMinutes;
+    if (response.statusCode == 409 || response.statusCode == 404) {
+      return trailMinutes;
+    }
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
     return _parseTrailMinutes(body['trailMinutes']);

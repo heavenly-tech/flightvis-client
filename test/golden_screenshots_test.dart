@@ -36,6 +36,7 @@ import 'package:flight_vis/storage/local_flight_store.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
 import 'package:flight_vis/storage/secure_store.dart';
 
+import 'helpers/fake_globe_webview.dart';
 import 'helpers/fake_tile_provider.dart';
 
 class _FakeSecure extends SecureStore {
@@ -703,6 +704,41 @@ void main() {
       '16-personal-flight-start',
     );
     await _maybeExportShot(tester, '16-personal-flight-start.png');
+  });
+
+  testWidgets('live map 3D overlay golden (fake WebView)', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      PreferencesStore.mapViewModeKey: '3d',
+      PreferencesStore.mapLayerOwnKey: true,
+      PreferencesStore.mapLayerClubKey: false,
+      PreferencesStore.mapLayerPublicKey: false,
+    });
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+      ),
+    );
+    await _golden(
+      tester,
+      LiveMapScreen(
+        repo: repo,
+        loggedIn: true,
+        isOnline: () async => true,
+        globeControllerFactory: () => FakeGlobeWebViewController(autoEmitReady: true),
+        deviceLocationProvider: FakeDeviceLocationProvider(
+          location: _demoOwnFixes().last,
+        ),
+        tileProvider: FakeTileProvider(),
+        enableMapPolling: false,
+        initialRemoteFlights: const [],
+      ),
+      '18-live-map-3d-fake',
+    );
+    await _maybeExportShot(tester, '18-live-map-3d-fake.png');
   });
 
   testWidgets('hub magic-link expired error banner golden', (tester) async {

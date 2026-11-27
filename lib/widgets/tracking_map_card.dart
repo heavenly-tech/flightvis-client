@@ -233,7 +233,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   }
 
   Future<bool> _checkOnline(Uri embedUri) async {
-    final override = widget.isOnline ?? GlobeViewTestHooks.isOnlineOverride;
+    final override = widget.isOnline;
     if (override != null) {
       try {
         return await override();
@@ -241,8 +241,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
         return false;
       }
     }
-    if (widget.globeControllerFactory != null ||
-        GlobeViewTestHooks.controllerFactoryOverride != null) {
+    if (widget.globeControllerFactory != null) {
       return !_pollStatusError;
     }
     if (_pollStatusError) return false;
