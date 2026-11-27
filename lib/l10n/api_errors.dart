@@ -57,6 +57,9 @@ String? localizeApiReason(AppLocalizations l10n, String? code) {
       return l10n.errorInvalidInstallId;
     case 'not_approved':
       return l10n.errorNotApproved;
+    case 'email_not_verified':
+    case 'email not verified':
+      return l10n.errorEmailNotVerified;
     case 'no_session':
     case 'unauthorized':
       return l10n.errorUnauthorized;

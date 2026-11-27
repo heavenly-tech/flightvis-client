@@ -123,6 +123,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
 
   StreamSubscription<LocalFix>? _fixSub;
   Timer? _remotePollTimer;
+  Timer? _rateLimitBackoffTimer;
   Timer? _deviceLocationTimer;
   Timer? _redrawThrottleTimer;
   DateTime? _lastRedrawAt;
@@ -227,6 +228,8 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     _pollQueued = false;
     _remotePollTimer?.cancel();
     _remotePollTimer = null;
+    _rateLimitBackoffTimer?.cancel();
+    _rateLimitBackoffTimer = null;
     _deviceLocationTimer?.cancel();
     _deviceLocationTimer = null;
     _redrawThrottleTimer?.cancel();
@@ -381,19 +384,42 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     required bool includeClub,
     required bool includePublic,
     required int radiusKm,
+    int? minAglFt,
   }) {
     final layers = buildLiveTrailsLayersParam(
       includeClub: includeClub,
       includePublic: includePublic,
     );
     if (layers == null) return null;
-    return includePublic ? '$layers|r=$radiusKm' : layers;
+    if (!includePublic) return layers;
+    final aglSuffix =
+        minAglFt != null ? '|agl=${minAglFt.clamp(0, 20000)}' : '';
+    return '$layers|r=$radiusKm$aglSuffix';
+  }
+
+  void _scheduleAnonymousRateLimitBackoff(int? retryAfterSeconds) {
+    final raw = retryAfterSeconds ?? widget.pollInterval.inSeconds;
+    final seconds = raw.clamp(1, 60);
+    _pollQueued = false;
+    _remotePollTimer?.cancel();
+    _remotePollTimer = null;
+    _rateLimitBackoffTimer?.cancel();
+    final seq = _pollConfigSeq;
+    _rateLimitBackoffTimer = Timer(Duration(seconds: seconds), () {
+      _rateLimitBackoffTimer = null;
+      if (!mounted || !_isForeground || !_pollingEnabled || seq != _pollConfigSeq) {
+        return;
+      }
+      _reconfigureRemotePolling(triggerImmediate: true);
+    });
   }
 
   void _reconfigureRemotePolling({required bool triggerImmediate}) {
     _pollConfigSeq++;
     _remotePollTimer?.cancel();
     _remotePollTimer = null;
+    _rateLimitBackoffTimer?.cancel();
+    _rateLimitBackoffTimer = null;
     if (!_isForeground || !_pollingEnabled) return;
     if (!_hasPollableRemoteLayer) {
       _pollQueued = false;
@@ -479,6 +505,9 @@ class _TrackingMapCardState extends State<TrackingMapCard>
             _pollStatusError = false;
           });
         }
+      } else if (e.statusCode == 429 && !_trailsSource.supportsAuthExpiry) {
+        // Anonymous endpoint rate limit: back off silently to Retry-After (cap 60s).
+        _scheduleAnonymousRateLimitBackoff(e.retryAfterSeconds);
       } else {
         // Keep last received data and show subtle status line without SnackBar spam.
         if (!_pollStatusError) {

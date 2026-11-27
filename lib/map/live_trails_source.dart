@@ -24,6 +24,7 @@ abstract class LiveTrailsSource {
     double? lat,
     double? lon,
     int? radiusKm,
+    int? minAglFt,
     String? ifNoneMatch,
   });
 }
@@ -47,6 +48,7 @@ class AuthenticatedLiveTrailsSource extends LiveTrailsSource {
     double? lat,
     double? lon,
     int? radiusKm,
+    int? minAglFt,
     String? ifNoneMatch,
   }) {
     return client.fetchLiveTrails(
@@ -81,6 +83,7 @@ class PublicOnlyLiveTrailsSource extends LiveTrailsSource {
     double? lat,
     double? lon,
     int? radiusKm,
+    int? minAglFt,
     String? ifNoneMatch,
   }) async {
     if (!includePublic || lat == null || lon == null) {
@@ -90,6 +93,7 @@ class PublicOnlyLiveTrailsSource extends LiveTrailsSource {
       lat: lat,
       lon: lon,
       radiusKm: radiusKm ?? PreferencesStore.defaultPublicRadiusKm,
+      minAglFt: minAglFt,
       ifNoneMatch: ifNoneMatch,
     );
   }
@@ -115,6 +119,7 @@ class StaticLiveTrailsSource extends LiveTrailsSource {
     double? lat,
     double? lon,
     int? radiusKm,
+    int? minAglFt,
     String? ifNoneMatch,
   }) async {
     return const LiveTrailsResponse(flights: []);

@@ -43,9 +43,10 @@ class FlightStartResolution {
 FlightStartResolution resolveFlightStartMode({
   required PilotProfile? pilot,
   required CheckinGate checkinGate,
+  bool clubUnavailable = false,
 }) {
   final loggedIn = pilot != null && pilot.isApproved;
-  if (loggedIn && checkinGate.canStartFlight) {
+  if (loggedIn && checkinGate.canStartFlight && !clubUnavailable) {
     return const FlightStartResolution(mode: FlightStartMode.clubBroadcast);
   }
   if (loggedIn) {

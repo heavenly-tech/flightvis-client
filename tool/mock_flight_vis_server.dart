@@ -163,6 +163,7 @@ Future<void> main() async {
       if (cookie.contains(session)) {
         await jsonResponse(200, {
           'clubTrailMinutesDefault': clubTrailMinutesDefault,
+          'email_verified': true,
           'pilot': {
             'id': 'p1',
             'name': 'Demo Pilot',
@@ -342,7 +343,11 @@ Future<void> main() async {
       }
       final rawRadius = int.tryParse(request.uri.queryParameters['radius_km'] ?? '');
       final effectiveRadiusKm = (rawRadius ?? 20).clamp(5, 500);
-      final etag = 'W/"mock-public-r$effectiveRadiusKm"';
+      final rawMinAgl = int.tryParse(request.uri.queryParameters['min_agl_ft'] ?? '');
+      final effectiveMinAgl = rawMinAgl?.clamp(0, 20000);
+      final etag = effectiveMinAgl != null
+          ? 'W/"mock-public-r$effectiveRadiusKm-agl$effectiveMinAgl"'
+          : 'W/"mock-public-r$effectiveRadiusKm"';
       if (request.headers.value('if-none-match') == etag) {
         request.response.statusCode = 304;
         request.response.headers.set('etag', etag);

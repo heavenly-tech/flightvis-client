@@ -325,5 +325,19 @@
   },
   "localFlightUploadSoon": "Guardado localmente. La subida al servidor estará disponible pronto.",
   "pilotPublicRequiresVerifiedEmail": "Verifica tu correo para transmitir de forma pública.",
+  "clubUnavailableNotice": "Tu club no está disponible por ahora. Contacta a tu club.",
+  "errorEmailNotVerified": "Verifica tu correo para compartir vuelos en público.",
+  "localFlightsGuestBannerTitle": "{count, plural, =1{Tienes 1 vuelo guardado sin cuenta.} other{Tienes {count} vuelos guardados sin cuenta.}}",
+  "@localFlightsGuestBannerTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsMoveToAccountAction": "Guardar en mi cuenta",
+  "localFlightsKeepOnPhoneAction": "Dejarlos en este teléfono",
+  "localFlightDeleteTooltip": "Eliminar vuelo",
+  "localFlightDeleteConfirmTitle": "¿Eliminar este vuelo?",
+  "localFlightDeleteConfirmBody": "Se eliminará de este teléfono y no se podrá recuperar.",
+  "localFlightDeleteConfirmAction": "Eliminar",
   "@@locale": "es"
 }

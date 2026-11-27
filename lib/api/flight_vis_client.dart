@@ -13,6 +13,7 @@ class FlightVisException implements Exception {
     this.body,
     this.reason,
     this.serverMessage,
+    this.retryAfterSeconds,
   });
 
   final String message;
@@ -24,6 +25,32 @@ class FlightVisException implements Exception {
 
   /// Optional human-readable message returned by server (`body['message']`).
   final String? serverMessage;
+
+  /// Optional parsed `Retry-After` delay in seconds (e.g. HTTP 429 responses).
+  final int? retryAfterSeconds;
+
+  /// True when the server rejected the request with `403` because the club is
+  /// suspended/unavailable (distinct from session expiry).
+  bool get isClubUnavailable {
+    if (statusCode != 403) return false;
+    for (final raw in [body?['error'], reason, message]) {
+      final norm = raw?.toString().trim().toLowerCase();
+      if (norm == 'club unavailable' || norm == 'club_unavailable') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Parses an integer-seconds `Retry-After` HTTP header value.
+  static int? parseRetryAfterSeconds(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final seconds = int.tryParse(trimmed);
+    if (seconds == null) return null;
+    return seconds < 0 ? 0 : seconds;
+  }
 
   @override
   String toString() => message;
@@ -45,7 +72,7 @@ class PilotProfile {
     required this.role,
     this.licenseNo,
     this.clubTrailMinutesDefault,
-    this.emailVerified,
+    this.emailVerified = false,
   });
 
   final String id;
@@ -56,23 +83,17 @@ class PilotProfile {
   final String? licenseNo;
   final int? clubTrailMinutesDefault;
 
-  /// Explicit email-verified flag when exposed by the server (`emailVerified`,
-  /// `email_verified`, or non-null `emailVerifiedAt`/`email_verified_at`).
-  final bool? emailVerified;
+  /// Top-level `email_verified` boolean from `GET /api/club/me` (false when
+  /// missing or for guest sessions). Drives the public-visibility gate.
+  final bool emailVerified;
 
   factory PilotProfile.fromJson(
     Map<String, dynamic> json, {
     int? clubTrailMinutesDefault,
+    bool? emailVerified,
   }) {
-    bool? parsedEmailVerified;
-    final rawVerified = json['emailVerified'] ?? json['email_verified'];
-    if (rawVerified is bool) {
-      parsedEmailVerified = rawVerified;
-    } else if (json.containsKey('emailVerifiedAt') ||
-        json.containsKey('email_verified_at')) {
-      final rawAt = json['emailVerifiedAt'] ?? json['email_verified_at'];
-      parsedEmailVerified = rawAt != null && rawAt.toString().trim().isNotEmpty;
-    }
+    final resolvedEmailVerified =
+        emailVerified ?? (json['email_verified'] == true);
     return PilotProfile(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -82,7 +103,7 @@ class PilotProfile {
       licenseNo: json['licenseNo'] as String?,
       clubTrailMinutesDefault: clubTrailMinutesDefault ??
           _parseTrailMinutes(json['clubTrailMinutesDefault']),
-      emailVerified: parsedEmailVerified,
+      emailVerified: resolvedEmailVerified,
     );
   }
 
@@ -95,23 +116,11 @@ class PilotProfile {
         if (licenseNo != null) 'licenseNo': licenseNo,
         if (clubTrailMinutesDefault != null)
           'clubTrailMinutesDefault': clubTrailMinutesDefault,
-        if (emailVerified != null) 'emailVerified': emailVerified,
+        'email_verified': emailVerified,
       };
 
   bool get isApproved => status == 'approved';
   bool get isGuest => status == 'guest';
-
-  /// Whether this pilot may broadcast with `visibility=public`.
-  ///
-  /// When the server exposes an explicit `emailVerified` flag, requires `true`.
-  /// Otherwise treats guest/unapproved accounts (or synthetic `@guest.invalid`
-  /// emails) as unverified and hides public visibility.
-  bool get hasVerifiedEmail {
-    if (emailVerified != null) return emailVerified!;
-    if (!isApproved || isGuest) return false;
-    final lower = email.trim().toLowerCase();
-    return lower.isNotEmpty && !lower.endsWith('@guest.invalid');
-  }
 }
 
 class TailOption {
@@ -504,6 +513,9 @@ class FlightVisClient {
       body: body,
       reason: reason,
       serverMessage: serverMessage,
+      retryAfterSeconds: FlightVisException.parseRetryAfterSeconds(
+        response.headers['retry-after'],
+      ),
     );
   }
 
@@ -526,7 +538,10 @@ class FlightVisClient {
     final body = _decodeJson(response);
     final session = _sessionFromResponse(response);
     if (session != null) _sessionId = session;
-    final loginPilot = PilotProfile.fromJson(body['pilot'] as Map<String, dynamic>);
+    final loginPilot = PilotProfile.fromJson(
+      body['pilot'] as Map<String, dynamic>,
+      emailVerified: body['email_verified'] == true,
+    );
     try {
       final me = await meProfile();
       return me ?? loginPilot;
@@ -554,9 +569,11 @@ class FlightVisClient {
     final clubDefault =
         topDefault ?? _parseTrailMinutes(pilotMap['clubTrailMinutesDefault']);
     _clubTrailMinutesDefault = clubDefault;
+    final topEmailVerified = body['email_verified'] == true;
     return PilotProfile.fromJson(
       pilotMap,
       clubTrailMinutesDefault: clubDefault,
+      emailVerified: topEmailVerified,
     );
   }
 
@@ -615,7 +632,10 @@ class FlightVisClient {
     final body = _decodeJson(response);
     final pilot = body['pilot'];
     if (pilot is Map<String, dynamic>) {
-      return PilotProfile.fromJson(pilot);
+      return PilotProfile.fromJson(
+        pilot,
+        emailVerified: body['email_verified'] == true,
+      );
     }
     final me = await meProfile();
     if (me != null) return me;
@@ -647,7 +667,10 @@ class FlightVisClient {
     final body = _decodeJson(response);
     final pilot = body['pilot'];
     if (pilot is Map<String, dynamic>) {
-      return PilotProfile.fromJson(pilot);
+      return PilotProfile.fromJson(
+        pilot,
+        emailVerified: body['email_verified'] == true,
+      );
     }
     final me = await meProfile();
     if (me == null) {
@@ -848,26 +871,30 @@ class FlightVisClient {
   }
 
   /// Polls nearby public aircraft trails anonymously via
-  /// `GET /api/public/live-trails?lat=...&lon=...&radius_km=...`.
+  /// `GET /api/public/live-trails?lat=...&lon=...&radius_km=...[&min_agl_ft=...]`.
   ///
   /// Never sends `Cookie` or `Authorization` headers (only `Accept-Language`
   /// and optional `If-None-Match`). Skips the network call when coordinates are
-  /// invalid.
+  /// invalid. When [minAglFt] is non-null, clamps it to `0..20000` and sends
+  /// `min_agl_ft`.
   Future<LiveTrailsResponse> fetchPublicLiveTrails({
     required double lat,
     required double lon,
     required int radiusKm,
+    int? minAglFt,
     String? ifNoneMatch,
   }) async {
     if (!_hasValidCoordinates(lat, lon)) {
       return const LiveTrailsResponse(flights: []);
     }
     final clampedRadius = radiusKm.clamp(5, 500);
+    final clampedMinAglFt = minAglFt?.clamp(0, 20000);
     final uri = _uri(FlightVisApiPaths.publicLiveTrails).replace(
       queryParameters: <String, String>{
         'lat': _formatCoordinate(lat),
         'lon': _formatCoordinate(lon),
         'radius_km': clampedRadius.toString(),
+        if (clampedMinAglFt != null) 'min_agl_ft': clampedMinAglFt.toString(),
       },
     );
     final headers = <String, String>{};
@@ -898,6 +925,25 @@ class FlightVisClient {
       caps: caps,
       etag: responseEtag,
     );
+  }
+
+  /// Updates a flight's visibility (`PATCH /api/flights/{slug}`).
+  Future<Map<String, dynamic>> updateFlightVisibility(
+    String slug, {
+    required String visibility,
+    bool? showPilotNamePublic,
+  }) async {
+    final response = await _http.patch(
+      _uri(FlightVisApiPaths.flightBySlug(slug)),
+      headers: _headers(jsonBody: true),
+      body: jsonEncode({
+        'visibility': visibility,
+        if (showPilotNamePublic != null)
+          'show_pilot_name_public': showPilotNamePublic,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    return _decodeJson(response);
   }
 
   static bool _hasValidCoordinates(double? lat, double? lon) {

@@ -324,5 +324,19 @@
     }
   },
   "localFlightUploadSoon": "Saved locally. Uploading to the server will be available soon.",
-  "pilotPublicRequiresVerifiedEmail": "Verify your email to broadcast publicly."
+  "pilotPublicRequiresVerifiedEmail": "Verify your email to broadcast publicly.",
+  "clubUnavailableNotice": "Your club is unavailable right now. Contact your club.",
+  "errorEmailNotVerified": "Verify your email to share flights publicly.",
+  "localFlightsGuestBannerTitle": "{count, plural, =1{You have 1 flight saved without an account.} other{You have {count} flights saved without an account.}}",
+  "@localFlightsGuestBannerTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsMoveToAccountAction": "Save to my account",
+  "localFlightsKeepOnPhoneAction": "Leave on this phone",
+  "localFlightDeleteTooltip": "Delete flight",
+  "localFlightDeleteConfirmTitle": "Delete this flight?",
+  "localFlightDeleteConfirmBody": "It will be removed from this phone and cannot be recovered.",
+  "localFlightDeleteConfirmAction": "Delete"
 }

@@ -234,6 +234,102 @@ void main() {
       expect(find.byKey(FlightVisTestKeys.mapPollStatusError), findsNothing);
       expect(find.text('CC-PUB'), findsOneWidget);
     });
+
+    testWidgets('429 on anonymous endpoint backs off silently to Retry-After (capped at 60s)', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await PreferencesStore.open();
+      var calls = 0;
+      String mode = 'ok';
+      String retryAfter = '25';
+
+      final repo = AppRepository(
+        secure: _FakeSecure(),
+        prefs: prefs,
+        client: FlightVisClient(
+          baseUrl: 'https://example.test',
+          httpClient: http_testing.MockClient((request) async {
+            if (request.url.path != FlightVisApiPaths.publicLiveTrails) {
+              return http.Response('{}', 404);
+            }
+            calls++;
+            if (mode == '429') {
+              return http.Response(
+                jsonEncode({'error': 'rate_limited'}),
+                429,
+                headers: {'retry-after': retryAfter},
+              );
+            }
+            return http.Response(
+              jsonEncode({'flights': [_publicFlightJson()]}),
+              200,
+            );
+          }),
+        ),
+      );
+      final fakeLoc = FakeDeviceLocationProvider(
+        location: const LocalFix(
+          timeMs: 1700000000000,
+          latitude: -33.45,
+          longitude: -70.55,
+        ),
+      );
+
+      await tester.pumpWidget(
+        PilotAppShell(
+          locale: const Locale('es', 'CL'),
+          home: LiveMapScreen(
+            repo: repo,
+            loggedIn: false,
+            deviceLocationProvider: fakeLoc,
+            tileProvider: FakeTileProvider(),
+            mapPollInterval: const Duration(seconds: 5),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, 1);
+      expect(find.text('CC-PUB'), findsOneWidget);
+
+      // Server returns 429 with Retry-After: 25.
+      mode = '429';
+      retryAfter = '25';
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+
+      // Completely silent: no error line, no expired banner, no SnackBar; flight retained.
+      expect(find.byKey(FlightVisTestKeys.mapPollStatusError), findsNothing);
+      expect(find.byKey(FlightVisTestKeys.mapSessionExpiredBanner), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text('CC-PUB'), findsOneWidget);
+
+      // No requests during 24s backoff window (even though pollInterval is 5s).
+      mode = 'ok';
+      await tester.pump(const Duration(seconds: 24));
+      await tester.pumpAndSettle();
+      expect(calls, 2);
+
+      // At 25s backoff expires and resumes polling.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(calls, 3);
+
+      // Verify 60s cap when Retry-After exceeds 60 (e.g. 180s).
+      mode = '429';
+      retryAfter = '180';
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(calls, 4);
+
+      mode = 'ok';
+      await tester.pump(const Duration(seconds: 59));
+      await tester.pumpAndSettle();
+      expect(calls, 4);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(calls, 5);
+    });
   });
 
   group('Signed-in no check-in map & F2 error handling', () {

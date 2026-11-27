@@ -43,6 +43,8 @@ class HomeHubScreen extends StatefulWidget {
     this.localRecorder,
     this.localFlightStore,
     this.sessionExpiredNotice = false,
+    this.clubUnavailableNotice = false,
+    this.localFlightsRevision = 0,
     this.tileProvider,
     this.enableMapPolling,
     this.initialPermissionHintGap,
@@ -66,8 +68,16 @@ class HomeHubScreen extends StatefulWidget {
   final LocalFlightRecorder? localRecorder;
   final LocalFlightStore? localFlightStore;
 
-  /// True when startup detected an expired/invalid session (401/403).
+  /// True when startup detected an expired/invalid session (401 or pilot:null).
   final bool sessionExpiredNotice;
+
+  /// True when `/api/club/me` returned 403 `club unavailable` (session kept,
+  /// club broadcast disabled until available again).
+  final bool clubUnavailableNotice;
+
+  /// Incremented by the app shell when local flights change outside this screen
+  /// (e.g. moving guest flights on sign-in) so the count badge refreshes.
+  final int localFlightsRevision;
 
   final TileProvider? tileProvider;
   final bool? enableMapPolling;
@@ -94,6 +104,8 @@ class _HomeHubScreenState extends State<HomeHubScreen>
   LocalFlightStore get _localFlightStore =>
       widget.localFlightStore ?? _fallbackLocalStore;
 
+  String get _accountBucket => LocalFlightStore.bucketForPilot(widget.pilot);
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +117,17 @@ class _HomeHubScreenState extends State<HomeHubScreen>
       _tick = Timer.periodic(const Duration(seconds: 30), (_) {
         if (mounted) setState(() {});
       });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant HomeHubScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!AppConfig.screenshotTest &&
+        (LocalFlightStore.bucketForPilot(oldWidget.pilot) != _accountBucket ||
+            oldWidget.localFlightsRevision != widget.localFlightsRevision ||
+            oldWidget.localFlightStore != widget.localFlightStore)) {
+      _refreshLocalFlightCount();
     }
   }
 
@@ -129,9 +152,10 @@ class _HomeHubScreenState extends State<HomeHubScreen>
   }
 
   Future<void> _refreshLocalFlightCount() async {
+    final bucket = _accountBucket;
     try {
-      final flights = await _localFlightStore.listFlights();
-      if (!mounted) return;
+      final flights = await _localFlightStore.listFlights(bucket: bucket);
+      if (!mounted || bucket != _accountBucket) return;
       setState(() => _localFlightCount = flights.length);
     } catch (_) {
       // Non-critical count badge; ignore in environments without path_provider.
@@ -202,6 +226,7 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     final resolution = resolveFlightStartMode(
       pilot: widget.pilot,
       checkinGate: _gate,
+      clubUnavailable: widget.clubUnavailableNotice,
     );
     if (resolution.isClubBroadcast) {
       await Navigator.push(
@@ -232,6 +257,7 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     }
 
     final recorder = widget.localRecorder ?? PlatformLocalFlightRecorder();
+    final bucket = _accountBucket;
     await Navigator.push(
       context,
       MaterialPageRoute<void>(
@@ -239,6 +265,7 @@ class _HomeHubScreenState extends State<HomeHubScreen>
           repo: widget.repo,
           localRecorder: recorder,
           localFlightStore: _localFlightStore,
+          storageBucket: bucket,
           localReason: reason,
           tail: sanitized,
           deviceLocationProvider: widget.deviceLocationProvider,
@@ -328,12 +355,15 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     final gate = _gate;
     final pilot = widget.pilot;
     final loggedIn = _loggedIn;
-    final canBroadcastClub = loggedIn && gate.canStartFlight;
-    final broadcastSubtitle = canBroadcastClub
-        ? l10n.pilotHubFlightSubtitle
-        : (!loggedIn
-            ? l10n.pilotHubFlightBroadcastSignedOut
-            : l10n.pilotHubFlightBroadcastNoCheckIn);
+    final canBroadcastClub =
+        loggedIn && gate.canStartFlight && !widget.clubUnavailableNotice;
+    final broadcastSubtitle = widget.clubUnavailableNotice
+        ? l10n.clubUnavailableNotice
+        : (canBroadcastClub
+            ? l10n.pilotHubFlightSubtitle
+            : (!loggedIn
+                ? l10n.pilotHubFlightBroadcastSignedOut
+                : l10n.pilotHubFlightBroadcastNoCheckIn));
     final localFlightsSubtitle = _localFlightCount == null
         ? l10n.pilotHubLocalFlightsSubtitle
         : l10n.pilotHubLocalFlightsCount(_localFlightCount!);
@@ -378,6 +408,33 @@ class _HomeHubScreenState extends State<HomeHubScreen>
           const SizedBox(height: 4),
           Text(_clubLine(context), style: theme.textTheme.titleMedium),
           const SizedBox(height: 12),
+          if (widget.clubUnavailableNotice) ...[
+            Card(
+              key: FlightVisTestKeys.hubClubUnavailableBanner,
+              color: theme.colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber,
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        l10n.clubUnavailableNotice,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (widget.sessionExpiredNotice && !loggedIn) ...[
             Card(
               key: FlightVisTestKeys.hubSessionExpiredBanner,
@@ -464,6 +521,7 @@ class _HomeHubScreenState extends State<HomeHubScreen>
                 builder: (_) => LocalFlightsListScreen(
                   repo: widget.repo,
                   store: _localFlightStore,
+                  accountBucket: _accountBucket,
                   tileProvider: widget.tileProvider,
                 ),
               ),

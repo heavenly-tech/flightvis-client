@@ -79,11 +79,20 @@ void main() {
       }),
     );
 
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) {},
         ),
       ),
@@ -118,11 +127,20 @@ void main() {
       }),
     );
 
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) {},
         ),
       ),
@@ -166,11 +184,20 @@ void main() {
     );
 
     var started = false;
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) => started = true,
         ),
       ),
@@ -258,11 +285,20 @@ void main() {
       }),
     );
 
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) {},
         ),
       ),
@@ -300,11 +336,20 @@ void main() {
       validCheckin: false,
     );
 
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) {},
         ),
       ),
@@ -346,11 +391,20 @@ void main() {
     );
     repo.client.setClubTrailMinutesDefault(5);
 
+    final verifiedPilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Verified',
+      email: 'verified@club.cl',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: TailPickerScreen(
           repo: repo,
+          pilot: verifiedPilot,
           onFlightStarted: (_, _) {},
         ),
       ),
@@ -594,6 +648,155 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Público'), findsNothing);
     expect(find.text('Privado'), findsOneWidget);
+  });
+
+  testWidgets('hides public visibility when email_verified is missing and shows it when true', (tester) async {
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    // Missing email_verified in /api/club/me payload -> emailVerified == false.
+    final missingVerifiedPilot = PilotProfile.fromJson({
+      'id': 'p-missing',
+      'name': 'MissingFlag',
+      'email': 'pilot@example.test',
+      'status': 'approved',
+      'role': 'pilot',
+    });
+    expect(missingVerifiedPilot.emailVerified, isFalse);
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          key: const ValueKey('missing-verified'),
+          repo: repo,
+          pilot: missingVerifiedPilot,
+          onFlightStarted: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Verifica tu correo para transmitir de forma pública.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Club'));
+    await tester.pumpAndSettle();
+    expect(find.text('Público'), findsNothing);
+    await tester.tap(find.text('Club').last);
+    await tester.pumpAndSettle();
+
+    // Verified pilot -> public option shown, notice hidden.
+    final verifiedPilot = PilotProfile(
+      id: 'p-verified',
+      name: 'Verified',
+      email: 'pilot@example.test',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          key: const ValueKey('verified'),
+          repo: repo,
+          pilot: verifiedPilot,
+          onFlightStarted: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Verifica tu correo para transmitir de forma pública.'),
+      findsNothing,
+    );
+    await tester.tap(find.text('Club'));
+    await tester.pumpAndSettle();
+    expect(find.text('Público'), findsOneWidget);
+  });
+
+  testWidgets('surfaces localized es-CL error when POST /api/flights returns 403 email_not_verified', (tester) async {
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == FlightVisApiPaths.flights) {
+          return http.Response(
+            jsonEncode({
+              'error': 'email_not_verified',
+              'message': 'Verify your email to share flights publicly.',
+            }),
+            403,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    final pilot = PilotProfile(
+      id: 'p-ver',
+      name: 'Pilot',
+      email: 'pilot@example.test',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: true,
+    );
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          pilot: pilot,
+          permissions: _TailTestPermissions(
+            status: const FlightPermissionStatus(
+              fineLocationGranted: true,
+              backgroundLocationGranted: true,
+              notificationsGranted: true,
+              batteryUnrestricted: true,
+            ),
+          ),
+          onFlightStarted: (_, _) => fail('must not succeed'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Club'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Público').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Verifica tu correo para compartir vuelos en público.'),
+      findsOneWidget,
+    );
   });
 }
 

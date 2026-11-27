@@ -384,5 +384,63 @@ void main() {
       expect(seenRequests[0].url.queryParameters['radius_km'], '5');
       expect(seenRequests[1].url.queryParameters['radius_km'], '500');
     });
+
+    test('sends optional min_agl_ft only when non-null and clamps to 0..20000', () async {
+      final seenRequests = <http.Request>[];
+      final client = FlightVisClient(
+        baseUrl: 'https://example.test',
+        httpClient: MockClient((request) async {
+          seenRequests.add(request);
+          return http.Response(jsonEncode({'flights': []}), 200);
+        }),
+      );
+
+      await client.fetchPublicLiveTrails(lat: -33.4, lon: -70.5, radiusKm: 20);
+      await client.fetchPublicLiveTrails(
+        lat: -33.4,
+        lon: -70.5,
+        radiusKm: 20,
+        minAglFt: 1500,
+      );
+      await client.fetchPublicLiveTrails(
+        lat: -33.4,
+        lon: -70.5,
+        radiusKm: 20,
+        minAglFt: -50,
+      );
+      await client.fetchPublicLiveTrails(
+        lat: -33.4,
+        lon: -70.5,
+        radiusKm: 20,
+        minAglFt: 50000,
+      );
+
+      expect(seenRequests[0].url.queryParameters.containsKey('min_agl_ft'), isFalse);
+      expect(seenRequests[1].url.queryParameters['min_agl_ft'], '1500');
+      expect(seenRequests[2].url.queryParameters['min_agl_ft'], '0');
+      expect(seenRequests[3].url.queryParameters['min_agl_ft'], '20000');
+    });
+
+    test('parses Retry-After seconds on 429 rate_limited response', () async {
+      final client = FlightVisClient(
+        baseUrl: 'https://example.test',
+        httpClient: MockClient((_) async {
+          return http.Response(
+            jsonEncode({'error': 'rate_limited'}),
+            429,
+            headers: {'retry-after': '25'},
+          );
+        }),
+      );
+
+      await expectLater(
+        () => client.fetchPublicLiveTrails(lat: -33.4, lon: -70.5, radiusKm: 20),
+        throwsA(
+          isA<FlightVisException>()
+              .having((e) => e.statusCode, 'statusCode', 429)
+              .having((e) => e.retryAfterSeconds, 'retryAfterSeconds', 25),
+        ),
+      );
+    });
   });
 }
