@@ -7,40 +7,170 @@ import '../tool/spanish_voseo.dart';
 
 void main() {
   group('voseo detector examples', () {
-    test('flags imperative creá', () {
+    test('flags Rioplatense present -ás/-és/-ís voseo forms', () {
+      for (final word in [
+        'podés',
+        'tenés',
+        'querés',
+        'sabés',
+        'hacés',
+        'decís',
+        'venís',
+        'elegís',
+        'volás',
+        'usás',
+        'tocás',
+        'mirás',
+        'esperás',
+        'entrás',
+        'cerrás',
+      ]) {
+        expect(
+          findSpanishVoseoViolations('Ahora $word continuar.'),
+          contains('present:$word'),
+          reason: 'Expected present voseo violation for "$word"',
+        );
+      }
+    });
+
+    test('flags Chilean present -ís voseo forms', () {
+      for (final word in [
+        'podís',
+        'tenís',
+        'querís',
+        'sabís',
+      ]) {
+        expect(
+          findSpanishVoseoViolations('Ahora $word volar.'),
+          contains('present:$word'),
+          reason: 'Expected Chilean -ís voseo violation for "$word"',
+        );
+      }
+    });
+
+    test('flags voseo imperatives including final stressed vowel and fijate', () {
+      for (final word in [
+        'tené',
+        'mirá',
+        'hacé',
+        'vení',
+        'decí',
+        'poné',
+        'andá',
+        'fijate',
+        'creá',
+        'tocá',
+        'escaneá',
+        'elegí',
+        'permití',
+      ]) {
+        expect(
+          findSpanishVoseoViolations('$word el ajuste antes de volar.'),
+          contains('imperative:$word'),
+          reason: 'Expected voseo imperative violation for "$word"',
+        );
+      }
+    });
+
+    test('flags standalone pronoun vos without flagging words containing vos', () {
+      expect(findSpanishVoseoViolations('vos puedes'), contains('pronoun:vos'));
+      expect(findSpanishVoseoViolations('Para vos.'), contains('pronoun:vos'));
+      expect(findSpanishVoseoViolations('Vos elegís.'), contains('pronoun:Vos'));
       expect(
-        findSpanishVoseoViolations('Creá tu cuenta con tu correo.'),
-        isNotEmpty,
+        findSpanishVoseoViolations('Administra tus dispositivos nuevos y activos.'),
+        isEmpty,
       );
     });
 
-    test('flags present podés', () {
-      expect(findSpanishVoseoViolations('podés continuar'), contains('present:podés'));
+    test('allows tú future forms ending in -rás', () {
+      for (final future in [
+        'podrás',
+        'tendrás',
+        'querrás',
+        'sabrás',
+        'harás',
+        'dirás',
+        'vendrás',
+        'pondrás',
+        'subirás',
+        'guardarás',
+        'volarás',
+        'usarás',
+        'verás',
+        'serás',
+        'darás',
+        'irás',
+        'saldrás',
+        'habrás',
+        'valdrás',
+        'cabrás',
+        'obtendrás',
+        'dispondrás',
+        'esperarás',
+        'mirarás',
+        'entrarás',
+      ]) {
+        expect(
+          isSpanishTuFuture(future),
+          isTrue,
+          reason: 'Expected isSpanishTuFuture("$future") == true',
+        );
+        expect(
+          findSpanishVoseoViolations('Pronto $future hacerlo.'),
+          isEmpty,
+          reason: 'Unexpected voseo violation for tú future "$future"',
+        );
+      }
     });
 
-    test('flags pronoun vos', () {
-      expect(findSpanishVoseoViolations('vos podés'), isNotEmpty);
-    });
-
-    test('allows neutral Crea and puedes', () {
+    test('allows restored localFlightNoClubNote with tú future podrás', () {
       expect(
-        findSpanishVoseoViolations(
-          'Crea tu cuenta con tu correo; puedes continuar cuando quieras.',
+        findSpanishCopyViolations(
+          'Vuelo sin club: se guarda en tu teléfono. Pronto podrás subirlo.',
         ),
         isEmpty,
       );
     });
 
-    test('allows allowlisted está and más', () {
-      expect(
-        findSpanishVoseoViolations('Si el correo está registrado, hay más opciones aquí.'),
-        isEmpty,
-      );
-    });
+    test('allows neutral tú forms and standard accented Spanish words', () {
+      for (final word in [
+        'más',
+        'además',
+        'atrás',
+        'jamás',
+        'detrás',
+        'quizás',
+        'demás',
+        'está',
+        'estás',
+        'estés',
+        'sí',
+        'aquí',
+        'allí',
+        'país',
+        'también',
+        'café',
+        'José',
+        'será',
+        'después',
+        'través',
+        'revés',
+        'inglés',
+        'francés',
+        'interés',
+        'fíjate',
+      ]) {
+        expect(
+          findSpanishVoseoViolations('Ejemplo con $word en la frase.'),
+          isEmpty,
+          reason: 'Unexpected voseo violation for legitimate word "$word"',
+        );
+      }
 
-    test('allows allowlisted quizás, detrás, and inglés', () {
       expect(
-        findSpanishVoseoViolations('Quizás prefiera inglés o francés detrás del avión.'),
+        findSpanishVoseoViolations(
+          'Crea tu cuenta con tu correo; puedes continuar cuando quieras.',
+        ),
         isEmpty,
       );
     });
@@ -114,6 +244,11 @@ void main() {
     final file = File('lib/l10n/app_es.arb');
     expect(file.existsSync(), isTrue);
     final map = json.decode(file.readAsStringSync()) as Map<String, dynamic>;
+
+    expect(
+      map['localFlightNoClubNote'],
+      'Vuelo sin club: se guarda en tu teléfono. Pronto podrás subirlo.',
+    );
 
     final failures = <String>[];
     for (final entry in map.entries) {

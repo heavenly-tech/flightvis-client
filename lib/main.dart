@@ -23,6 +23,7 @@ import 'services/flight_start_mode.dart';
 import 'services/local_flight_recorder.dart';
 import 'services/tracking_lifecycle.dart';
 import 'services/tracking_service.dart';
+import 'storage/local_flight_migration.dart';
 import 'storage/local_flight_store.dart';
 import 'util/checkin_expiry_format.dart';
 import 'util/flight_deep_link.dart';
@@ -113,6 +114,7 @@ class _FlightVisAppState extends State<FlightVisApp>
   bool _clubUnavailableNotice = false;
   bool _profileRetryPending = false;
   int _localFlightsRevision = 0;
+  bool _migrationPromptOpen = false;
   Timer? _profileRetryTimer;
   CheckinDeepLink? _queuedCheckin;
   bool _checkinRouteOpen = false;
@@ -200,7 +202,7 @@ class _FlightVisAppState extends State<FlightVisApp>
           await _resumePendingCheckin();
           if (_queuedCheckin == null) {
             _goHub();
-            unawaited(_maybePromptGuestFlightsMigration());
+            unawaited(_maybePromptLocalFlightsMigration());
           }
         }
       } catch (_) {}
@@ -534,6 +536,8 @@ class _FlightVisAppState extends State<FlightVisApp>
       await _presentCheckinDeepLink(queued);
     } else if (widget.repo.prefs.pendingCheckinSlug() != null) {
       await _resumePendingCheckin();
+    } else if (_flow == _Flow.hub) {
+      await _maybePromptLocalFlightsMigration();
     }
   }
 
@@ -550,30 +554,173 @@ class _FlightVisAppState extends State<FlightVisApp>
     _sessionExpiredNotice = false;
     _clubUnavailableNotice = false;
     await _restore();
-    await _maybePromptGuestFlightsMigration();
   }
 
-  Future<void> _maybePromptGuestFlightsMigration() async {
+  Future<BuildContext?> _waitForNavigatorContext() async {
+    final immediate = _navigatorKey.currentContext;
+    if (immediate != null && immediate.mounted) return immediate;
+    if (!mounted) return null;
+    final completer = Completer<BuildContext?>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _navigatorKey.currentContext;
+      completer.complete(mounted && ctx != null && ctx.mounted ? ctx : null);
+    });
+    return completer.future;
+  }
+
+  Future<void> _maybePromptLocalFlightsMigration() async {
+    if (_migrationPromptOpen) return;
     final pilot = _pilot;
     if (!mounted || pilot == null || !pilot.isApproved) return;
     if (_flow != _Flow.hub || _checkinRouteOpen || _queuedCheckin != null) return;
+    if (widget.repo.prefs.pendingCheckinSlug() != null) return;
     if (AppConfig.screenshotTest) return;
     final accountBucket = LocalFlightStore.bucketForPilot(pilot);
-    if (accountBucket == LocalFlightStore.guestBucket) return;
+    if (accountBucket == LocalFlightStore.guestBucket ||
+        LocalFlightStore.isReservedBucket(accountBucket)) {
+      return;
+    }
+
+    _migrationPromptOpen = true;
+    try {
+      await _promptLegacyFlightsOnce(accountBucket);
+      if (!mounted ||
+          _pilot == null ||
+          LocalFlightStore.bucketForPilot(_pilot) != accountBucket ||
+          _flow != _Flow.hub) {
+        return;
+      }
+      await _promptGuestFlightsAdoption(accountBucket);
+    } finally {
+      _migrationPromptOpen = false;
+    }
+  }
+
+  Future<void> _promptLegacyFlightsOnce(String accountBucket) async {
+    int legacyCount;
+    try {
+      legacyCount = await LocalFlightMigration.claimOrCheckLegacyFlights(
+        store: _localFlightStore,
+        prefs: widget.repo.prefs,
+        accountBucket: accountBucket,
+      );
+    } catch (_) {
+      return;
+    }
+    if (!mounted || legacyCount <= 0) return;
+
+    while (mounted) {
+      final ctx = await _waitForNavigatorContext();
+      if (!mounted || ctx == null || !ctx.mounted) return;
+      final l10n = ctx.pilotL10n;
+      final choice = await showDialog<_LegacyChoice>(
+        context: ctx,
+        barrierDismissible: true,
+        builder: (dialogCtx) => AlertDialog(
+          key: FlightVisTestKeys.localFlightsLegacyDialog,
+          title: Text(l10n.localFlightsLegacyTitle(legacyCount)),
+          content: Text(l10n.localFlightsLegacyBody(legacyCount)),
+          actions: [
+            TextButton(
+              key: FlightVisTestKeys.localFlightsLegacyDelete,
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(dialogCtx).colorScheme.error,
+              ),
+              onPressed: () => Navigator.pop(dialogCtx, _LegacyChoice.delete),
+              child: Text(l10n.localFlightDeleteConfirmAction),
+            ),
+            FilledButton(
+              key: FlightVisTestKeys.localFlightsLegacyAdopt,
+              onPressed: () => Navigator.pop(dialogCtx, _LegacyChoice.adopt),
+              child: Text(l10n.localFlightsMoveToAccountAction),
+            ),
+          ],
+        ),
+      );
+
+      if (choice == _LegacyChoice.adopt) {
+        try {
+          await LocalFlightMigration.adoptClaimedLegacyFlights(
+            store: _localFlightStore,
+            prefs: widget.repo.prefs,
+            accountBucket: accountBucket,
+          );
+          if (mounted) {
+            setState(() => _localFlightsRevision++);
+          }
+        } catch (_) {}
+        return;
+      }
+
+      if (choice == _LegacyChoice.delete) {
+        if (!mounted || !ctx.mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: ctx,
+          builder: (confirmCtx) => AlertDialog(
+            key: FlightVisTestKeys.localFlightsLegacyDeleteConfirmDialog,
+            title: Text(l10n.localFlightsLegacyDeleteConfirmTitle(legacyCount)),
+            content: Text(
+              l10n.localFlightsLegacyDeleteConfirmBody(legacyCount),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(confirmCtx, false),
+                child: Text(l10n.cancelButton),
+              ),
+              FilledButton(
+                key: FlightVisTestKeys.localFlightsLegacyDeleteConfirm,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(confirmCtx).colorScheme.error,
+                  foregroundColor: Theme.of(confirmCtx).colorScheme.onError,
+                ),
+                onPressed: () => Navigator.pop(confirmCtx, true),
+                child: Text(l10n.localFlightDeleteConfirmAction),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          try {
+            await LocalFlightMigration.deleteClaimedLegacyFlights(
+              store: _localFlightStore,
+              prefs: widget.repo.prefs,
+              accountBucket: accountBucket,
+            );
+            if (mounted) {
+              setState(() => _localFlightsRevision++);
+            }
+          } catch (_) {}
+          return;
+        }
+        // User cancelled delete confirmation: re-show the choice so they can
+        // adopt, retry delete, or dismiss without deciding.
+        continue;
+      }
+
+      // Dismissed without deciding: claimant bucket is already persisted so
+      // only this account is ever offered these legacy flights again.
+      return;
+    }
+  }
+
+  Future<void> _promptGuestFlightsAdoption(String accountBucket) async {
     List<LocalFlight> guestFlights;
     try {
-      guestFlights = await _localFlightStore.listFlights(
-        bucket: LocalFlightStore.guestBucket,
+      guestFlights = await LocalFlightMigration.unacknowledgedGuestFlights(
+        store: _localFlightStore,
+        prefs: widget.repo.prefs,
+        accountBucket: accountBucket,
       );
     } catch (_) {
       return;
     }
     if (!mounted || guestFlights.isEmpty) return;
-    final ctx = _navigatorKey.currentContext;
-    if (ctx == null || !ctx.mounted) return;
+    final ctx = await _waitForNavigatorContext();
+    if (!mounted || ctx == null || !ctx.mounted) return;
     final l10n = ctx.pilotL10n;
     final moveToAccount = await showDialog<bool>(
       context: ctx,
+      barrierDismissible: true,
       builder: (dialogCtx) => AlertDialog(
         key: FlightVisTestKeys.localFlightsGuestDialog,
         title: Text(l10n.localFlightsGuestBannerTitle(guestFlights.length)),
@@ -591,15 +738,24 @@ class _FlightVisAppState extends State<FlightVisApp>
         ],
       ),
     );
+    final guestIds = guestFlights.map((f) => f.id).toSet();
     if (moveToAccount == true) {
       try {
         await _localFlightStore.moveFlights(
           fromBucket: LocalFlightStore.guestBucket,
           toBucket: accountBucket,
+          flightIds: guestIds,
         );
         if (mounted) {
           setState(() => _localFlightsRevision++);
         }
+      } catch (_) {}
+    } else if (moveToAccount == false) {
+      try {
+        await widget.repo.prefs.markGuestFlightsKeptOnPhone(
+          accountBucket,
+          guestIds,
+        );
       } catch (_) {}
     }
   }
@@ -612,6 +768,8 @@ class _FlightVisAppState extends State<FlightVisApp>
       await _presentCheckinDeepLink(queued);
     } else if (widget.repo.prefs.pendingCheckinSlug() != null) {
       await _resumePendingCheckin();
+    } else {
+      await _maybePromptLocalFlightsMigration();
     }
   }
 
@@ -769,3 +927,5 @@ class _FlightVisAppState extends State<FlightVisApp>
 }
 
 enum _Flow { loading, login, permissions, hub, tracking, localTracking }
+
+enum _LegacyChoice { adopt, delete }

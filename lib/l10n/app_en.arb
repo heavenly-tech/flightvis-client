@@ -338,5 +338,29 @@
   "localFlightDeleteTooltip": "Delete flight",
   "localFlightDeleteConfirmTitle": "Delete this flight?",
   "localFlightDeleteConfirmBody": "It will be removed from this phone and cannot be recovered.",
-  "localFlightDeleteConfirmAction": "Delete"
+  "localFlightDeleteConfirmAction": "Delete",
+  "localFlightsLegacyTitle": "{count, plural, =1{You have 1 flight saved from an earlier version.} other{You have {count} flights saved from an earlier version.}}",
+  "@localFlightsLegacyTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyBody": "{count, plural, =1{You can save it to your account or delete it from this phone. This choice is shown only once.} other{You can save them to your account or delete them from this phone. This choice is shown only once.}}",
+  "@localFlightsLegacyBody": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyDeleteConfirmTitle": "{count, plural, =1{Delete 1 earlier flight?} other{Delete {count} earlier flights?}}",
+  "@localFlightsLegacyDeleteConfirmTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyDeleteConfirmBody": "{count, plural, =1{This flight will be deleted from this phone and cannot be recovered.} other{These flights will be deleted from this phone and cannot be recovered.}}",
+  "@localFlightsLegacyDeleteConfirmBody": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  }
 }

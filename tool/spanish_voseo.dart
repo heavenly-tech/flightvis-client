@@ -1,25 +1,121 @@
-/// Detects Argentine voseo, usted register, and forbidden anglicisms in es-CL UI copy.
+/// Detects voseo (Rioplatense and Chilean), usted register, and forbidden
+/// anglicisms in es-CL UI copy while allowing standard Spanish `tú` futures
+/// in `-rás` and legitimate accented Spanish words.
 library;
 
+/// Legitimate Spanish words ending in `-ás`/`-és`/`-ís` or final stressed
+/// vowels that must never be flagged as voseo.
 final Set<String> spanishVoseoAllowlist = {
-  'está',
   'más',
+  'además',
+  'atrás',
+  'jamás',
+  'detrás',
+  'quizás',
+  'demás',
+  'está',
+  'estás',
+  'estés',
   'será',
+  'sí',
   'aquí',
   'allí',
   'país',
   'también',
+  'café',
+  'josé',
   'después',
-  'atrás',
-  'detrás',
-  'quizás',
-  'jamás',
-  'demás',
+  'través',
+  'revés',
+  'estrés',
+  'interés',
+  'desinterés',
   'inglés',
   'francés',
-  'interés',
+  'portugués',
+  'japonés',
+  'holandés',
+  'irlandés',
+  'escocés',
+  'cortés',
+  'descortés',
+  'exprés',
+  'compás',
+  'veintitrés',
+  'parís',
+  'anís',
+  'arnés',
+  'ciprés',
+  'marqués',
+  'burgués',
+  'andrés',
+  'inés',
+  'moisés',
+  'ciempiés',
+  'traspiés',
 };
 
+/// Present-tense voseo forms of `-rar` verbs that end in `-rás` and must NOT
+/// be mistaken for `tú` future forms (e.g. `mirás` vs `mirarás`, `esperás` vs
+/// `esperarás`, `entrás` vs `entrarás`).
+const Set<String> spanishVoseoPresentRasForms = {
+  'mirás',
+  'esperás',
+  'entrás',
+  'cerrás',
+  'borrás',
+  'mostrás',
+  'encontrás',
+  'registrás',
+  'configurás',
+  'parás',
+  'tirás',
+  'comprás',
+  'mejorás',
+  'asegurás',
+  'declarás',
+  'preparás',
+  'ignorás',
+  'acelerás',
+  'lográs',
+  'sobrás',
+  'durás',
+  'llorás',
+  'curás',
+  'girás',
+  'agarrás',
+  'ahorrás',
+};
+
+/// Irregular and monosyllabic/short Spanish `tú` future forms ending in `-rás`
+/// (including prefixed compounds such as `obtendrás`, `dispondrás`, `desharás`).
+final RegExp _spanishIrregularTuFuture = RegExp(
+  r'^(?:[\p{L}]*(?:podrás|tendrás|querrás|sabrás|harás|dirás|vendrás|pondrás|saldrás|valdrás|habrás|cabrás)|irás|serás|verás|darás|preverás|reverás|entreverás|satisfarás)$',
+  caseSensitive: false,
+  unicode: true,
+);
+
+/// Regular Spanish `tú` future forms: verb stem + thematic vowel `(a|e|i)` + `rás`
+/// (e.g. `subirás`, `guardarás`, `volarás`, `usarás`, `continuarás`, `recibirás`).
+final RegExp _spanishRegularTuFuture = RegExp(
+  r'^[\p{L}]{2,}[aei]rás$',
+  caseSensitive: false,
+  unicode: true,
+);
+
+/// Returns true when [word] is a valid Spanish `tú` future form ending in
+/// `-rás` (not a `-rar` present voseo form like `mirás` or `esperás`).
+bool isSpanishTuFuture(String word) {
+  final lower = word.toLowerCase();
+  if (!lower.endsWith('rás')) return false;
+  if (spanishVoseoPresentRasForms.contains(lower)) return false;
+  return _spanishIrregularTuFuture.hasMatch(lower) ||
+      _spanishRegularTuFuture.hasMatch(lower);
+}
+
+/// Voseo imperatives with a final stressed vowel (e.g. `tené`, `mirá`, `hacé`,
+/// `vení`, `decí`, `poné`, `andá`) plus unaccented enclitic voseo imperatives
+/// such as `fijate` (standard `tú` is `fíjate`).
 const List<String> spanishVoseoImperativeForms = [
   'permití',
   'tocá',
@@ -35,19 +131,66 @@ const List<String> spanishVoseoImperativeForms = [
   'andá',
   'poné',
   'tené',
+  'hacé',
   'vení',
   'decí',
   'salí',
+  'fijate',
+  'usá',
+  'pegá',
+  'activá',
+  'desactivá',
+  'guardá',
+  'vinculá',
+  'seleccioná',
+  'comenzá',
+  'continuá',
+  'cambiá',
+  'eliminá',
+  'cerrá',
+  'abrí',
+  'subí',
+  'seguí',
+  'pedí',
+  'volvé',
+  'traé',
+  'dejá',
+  'sacá',
+  'buscá',
+  'verificá',
+  'confirmá',
+  'cancelá',
+  'aceptá',
+  'enviá',
+  'registrá',
+  'conectá',
+  'actualizá',
+  'descargá',
+  'instalá',
+  'volá',
+  'quedate',
+  'acordate',
+  'ponete',
+  'decime',
+  'haceme',
+  'venite',
 ];
 
-/// Present indicative voseo: podés, tenés, querés, sabés, elegís, …
+/// Present indicative voseo: Rioplatense `-ás`/`-és`/`-ís` (`podés`, `tenés`,
+/// `querés`, `sabés`, `hacés`, `decís`, `venís`, `volás`, …) and Chilean `-ís`
+/// (`podís`, `tenís`, `querís`, `sabís`, …).
 final RegExp spanishVoseoPresent = RegExp(
-  r'\b[\p{L}]+(?:ás|és|ís)\b',
+  r'(?<![\p{L}])[\p{L}]+(?:ás|és|ís)(?![\p{L}])',
   caseSensitive: false,
   unicode: true,
 );
 
-final RegExp spanishVoseoPronoun = RegExp(r'\bvos\b', caseSensitive: false, unicode: true);
+/// Standalone voseo pronoun `vos`.
+final RegExp spanishVoseoPronoun = RegExp(
+  r'(?<![\p{L}])vos(?![\p{L}])',
+  caseSensitive: false,
+  unicode: true,
+);
 
 /// Conservative list of common imperative/polite usted verbs in Spanish UI copy.
 const List<String> spanishUstedImperativeForms = [
@@ -113,6 +256,7 @@ List<String> findSpanishVoseoViolations(String text) {
     final word = m.group(0)!;
     final lower = word.toLowerCase();
     if (spanishVoseoAllowlist.contains(lower)) continue;
+    if (isSpanishTuFuture(lower)) continue;
     hits.add('present:$word');
   }
   for (final m in spanishVoseoPronoun.allMatches(text)) {

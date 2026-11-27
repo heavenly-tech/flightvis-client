@@ -301,7 +301,7 @@
   "localFlightStartTitle": "Iniciar vuelo local",
   "localFlightTailLabel": "Matrícula (opcional)",
   "localFlightTailHint": "Ej. CC-ABC",
-  "localFlightNoClubNote": "Vuelo sin club: se guarda en tu teléfono. Pronto se podrá subir.",
+  "localFlightNoClubNote": "Vuelo sin club: se guarda en tu teléfono. Pronto podrás subirlo.",
   "localFlightOfflineNote": "Se guarda solo en tu teléfono sin enviar datos al servidor.",
   "localFlightScreenTitle": "Vuelo local",
   "localFlightNoTail": "Sin matrícula",
@@ -339,5 +339,29 @@
   "localFlightDeleteConfirmTitle": "¿Eliminar este vuelo?",
   "localFlightDeleteConfirmBody": "Se eliminará de este teléfono y no se podrá recuperar.",
   "localFlightDeleteConfirmAction": "Eliminar",
+  "localFlightsLegacyTitle": "{count, plural, =1{Tienes 1 vuelo guardado de una versión anterior.} other{Tienes {count} vuelos guardados de una versión anterior.}}",
+  "@localFlightsLegacyTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyBody": "{count, plural, =1{Puedes guardarlo en tu cuenta o eliminarlo de este teléfono. Esta opción aparece solo una vez.} other{Puedes guardarlos en tu cuenta o eliminarlos de este teléfono. Esta opción aparece solo una vez.}}",
+  "@localFlightsLegacyBody": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyDeleteConfirmTitle": "{count, plural, =1{¿Eliminar 1 vuelo anterior?} other{¿Eliminar {count} vuelos anteriores?}}",
+  "@localFlightsLegacyDeleteConfirmTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightsLegacyDeleteConfirmBody": "{count, plural, =1{Este vuelo se eliminará de este teléfono y no podrás recuperarlo.} other{Estos vuelos se eliminarán de este teléfono y no podrás recuperarlos.}}",
+  "@localFlightsLegacyDeleteConfirmBody": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "@@locale": "es"
 }

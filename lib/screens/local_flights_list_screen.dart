@@ -6,13 +6,17 @@ import '../l10n/pilot_l10n.dart';
 import '../map/live_trails_source.dart';
 import '../models/local_flight.dart';
 import '../services/app_repository.dart';
+import '../storage/local_flight_migration.dart';
 import '../storage/local_flight_store.dart';
 import '../widgets/tracking_map_card.dart';
 
 /// Displays flights recorded locally on the device for [accountBucket] only,
 /// lets the pilot view any saved track statically on the map (own trail only),
-/// delete individual flights with confirmation, and (when signed in) move
-/// guest-recorded flights into the signed-in account.
+/// delete individual flights with confirmation, and (when signed in) handle:
+/// - the one-time adopt-or-delete choice for migrated pre-#11 legacy flights
+///   (visible only to the first signed-in account / claimant, never to guests),
+/// - moving unacknowledged guest-recorded flights into the signed-in account
+///   or persistently leaving them on the phone.
 class LocalFlightsListScreen extends StatefulWidget {
   const LocalFlightsListScreen({
     super.key,
@@ -33,14 +37,15 @@ class LocalFlightsListScreen extends StatefulWidget {
 
 class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
   List<LocalFlight> _flights = const [];
-  int _guestCount = 0;
-  bool _guestBannerDismissed = false;
-  bool _movingGuestFlights = false;
+  int _legacyCount = 0;
+  Set<String> _unacknowledgedGuestIds = const {};
+  bool _busy = false;
   bool _loading = true;
 
   bool get _isSignedInBucket =>
+      !LocalFlightStore.isReservedBucket(widget.accountBucket) &&
       LocalFlightStore.sanitizeBucket(widget.accountBucket) !=
-      LocalFlightStore.guestBucket;
+          LocalFlightStore.guestBucket;
 
   @override
   void initState() {
@@ -53,46 +58,127 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.accountBucket != widget.accountBucket ||
         oldWidget.store != widget.store) {
-      _guestBannerDismissed = false;
       _load();
     }
   }
 
   Future<void> _load() async {
     final items = await widget.store.listFlights(bucket: widget.accountBucket);
-    var guestCount = 0;
+    var legacyCount = 0;
+    var guestIds = const <String>{};
     if (_isSignedInBucket) {
-      final guestItems = await widget.store.listFlights(
-        bucket: LocalFlightStore.guestBucket,
+      legacyCount = await LocalFlightMigration.claimOrCheckLegacyFlights(
+        store: widget.store,
+        prefs: widget.repo.prefs,
+        accountBucket: widget.accountBucket,
       );
-      guestCount = guestItems.length;
+      final guestItems = await LocalFlightMigration.unacknowledgedGuestFlights(
+        store: widget.store,
+        prefs: widget.repo.prefs,
+        accountBucket: widget.accountBucket,
+      );
+      guestIds = guestItems.map((f) => f.id).toSet();
     }
     if (!mounted) return;
     setState(() {
       _flights = items;
-      _guestCount = guestCount;
+      _legacyCount = legacyCount;
+      _unacknowledgedGuestIds = guestIds;
       _loading = false;
     });
   }
 
-  Future<void> _moveGuestFlightsToAccount() async {
-    if (_movingGuestFlights || !_isSignedInBucket) return;
-    setState(() => _movingGuestFlights = true);
+  Future<void> _adoptLegacyFlights() async {
+    if (_busy || !_isSignedInBucket || _legacyCount <= 0) return;
+    setState(() => _busy = true);
     try {
-      await widget.store.moveFlights(
-        fromBucket: LocalFlightStore.guestBucket,
-        toBucket: widget.accountBucket,
+      await LocalFlightMigration.adoptClaimedLegacyFlights(
+        store: widget.store,
+        prefs: widget.repo.prefs,
+        accountBucket: widget.accountBucket,
       );
       await _load();
     } finally {
       if (mounted) {
-        setState(() => _movingGuestFlights = false);
+        setState(() => _busy = false);
       }
     }
   }
 
-  void _keepGuestFlightsOnPhone() {
-    setState(() => _guestBannerDismissed = true);
+  Future<void> _confirmDeleteLegacyFlights() async {
+    if (_busy || !_isSignedInBucket || _legacyCount <= 0) return;
+    final l10n = context.pilotL10n;
+    final count = _legacyCount;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        key: FlightVisTestKeys.localFlightsLegacyDeleteConfirmDialog,
+        title: Text(l10n.localFlightsLegacyDeleteConfirmTitle(count)),
+        content: Text(l10n.localFlightsLegacyDeleteConfirmBody(count)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.cancelButton),
+          ),
+          FilledButton(
+            key: FlightVisTestKeys.localFlightsLegacyDeleteConfirm,
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.localFlightDeleteConfirmAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await LocalFlightMigration.deleteClaimedLegacyFlights(
+        store: widget.store,
+        prefs: widget.repo.prefs,
+        accountBucket: widget.accountBucket,
+      );
+      await _load();
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _moveGuestFlightsToAccount() async {
+    if (_busy || !_isSignedInBucket || _unacknowledgedGuestIds.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.store.moveFlights(
+        fromBucket: LocalFlightStore.guestBucket,
+        toBucket: widget.accountBucket,
+        flightIds: _unacknowledgedGuestIds,
+      );
+      await _load();
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _keepGuestFlightsOnPhone() async {
+    if (_busy || !_isSignedInBucket || _unacknowledgedGuestIds.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await widget.repo.prefs.markGuestFlightsKeptOnPhone(
+        widget.accountBucket,
+        _unacknowledgedGuestIds,
+      );
+      await _load();
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
   }
 
   Future<void> _confirmDelete(LocalFlight flight) async {
@@ -131,9 +217,79 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
     return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
   }
 
+  Widget _buildLegacyChoiceBanner(BuildContext context) {
+    final l10n = context.pilotL10n;
+    final theme = Theme.of(context);
+    return Card(
+      key: FlightVisTestKeys.localFlightsLegacyBanner,
+      color: theme.colorScheme.tertiaryContainer,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.history,
+                  color: theme.colorScheme.onTertiaryContainer,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.localFlightsLegacyTitle(_legacyCount),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onTertiaryContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.localFlightsLegacyBody(_legacyCount),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onTertiaryContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton(
+                  key: FlightVisTestKeys.localFlightsLegacyAdopt,
+                  onPressed: _busy ? null : _adoptLegacyFlights,
+                  child: Text(l10n.localFlightsMoveToAccountAction),
+                ),
+                OutlinedButton(
+                  key: FlightVisTestKeys.localFlightsLegacyDelete,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: theme.colorScheme.error,
+                  ),
+                  onPressed: _busy ? null : _confirmDeleteLegacyFlights,
+                  child: Text(l10n.localFlightDeleteConfirmAction),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGuestChoiceBanner(BuildContext context) {
     final l10n = context.pilotL10n;
     final theme = Theme.of(context);
+    final guestCount = _unacknowledgedGuestIds.length;
     return Card(
       key: FlightVisTestKeys.localFlightsGuestBanner,
       color: theme.colorScheme.secondaryContainer,
@@ -153,7 +309,7 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    l10n.localFlightsGuestBannerTitle(_guestCount),
+                    l10n.localFlightsGuestBannerTitle(guestCount),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSecondaryContainer,
                       fontWeight: FontWeight.w600,
@@ -169,14 +325,12 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
               children: [
                 FilledButton(
                   key: FlightVisTestKeys.localFlightsMoveToAccount,
-                  onPressed:
-                      _movingGuestFlights ? null : _moveGuestFlightsToAccount,
+                  onPressed: _busy ? null : _moveGuestFlightsToAccount,
                   child: Text(l10n.localFlightsMoveToAccountAction),
                 ),
                 OutlinedButton(
                   key: FlightVisTestKeys.localFlightsKeepOnPhone,
-                  onPressed:
-                      _movingGuestFlights ? null : _keepGuestFlightsOnPhone,
+                  onPressed: _busy ? null : _keepGuestFlightsOnPhone,
                   child: Text(l10n.localFlightsKeepOnPhoneAction),
                 ),
               ],
@@ -190,15 +344,16 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.pilotL10n;
+    final showLegacyBanner = _isSignedInBucket && _legacyCount > 0;
     final showGuestBanner =
-        _isSignedInBucket && _guestCount > 0 && !_guestBannerDismissed;
+        _isSignedInBucket && _unacknowledgedGuestIds.isNotEmpty;
 
     return Scaffold(
       key: FlightVisTestKeys.localFlightsListScreen,
       appBar: AppBar(title: Text(l10n.pilotHubLocalFlightsTitle)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _flights.isEmpty && !showGuestBanner
+          : _flights.isEmpty && !showLegacyBanner && !showGuestBanner
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
@@ -211,6 +366,7 @@ class _LocalFlightsListScreenState extends State<LocalFlightsListScreen> {
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    if (showLegacyBanner) _buildLegacyChoiceBanner(context),
                     if (showGuestBanner) _buildGuestChoiceBanner(context),
                     if (_flights.isEmpty)
                       Padding(
