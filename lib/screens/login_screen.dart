@@ -76,6 +76,8 @@ class _LoginScreenState extends State<LoginScreen> {
       });
       return;
     }
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(pilot.id);
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
     await widget.repo.persistSession();
     await widget.repo.prefs.setCachedPilotProfile(pilot);
     await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
@@ -122,6 +124,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _afterAccountAuth(AccountAuthResult result) async {
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(
+      result.profile.id,
+    );
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
     await widget.repo.persistSession();
     final device = result.device;
     if (device != null && device.token.isNotEmpty) {
@@ -136,6 +142,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final fresh = await widget.repo.client.accountMe();
       if (fresh != null) account = fresh;
     } catch (_) {}
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
     await widget.repo.prefs.setCachedAccountProfile(account);
     PilotProfile? pilot;
     if (account.activeMembershipId != null) {
@@ -184,6 +191,10 @@ class _LoginScreenState extends State<LoginScreen> {
           rethrow;
         }
       }
+      await widget.repo.prefs.recordMagicLinkRequest(
+        email: email,
+        nowMs: widget.repo.nowMs(),
+      );
       if (!mounted) return;
       setState(() {
         _busy = false;
@@ -444,6 +455,10 @@ class _AccountSignupDialogState extends State<_AccountSignupDialog> {
       await widget.repo.client.accountSignup(
         email: email,
         password: password.isEmpty ? null : password,
+      );
+      await widget.repo.prefs.recordMagicLinkRequest(
+        email: email,
+        nowMs: widget.repo.nowMs(),
       );
       if (mounted) Navigator.pop(context, true);
     } on FlightVisException catch (e) {

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 
 import '../api/flight_vis_client.dart';
 import '../app_config.dart';
@@ -33,6 +36,7 @@ class TrackingScreen extends StatefulWidget {
     this.accountBucket = LocalFlightStore.guestBucket,
     this.uploadQueue,
     this.uploadWorker,
+    this.stopDrainTimeout = FixUploadWorker.defaultStopDrainTimeout,
     this.onSessionExpired,
     this.deviceLocationProvider,
     this.tileProvider,
@@ -61,6 +65,10 @@ class TrackingScreen extends StatefulWidget {
   /// Optional injectable store-and-forward upload worker for tests.
   final FixUploadWorker? uploadWorker;
 
+  /// Maximum total time budget for draining pending fixes before `endFlight`
+  /// on Stop (H-8; defaults to 60 s).
+  final Duration stopDrainTimeout;
+
   final VoidCallback? onSessionExpired;
   final DeviceLocationProvider? deviceLocationProvider;
   final TileProvider? tileProvider;
@@ -77,6 +85,8 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen>
     with WidgetsBindingObserver {
   bool _active = false;
+  bool _stopping = false;
+  bool _sendingPending = false;
   String? _error;
   String? _missingTokenMessage;
   Timer? _poll;
@@ -136,6 +146,13 @@ class _TrackingScreenState extends State<TrackingScreen>
           FileFixUploadQueueStore(accountBucket: widget.accountBucket);
       _ownedUploadWorker = FixUploadWorker(
         queue: queue,
+        // H-8: authorize uploads ONLY when both TrackingScreen's flightId and
+        // persisted prefs.activeFlightId agree on the currently open flight.
+        activeFlightIdProvider: () {
+          final prefId = widget.repo.prefs.activeFlightId()?.trim();
+          if (prefId != widget.flightId) return null;
+          return widget.flightId;
+        },
         uploadBatch: (batch, {required String flightMode}) async {
           final token =
               await widget.repo.readDeviceTokenForMode(flightMode) ??
@@ -151,7 +168,22 @@ class _TrackingScreenState extends State<TrackingScreen>
       );
     }
     _fixSub = _effectiveFixSource.watchFixes().listen(_onLiveFixCaptured);
-    unawaited(_uploadWorker?.refreshPendingCount());
+    unawaited(_syncNativeQueueAndPrune(triggerDrain: false));
+  }
+
+  Future<void> _syncNativeQueueAndPrune({bool triggerDrain = true}) async {
+    final worker = _uploadWorker;
+    if (worker == null) return;
+    try {
+      await widget.tracking.nativeFixQueue.importIntoStore(worker.queue);
+    } catch (_) {}
+    try {
+      await worker.queue.pruneOrphaned(activeFlightId: widget.flightId);
+    } catch (_) {}
+    final pending = await worker.refreshPendingCount();
+    if (triggerDrain && pending > 0 && !worker.isPaused) {
+      unawaited(worker.drain());
+    }
   }
 
   void _onLiveFixCaptured(LocalFix fix) {
@@ -221,6 +253,8 @@ class _TrackingScreenState extends State<TrackingScreen>
   Future<void> _onForegroundResumed() async {
     await _tick();
     if (!mounted) return;
+    await _syncNativeQueueAndPrune(triggerDrain: false);
+    if (!mounted) return;
     if (_traccarDegraded) {
       await _enqueueUnconfirmedFixes(includeRecentNative: true);
     }
@@ -264,7 +298,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Future<void> _tick() async {
-    if (!mounted) return;
+    if (!mounted || _stopping) return;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (!_isPersonalFlight &&
         checkinExpired(
@@ -292,9 +326,7 @@ class _TrackingScreenState extends State<TrackingScreen>
         _traccarDegraded = false;
         _traccarRateLimited = false;
       }
-      if ((_uploadWorker?.pendingCount ?? 0) > 0) {
-        unawaited(_uploadWorker?.drain());
-      }
+      unawaited(_uploadWorker?.onConnectivityRestored());
     }
     final on = await widget.tracking.isTracking();
     if (mounted) setState(() => _active = on);
@@ -323,12 +355,15 @@ class _TrackingScreenState extends State<TrackingScreen>
       baseUrl: widget.repo.prefs.baseUrl(),
       deviceToken: token,
       checkinExpiresAtMs: expiresMs,
+      flightId: widget.flightId,
+      flightMode: widget.flightMode,
     );
     try {
       final started = await widget.tracking.start();
       if (!mounted) return;
       if (started) {
         setState(() => _active = true);
+        await _syncNativeQueueAndPrune(triggerDrain: false);
         unawaited(_uploadWorker?.resume());
       } else {
         setState(() {
@@ -337,7 +372,9 @@ class _TrackingScreenState extends State<TrackingScreen>
         });
       }
     } on PlatformException catch (e) {
-      debugPrint('TrackingScreen._bootstrap start PlatformException: $e');
+      if (kDebugMode) {
+        debugPrint('TrackingScreen._bootstrap start PlatformException: $e');
+      }
       if (mounted) {
         setState(() {
           _active = false;
@@ -345,7 +382,9 @@ class _TrackingScreenState extends State<TrackingScreen>
         });
       }
     } catch (e) {
-      debugPrint('TrackingScreen._bootstrap start error: $e');
+      if (kDebugMode) {
+        debugPrint('TrackingScreen._bootstrap start error: $e');
+      }
       if (mounted) {
         setState(() {
           _active = false;
@@ -365,6 +404,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Future<void> _endFlight() async {
+    if (_stopping) return;
     setState(() => _error = null);
     final l10n = context.pilotL10n;
     if (mounted && !AppConfig.screenshotTest) {
@@ -392,33 +432,92 @@ class _TrackingScreenState extends State<TrackingScreen>
       );
       if (confirmed != true) return;
     }
+    if (mounted) {
+      setState(() {
+        _stopping = true;
+        _error = null;
+      });
+    }
     try {
+      // Stop live GPS acquisition & clear native active flight tag so no new
+      // fixes are captured while draining; any already-persisted native fixes
+      // remain until imported below.
       await widget.tracking.stop();
       if (AppConfig.screenshotTest) {
-        if (mounted) widget.onStopped();
         await widget.repo.prefs.setActiveFlightId(null);
+        if (mounted) widget.onStopped();
         return;
       }
-      // Best-effort flush of queued store-and-forward fixes before closing flight.
-      if ((_uploadWorker?.pendingCount ?? 0) > 0) {
+
+      // H-8: fully drain the queue for widget.flightId (honouring 429
+      // Retry-After/backoff up to stopDrainTimeout, default 60s) BEFORE calling
+      // POST /api/flights/{id}/end. Any remaining fixes if the cap is hit stay
+      // tagged to widget.flightId locally and are never posted to later flights.
+      final worker = _uploadWorker;
+      if (worker != null) {
+        if (_traccarDegraded) {
+          await _enqueueUnconfirmedFixes();
+        }
+        var importedNativeCount = 0;
         try {
-          await _uploadWorker?.drain(maxAttempts: 1);
+          final res =
+              await widget.tracking.nativeFixQueue.importIntoStore(worker.queue);
+          importedNativeCount = res.readCount;
         } catch (_) {}
+        final hasInjectedQueue =
+            widget.uploadQueue != null || widget.uploadWorker != null;
+        final pending = (worker.pendingCount > 0 ||
+                importedNativeCount > 0 ||
+                _traccarDegraded ||
+                hasInjectedQueue)
+            ? await worker.refreshPendingCount()
+            : 0;
+        if (pending > 0) {
+          if (mounted) setState(() => _sendingPending = true);
+          try {
+            await worker.drainForStop(timeout: widget.stopDrainTimeout);
+          } catch (_) {}
+        }
       }
+
       final token = _activeDeviceToken ??
           await widget.repo.readDeviceTokenForMode(widget.flightMode);
-      await widget.repo.client.endFlight(widget.flightId, deviceToken: token);
+      try {
+        await widget.repo.client.endFlight(widget.flightId, deviceToken: token);
+      } on SocketException {
+        // Offline: finish locally anyway; leftovers stay tagged to widget.flightId.
+      } on TimeoutException {
+        // Timed out: finish locally anyway.
+      } on http.ClientException {
+        // Network error: finish locally anyway.
+      }
       await widget.repo.prefs.setActiveFlightId(null);
-      if (mounted) widget.onStopped();
+      if (mounted) {
+        setState(() {
+          _stopping = false;
+          _sendingPending = false;
+        });
+        widget.onStopped();
+      }
     } on FlightVisException catch (e) {
       if (e.statusCode == 409 || e.statusCode == 404) {
         await widget.tracking.stop();
         await widget.repo.prefs.setActiveFlightId(null);
-        if (mounted) widget.onStopped();
+        if (mounted) {
+          setState(() {
+            _stopping = false;
+            _sendingPending = false;
+          });
+          widget.onStopped();
+        }
         return;
       }
       if (!mounted) return;
-      setState(() => _error = localizeApiException(context.pilotL10n, e));
+      setState(() {
+        _stopping = false;
+        _sendingPending = false;
+        _error = localizeApiException(context.pilotL10n, e);
+      });
     }
   }
 
@@ -472,6 +571,28 @@ class _TrackingScreenState extends State<TrackingScreen>
                         ),
                       ],
                     ),
+                    if (_sendingPending) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        key: FlightVisTestKeys.trackingSendingPending,
+                        children: [
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              l10n.trackingSendingPendingFixes,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     if (showRateLimited) ...[
                       const SizedBox(height: 6),
                       Text(
@@ -550,7 +671,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                         backgroundColor: theme.colorScheme.error,
                         foregroundColor: theme.colorScheme.onError,
                       ),
-                      onPressed: _endFlight,
+                      onPressed: _stopping ? null : _endFlight,
                       child: Text(l10n.pilotStop),
                     ),
                   ],

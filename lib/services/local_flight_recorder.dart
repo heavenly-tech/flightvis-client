@@ -46,7 +46,9 @@ class PlatformLocalFlightRecorder implements LocalFlightRecorder {
     } on MissingPluginException {
       return false;
     } on PlatformException catch (e) {
-      debugPrint('LocalFlightRecorder.start failed: ${e.code} ${e.message}');
+      if (kDebugMode) {
+        debugPrint('LocalFlightRecorder.start failed: ${e.code} ${e.message}');
+      }
       return false;
     }
   }
@@ -70,7 +72,9 @@ class PlatformLocalFlightRecorder implements LocalFlightRecorder {
     } on MissingPluginException {
       return const [];
     } on PlatformException catch (e) {
-      debugPrint('LocalFlightRecorder.stop failed: ${e.code} ${e.message}');
+      if (kDebugMode) {
+        debugPrint('LocalFlightRecorder.stop failed: ${e.code} ${e.message}');
+      }
       return const [];
     }
   }

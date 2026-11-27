@@ -128,6 +128,14 @@ abstract final class FlightVisTestKeys {
       ValueKey<String>('flightvis_tracking_queue_banner');
   static const trackingRateLimitBanner =
       ValueKey<String>('flightvis_tracking_rate_limit_banner');
+  static const trackingSendingPending =
+      ValueKey<String>('flightvis_tracking_sending_pending');
+  static const magicLinkConfirmDialog =
+      ValueKey<String>('flightvis_magic_link_confirm_dialog');
+  static const magicLinkConfirmCancel =
+      ValueKey<String>('flightvis_magic_link_confirm_cancel');
+  static const magicLinkConfirmProceed =
+      ValueKey<String>('flightvis_magic_link_confirm_proceed');
 
   static ValueKey<String> clubPickerOption(String membershipId) =>
       ValueKey<String>('flightvis_club_option_$membershipId');

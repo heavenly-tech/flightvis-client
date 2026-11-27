@@ -403,5 +403,14 @@
     }
   },
   "trackingRateLimitedNotice": "Límite temporal del servidor; seguimos grabando y reintentaremos pronto.",
+  "trackingSendingPendingFixes": "Enviando posiciones pendientes…",
+  "magicLinkConfirmTitleWithEmail": "¿Iniciar sesión como {email}?",
+  "@magicLinkConfirmTitleWithEmail": {
+    "placeholders": {
+      "email": {"type": "String"}
+    }
+  },
+  "magicLinkConfirmTitleGeneric": "¿Iniciar sesión con este enlace?",
+  "magicLinkConfirmTrackingWarning": "Tienes un vuelo en curso. Si continúas, se detendrá el seguimiento actual.",
   "@@locale": "es"
 }

@@ -18,14 +18,19 @@ class AppRepository {
     required this.client,
     InstallIdProvider? installIdProvider,
     DeviceModelProvider? deviceModelProvider,
+    DateTime Function()? clock,
   })  : _installIdProvider = installIdProvider ?? DeviceInstallId.getOrCreate,
-        _deviceModelProvider = deviceModelProvider ?? _defaultDeviceModel;
+        _deviceModelProvider = deviceModelProvider ?? _defaultDeviceModel,
+        _clock = clock ?? DateTime.now;
 
   final SecureStore secure;
   final PreferencesStore prefs;
   final FlightVisClient client;
   final InstallIdProvider _installIdProvider;
   final DeviceModelProvider _deviceModelProvider;
+  final DateTime Function() _clock;
+
+  int nowMs() => _clock().millisecondsSinceEpoch;
 
   LocalePreferences get localePrefs => prefs.locale;
 
@@ -107,6 +112,33 @@ class AppRepository {
   Future<void> persistPersonalDeviceToken(String token) async {
     await secure.writePersonalDeviceToken(token);
     client.setPersonalDeviceToken(token);
+  }
+
+  /// Clears `fv_personal_device_token` from secure storage and memory (M-31).
+  Future<void> clearPersonalDeviceToken() async {
+    await secure.clearPersonalDeviceToken();
+    client.setPersonalDeviceToken(null);
+  }
+
+  /// Clears `fv_personal_device_token` whenever the signed-in account id
+  /// changes (M-31), and persists [newAccountId] as the active account id.
+  /// Returns `true` when an account switch was detected and the token cleared.
+  Future<bool> clearPersonalDeviceTokenIfAccountChanged(
+    String newAccountId,
+  ) async {
+    final normalized = newAccountId.trim();
+    if (normalized.isEmpty) return false;
+    final previous = (prefs.lastSignedInAccountId() ??
+            prefs.cachedAccountProfile()?.id ??
+            prefs.cachedPilotProfile()?.id)
+        ?.trim();
+    final changed =
+        previous != null && previous.isNotEmpty && previous != normalized;
+    if (changed) {
+      await clearPersonalDeviceToken();
+    }
+    await prefs.setLastSignedInAccountId(normalized);
+    return changed;
   }
 
   Future<String?> readDeviceTokenForMode(String flightMode) async {

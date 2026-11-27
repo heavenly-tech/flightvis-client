@@ -402,5 +402,14 @@
       "count": {"type": "int"}
     }
   },
-  "trackingRateLimitedNotice": "Temporary server rate limit; still recording and retrying shortly."
+  "trackingRateLimitedNotice": "Temporary server rate limit; still recording and retrying shortly.",
+  "trackingSendingPendingFixes": "Sending pending positions…",
+  "magicLinkConfirmTitleWithEmail": "Sign in as {email}?",
+  "@magicLinkConfirmTitleWithEmail": {
+    "placeholders": {
+      "email": {"type": "String"}
+    }
+  },
+  "magicLinkConfirmTitleGeneric": "Sign in with this link?",
+  "magicLinkConfirmTrackingWarning": "You have a flight in progress. Continuing will stop the current tracking."
 }

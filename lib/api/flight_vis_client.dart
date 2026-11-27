@@ -63,43 +63,60 @@ class FlightVisException implements Exception {
     return false;
   }
 
+  /// Maximum honoured `Retry-After` delay (L-89: clamp to `[0, 1 hour]`).
+  static const Duration maxRetryAfter = Duration(hours: 1);
+
   /// Parses a `Retry-After` HTTP header value (either integer seconds or an
-  /// RFC 7231 / RFC 9110 HTTP-date) relative to [now] (defaults to UTC now).
+  /// RFC 7231 / RFC 9110 HTTP-date) relative to [now] (defaults to UTC now),
+  /// clamped to `[0, maxRetryAfter]` (past dates and negative values yield `0`).
   static Duration? parseRetryAfterDuration(String? raw, {DateTime? now}) {
     if (raw == null) return null;
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return null;
     final seconds = int.tryParse(trimmed);
     if (seconds != null) {
-      return Duration(seconds: seconds < 0 ? 0 : seconds);
+      if (seconds <= 0) return Duration.zero;
+      if (seconds >= maxRetryAfter.inSeconds) return maxRetryAfter;
+      return Duration(seconds: seconds);
+    }
+    if (RegExp(r'^[+-]?\d+$').hasMatch(trimmed)) {
+      return trimmed.startsWith('-') ? Duration.zero : maxRetryAfter;
     }
     try {
       final target = HttpDate.parse(trimmed).toUtc();
       final reference = (now ?? DateTime.now()).toUtc();
       final diffMs = target.difference(reference).inMilliseconds;
-      return Duration(milliseconds: diffMs <= 0 ? 0 : diffMs);
+      if (diffMs <= 0) return Duration.zero;
+      if (diffMs >= maxRetryAfter.inMilliseconds) return maxRetryAfter;
+      return Duration(milliseconds: diffMs);
     } catch (_) {
       return null;
     }
   }
 
   /// Parses an integer-seconds or HTTP-date `Retry-After` header into whole
-  /// seconds (rounded up so the minimum wait is always respected).
+  /// seconds (rounded up so the minimum wait is always respected), clamped to
+  /// `[0, maxRetryAfter.inSeconds]`.
   static int? parseRetryAfterSeconds(String? raw, {DateTime? now}) {
     final d = parseRetryAfterDuration(raw, now: now);
     if (d == null) return null;
     if (d.inMilliseconds <= 0) return 0;
-    return (d.inMilliseconds + 999) ~/ 1000;
+    final secs = (d.inMilliseconds + 999) ~/ 1000;
+    return secs > maxRetryAfter.inSeconds ? maxRetryAfter.inSeconds : secs;
   }
 
-  /// Resolves the `Retry-After` delay relative to an injectable [now] clock.
+  /// Resolves the `Retry-After` delay relative to an injectable [now] clock,
+  /// clamped to `[0, maxRetryAfter]`.
   Duration? resolveRetryAfter({DateTime? now}) {
     if (retryAfterRaw != null) {
       final parsed = parseRetryAfterDuration(retryAfterRaw, now: now);
       if (parsed != null) return parsed;
     }
     if (retryAfterSeconds != null) {
-      return Duration(seconds: retryAfterSeconds! < 0 ? 0 : retryAfterSeconds!);
+      final s = retryAfterSeconds!;
+      if (s <= 0) return Duration.zero;
+      if (s >= maxRetryAfter.inSeconds) return maxRetryAfter;
+      return Duration(seconds: s);
     }
     return null;
   }
@@ -1076,6 +1093,7 @@ class FlightVisClient {
     if (!hasAnySession) {
       _sessionId = null;
       _accountSessionId = null;
+      _personalDeviceToken = null;
       _clubTrailMinutesDefault = null;
       return;
     }
@@ -1094,6 +1112,7 @@ class FlightVisClient {
     if (response.statusCode != 200) _throwForError(response);
     _sessionId = null;
     _accountSessionId = null;
+    _personalDeviceToken = null;
     _clubTrailMinutesDefault = null;
   }
 

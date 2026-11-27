@@ -323,6 +323,13 @@ void main() {
       // Initially signed out on Hub.
       expect(find.byKey(FlightVisTestKeys.hubSignIn), findsOneWidget);
 
+      // M-30: record a fresh local magic-link request marker so this install
+      // auto-completes the link it just requested without prompting.
+      await prefs.recordMagicLinkRequest(
+        email: 'libre@example.cl',
+        nowMs: DateTime.now().millisecondsSinceEpoch,
+      );
+
       // Dispatch the App Link parsed from https://flight.heavenly.cl/api/account/auth/magic
       final parsed = FlightDeepLink.parseIncoming(
         Uri.parse(

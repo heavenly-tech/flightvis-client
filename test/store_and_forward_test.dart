@@ -70,6 +70,7 @@ void main() {
 
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-250',
         uploadBatch: (batch, {required String flightMode}) => client.ingestBatch(
           [for (final f in batch) f.toIngestJson()],
           deviceToken: client.deviceTokenForFlightMode(flightMode),
@@ -100,6 +101,7 @@ void main() {
 
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-1',
         clock: () => DateTime.utc(2026, 11, 27, 12, 0, 0),
         // Even with jitter random=0.0 (which gives 0ms backoff), Retry-After=7
         // MUST take precedence as the minimum wait!
@@ -138,6 +140,7 @@ void main() {
       var attempts = 0;
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-1',
         clock: () => now,
         randomDouble: () => 0.0,
         sleep: (d) async => slept.add(d),
@@ -216,6 +219,7 @@ void main() {
 
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-1',
         sleep: (_) async {},
         uploadBatch: (batch, {required String flightMode}) async {
           attemptedSizes.add(batch.length);
@@ -257,6 +261,7 @@ void main() {
 
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-1',
         sleep: (_) async {},
         logger: logs.add,
         uploadBatch: (batch, {required String flightMode}) async {
@@ -294,6 +299,7 @@ void main() {
       var attempts = 0;
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-dedup',
         randomDouble: () => 0.0,
         sleep: (_) async {},
         uploadBatch: (batch, {required String flightMode}) async {
@@ -385,6 +391,7 @@ void main() {
       var uploadCalls = 0;
       final worker = FixUploadWorker(
         queue: queue,
+        activeFlightId: 'flt-1',
         sleep: (_) async {},
         uploadBatch: (batch, {required String flightMode}) async {
           uploadCalls++;

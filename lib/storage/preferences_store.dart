@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +8,62 @@ import '../app_config.dart';
 import '../dev/dev_tools_gate.dart';
 import '../services/locale_preferences.dart';
 import 'local_flight_store.dart';
+
+/// Persisted marker recording that THIS app install recently requested an
+/// account magic link / signup (M-30).
+///
+/// Auto-completing an incoming `/api/account/auth/magic` App Link is permitted
+/// ONLY when this marker is present and fresh (within [PreferencesStore.magicLinkRequestTtl],
+/// default 30 minutes) AND the user is neither signed in nor tracking.
+class PendingMagicLinkRequest {
+  const PendingMagicLinkRequest({
+    required this.nonce,
+    required this.email,
+    required this.expiresAtMs,
+  });
+
+  final String nonce;
+  final String email;
+  final int expiresAtMs;
+
+  bool isFresh(int nowMs) => nonce.isNotEmpty && nowMs < expiresAtMs;
+
+  Map<String, dynamic> toJson() => {
+        'nonce': nonce,
+        'email': email,
+        'expiresAtMs': expiresAtMs,
+      };
+
+  static PendingMagicLinkRequest? fromJson(Map<String, dynamic> json) {
+    final nonce = (json['nonce'] as String?)?.trim();
+    final email = (json['email'] as String?)?.trim() ?? '';
+    final expiresAtMs = (json['expiresAtMs'] as num?)?.toInt();
+    if (nonce == null || nonce.isEmpty || expiresAtMs == null) return null;
+    return PendingMagicLinkRequest(
+      nonce: nonce,
+      email: email,
+      expiresAtMs: expiresAtMs,
+    );
+  }
+}
+
+/// Pure M-30 gate deciding whether an incoming `/api/account/auth/magic` App
+/// Link may auto-complete without a confirmation dialog.
+///
+/// Returns `true` ONLY when:
+/// - the user is NOT currently signed in,
+/// - the user is NOT currently tracking a flight, and
+/// - this install recorded a fresh [PendingMagicLinkRequest] marker.
+bool shouldAutoCompleteAccountMagicLink({
+  required PendingMagicLinkRequest? pendingRequest,
+  required int nowMs,
+  required bool isSignedIn,
+  required bool isTracking,
+}) {
+  if (isSignedIn || isTracking) return false;
+  if (pendingRequest == null) return false;
+  return pendingRequest.isFresh(nowMs);
+}
 
 class PreferencesStore {
   PreferencesStore(this._prefs);
@@ -58,6 +115,12 @@ class PreferencesStore {
   static const legacyFlightsClaimantBucketKey =
       'fv_legacy_flights_claimant_bucket';
   static const guestFlightsKeptOnPhoneKey = 'fv_guest_flights_kept_on_phone';
+  static const pendingMagicLinkRequestKey = 'fv_pending_magic_link_request';
+  static const lastSignedInAccountIdKey = 'fv_last_signed_in_account_id';
+
+  /// Expiry window for a locally recorded magic-link / signup request marker
+  /// (M-30: auto-complete allowed only while fresh).
+  static const Duration magicLinkRequestTtl = Duration(minutes: 30);
 
   final SharedPreferences _prefs;
 
@@ -375,5 +438,77 @@ class PreferencesStore {
         entry.key: (entry.value.toList()..sort()),
     };
     await _prefs.setString(guestFlightsKeptOnPhoneKey, jsonEncode(encoded));
+  }
+
+  /// Reads the locally stored magic-link / signup request marker (M-30).
+  PendingMagicLinkRequest? pendingMagicLinkRequest() {
+    final raw = _prefs.getString(pendingMagicLinkRequestKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return PendingMagicLinkRequest.fromJson(decoded);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setPendingMagicLinkRequest(
+    PendingMagicLinkRequest? request,
+  ) async {
+    if (request == null) {
+      await _prefs.remove(pendingMagicLinkRequestKey);
+    } else {
+      await _prefs.setString(
+        pendingMagicLinkRequestKey,
+        jsonEncode(request.toJson()),
+      );
+    }
+  }
+
+  Future<PendingMagicLinkRequest> recordMagicLinkRequest({
+    required String email,
+    int? nowMs,
+    Duration ttl = magicLinkRequestTtl,
+    String? nonce,
+  }) async {
+    final effectiveNow = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final effectiveNonce = (nonce != null && nonce.trim().isNotEmpty)
+        ? nonce.trim()
+        : _generateNonceHex();
+    final marker = PendingMagicLinkRequest(
+      nonce: effectiveNonce,
+      email: email.trim(),
+      expiresAtMs: effectiveNow + ttl.inMilliseconds,
+    );
+    await setPendingMagicLinkRequest(marker);
+    return marker;
+  }
+
+  Future<void> clearPendingMagicLinkRequest() =>
+      setPendingMagicLinkRequest(null);
+
+  /// Last signed-in global account id (or legacy pilot id) used to detect
+  /// account changes and clear `fv_personal_device_token` (M-31).
+  String? lastSignedInAccountId() {
+    final raw = _prefs.getString(lastSignedInAccountIdKey)?.trim();
+    return (raw != null && raw.isNotEmpty) ? raw : null;
+  }
+
+  Future<void> setLastSignedInAccountId(String? accountId) async {
+    final trimmed = accountId?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      await _prefs.remove(lastSignedInAccountIdKey);
+    } else {
+      await _prefs.setString(lastSignedInAccountIdKey, trimmed);
+    }
+  }
+
+  static String _generateNonceHex() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }

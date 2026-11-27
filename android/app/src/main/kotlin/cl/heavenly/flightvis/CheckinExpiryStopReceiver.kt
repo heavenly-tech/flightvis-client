@@ -13,6 +13,7 @@ class CheckinExpiryStopReceiver : BroadcastReceiver() {
         val pending = goAsync()
         Thread {
             try {
+                NativeFixQueueStore.clearActiveFlight(context.applicationContext)
                 runBlocking {
                     sharedTracker()?.stop()
                 }
