@@ -1,0 +1,104 @@
+# Replaces GitHub Actions job `build` (flutter-ci.yml). Agent: omarchibald (linux/amd64).
+
+labels:
+  platform: linux/amd64
+
+when:
+  - event: pull_request
+  - event: push
+    branch: main
+
+variables:
+  - &flutter_image registry.heavenly.cl/flightvis/flutter-android-ci:3.50.0-ndk28.2.13676358
+
+steps:
+  - name: flutter-pub-get
+    image: *flutter_image
+    pull: false
+    environment:
+      FLIGHTVIS_NDK_VERSION: "28.2.13676358"
+    commands:
+      - set -euo pipefail
+      - |
+        for attempt in 1 2 3; do
+          if flutter pub get; then
+            exit 0
+          fi
+          echo "flutter pub get failed (attempt $attempt/3)"
+          sleep $((attempt * 10))
+        done
+        exit 1
+
+  - name: static-checks
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - dart run tool/verify_arb_keys.dart
+      - dart run tool/check_hardcoded_ui_strings.dart
+      - dart run tool/check_spanish_voseo.dart
+      - flutter analyze
+
+  - name: debug-apk-and-tests
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - mkdir -p "$HOME/.android"
+      - |
+        if [ ! -f "$HOME/.android/debug.keystore" ]; then
+          keytool -genkeypair -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname 'CN=Android Debug,O=Android,C=US'
+        fi
+      - export CI=true
+      - flutter build apk --debug --dart-define=FLIGHTVIS_BASE_URL=https://flight.heavenly.cl
+      - |
+        MANIFEST_CANDIDATES=(
+          build/app/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml
+          build/app/intermediates/merged_manifest/debug/processDebugMainManifest/AndroidManifest.xml
+        )
+        MANIFEST=""
+        for candidate in "$${MANIFEST_CANDIDATES[@]}"; do
+          if [ -f "$candidate" ]; then
+            MANIFEST="$candidate"
+            break
+          fi
+        done
+        if [ -z "$MANIFEST" ]; then
+          find build/app/intermediates -type f -name AndroidManifest.xml 2>/dev/null | head -20 >&2 || true
+          echo "Could not locate app debug merged AndroidManifest.xml"
+          exit 1
+        fi
+        echo "flightvis-ci: merged manifest $MANIFEST"
+        mkdir -p tool
+        printf '%s\n' "$MANIFEST" > tool/ci_merged_manifest_path.txt
+      - flutter test
+      - flutter test test/golden_screenshots_test.dart
+
+  - name: pr-debug-artifacts
+    image: *flutter_image
+    pull: false
+    commands:
+      - set -euo pipefail
+      - mkdir -p build/ci-pr-bundle
+      - cp build/app/outputs/flutter-apk/app-debug.apk build/ci-pr-bundle/
+      - |
+        if [ -d docs/screenshots ]; then
+          cp -a docs/screenshots build/ci-pr-bundle/screenshots
+        fi
+      - |
+        tar -czf "build/flight-vis-android-debugsigned-${CI_COMMIT_SHA}.tgz" -C build/ci-pr-bundle .
+    when:
+      - event: pull_request
+
+  - name: workspace-cleanup
+    image: alpine:3.20
+    pull: false
+    commands:
+      - set -euo pipefail
+      - rm -rf build .dart_tool android/app/release.keystore android/key.properties
+    when:
+      - status: [success, failure]
