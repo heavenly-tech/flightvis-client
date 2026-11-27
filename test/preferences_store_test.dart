@@ -111,4 +111,43 @@ void main() {
     final normReloaded = await PreferencesStore.open();
     expect(normReloaded.mapPublicRadiusKm(), 500);
   });
+
+  test('persists legacy flights resolved marker, claimant bucket, and kept-on-phone guest IDs', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = await PreferencesStore.open();
+
+    expect(store.legacyFlightsResolved(), isFalse);
+    expect(store.legacyFlightsClaimantBucket(), isNull);
+    expect(store.keptOnPhoneGuestFlightIds('acct_aaa'), isEmpty);
+
+    expect(
+      () => store.setLegacyFlightsClaimantBucket('guest'),
+      throwsArgumentError,
+    );
+    expect(
+      () => store.setLegacyFlightsClaimantBucket('legacy'),
+      throwsArgumentError,
+    );
+    expect(
+      () => store.setLegacyFlightsClaimantBucket('LEGACY'),
+      throwsArgumentError,
+    );
+
+    await store.setLegacyFlightsClaimantBucket('acct_0123456789abcdef');
+    await store.setLegacyFlightsResolved(true);
+    await store.markGuestFlightsKeptOnPhone('acct_0123456789abcdef', ['g1', 'g2']);
+    await store.markGuestFlightsKeptOnPhone('guest', ['should-ignore']);
+    await store.markGuestFlightsKeptOnPhone('legacy', ['should-ignore']);
+
+    final reloaded = await PreferencesStore.open();
+    expect(reloaded.legacyFlightsClaimantBucket(), 'acct_0123456789abcdef');
+    expect(reloaded.legacyFlightsResolved(), isTrue);
+    expect(
+      reloaded.keptOnPhoneGuestFlightIds('acct_0123456789abcdef'),
+      {'g1', 'g2'},
+    );
+    expect(reloaded.keptOnPhoneGuestFlightIds('acct_other'), isEmpty);
+    expect(reloaded.keptOnPhoneGuestFlightIds('guest'), isEmpty);
+    expect(reloaded.keptOnPhoneGuestFlightIds('legacy'), isEmpty);
+  });
 }

@@ -85,6 +85,18 @@ abstract final class FlightVisTestKeys {
       ValueKey<String>('flightvis_local_flights_move_to_account');
   static const localFlightsKeepOnPhone =
       ValueKey<String>('flightvis_local_flights_keep_on_phone');
+  static const localFlightsLegacyDialog =
+      ValueKey<String>('flightvis_local_flights_legacy_dialog');
+  static const localFlightsLegacyBanner =
+      ValueKey<String>('flightvis_local_flights_legacy_banner');
+  static const localFlightsLegacyAdopt =
+      ValueKey<String>('flightvis_local_flights_legacy_adopt');
+  static const localFlightsLegacyDelete =
+      ValueKey<String>('flightvis_local_flights_legacy_delete');
+  static const localFlightsLegacyDeleteConfirmDialog =
+      ValueKey<String>('flightvis_local_flights_legacy_delete_confirm_dialog');
+  static const localFlightsLegacyDeleteConfirm =
+      ValueKey<String>('flightvis_local_flights_legacy_delete_confirm');
   static const localFlightDeleteDialog =
       ValueKey<String>('flightvis_local_flight_delete_dialog');
   static const localFlightDeleteConfirm =

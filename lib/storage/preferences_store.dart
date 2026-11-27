@@ -6,6 +6,7 @@ import '../api/flight_vis_client.dart';
 import '../app_config.dart';
 import '../dev/dev_tools_gate.dart';
 import '../services/locale_preferences.dart';
+import 'local_flight_store.dart';
 
 class PreferencesStore {
   PreferencesStore(this._prefs);
@@ -49,6 +50,10 @@ class PreferencesStore {
   static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
   static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
   static const cachedPilotProfileKey = 'fv_cached_pilot_profile';
+  static const legacyFlightsResolvedKey = 'fv_legacy_flights_resolved';
+  static const legacyFlightsClaimantBucketKey =
+      'fv_legacy_flights_claimant_bucket';
+  static const guestFlightsKeptOnPhoneKey = 'fv_guest_flights_kept_on_phone';
 
   final SharedPreferences _prefs;
 
@@ -209,5 +214,101 @@ class PreferencesStore {
     } else {
       await _prefs.setString(cachedPilotProfileKey, jsonEncode(profile.toJson()));
     }
+  }
+
+  /// True once the first signed-in account has resolved the one-time legacy
+  /// local-flights choice (adopted or deleted). Persists across restarts so no
+  /// other account or guest is ever offered legacy files.
+  bool legacyFlightsResolved() =>
+      _prefs.getBool(legacyFlightsResolvedKey) ?? false;
+
+  Future<void> setLegacyFlightsResolved(bool value) =>
+      _prefs.setBool(legacyFlightsResolvedKey, value);
+
+  /// Hashed account bucket ID (`acct_<hex>`) of the first account offered the
+  /// legacy local-flights choice. When that account dismisses without deciding,
+  /// only this bucket is offered the choice again.
+  String? legacyFlightsClaimantBucket() {
+    final raw = _prefs.getString(legacyFlightsClaimantBucketKey)?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    if (LocalFlightStore.isReservedBucket(raw)) return null;
+    final sanitized = LocalFlightStore.sanitizeBucket(raw);
+    if (sanitized == LocalFlightStore.guestBucket) return null;
+    return sanitized;
+  }
+
+  Future<void> setLegacyFlightsClaimantBucket(String? bucket) async {
+    final trimmed = bucket?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      await _prefs.remove(legacyFlightsClaimantBucketKey);
+      return;
+    }
+    if (LocalFlightStore.isReservedBucket(trimmed)) {
+      throw ArgumentError.value(
+        bucket,
+        'bucket',
+        'Reserved bucket cannot claim legacy flights',
+      );
+    }
+    final sanitized = LocalFlightStore.sanitizeBucket(trimmed);
+    if (sanitized == LocalFlightStore.guestBucket) {
+      throw ArgumentError.value(
+        bucket,
+        'bucket',
+        'Guest bucket cannot claim legacy flights',
+      );
+    }
+    await _prefs.setString(legacyFlightsClaimantBucketKey, sanitized);
+  }
+
+  Map<String, Set<String>> _readGuestFlightsKeptMap() {
+    final raw = _prefs.getString(guestFlightsKeptOnPhoneKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return {};
+      final out = <String, Set<String>>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is List) {
+          out[entry.key] = value.whereType<String>().toSet();
+        }
+      }
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Guest flight IDs that [accountBucket] explicitly chose to leave on this
+  /// phone ("Dejarlos en este teléfono"), persisted across sessions/reopens.
+  Set<String> keptOnPhoneGuestFlightIds(String accountBucket) {
+    if (LocalFlightStore.isReservedBucket(accountBucket)) return const {};
+    final sanitized = LocalFlightStore.sanitizeBucket(accountBucket);
+    if (sanitized == LocalFlightStore.guestBucket) return const {};
+    final map = _readGuestFlightsKeptMap();
+    return Set<String>.unmodifiable(map[sanitized] ?? const <String>{});
+  }
+
+  Future<void> markGuestFlightsKeptOnPhone(
+    String accountBucket,
+    Iterable<String> flightIds,
+  ) async {
+    if (LocalFlightStore.isReservedBucket(accountBucket)) return;
+    final sanitized = LocalFlightStore.sanitizeBucket(accountBucket);
+    if (sanitized == LocalFlightStore.guestBucket) return;
+    final cleanedIds = flightIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (cleanedIds.isEmpty) return;
+    final map = _readGuestFlightsKeptMap();
+    final existing = map.putIfAbsent(sanitized, () => <String>{});
+    existing.addAll(cleanedIds);
+    final encoded = <String, List<String>>{
+      for (final entry in map.entries)
+        entry.key: (entry.value.toList()..sort()),
+    };
+    await _prefs.setString(guestFlightsKeptOnPhoneKey, jsonEncode(encoded));
   }
 }

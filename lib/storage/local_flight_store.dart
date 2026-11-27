@@ -16,6 +16,13 @@ abstract class LocalFlightStore {
   static const int maxStoredFlights = 50;
   static const String guestBucket = 'guest';
 
+  /// Reserved internal folder for pre-#11 flat legacy files (`local_flights/*.json`).
+  ///
+  /// Never returned by [sanitizeBucket] or [bucketForPilotId], and never
+  /// readable/writable through standard bucket APIs ([listFlights], [getFlight],
+  /// [save], [deleteFlight], [moveFlights]).
+  static const String legacyBucket = 'legacy';
+
   /// Returns [guestBucket] when signed out or not an approved account, else a
   /// stable, filesystem-safe hashed bucket derived from `pilot.id` (never email).
   static String bucketForPilot(PilotProfile? pilot) {
@@ -24,21 +31,37 @@ abstract class LocalFlightStore {
   }
 
   /// Returns [guestBucket] when [pilotId] is null/empty, else a deterministic
-  /// 128-bit hex hash bucket derived from [pilotId] (never plain-text email).
+  /// 128-bit hex hash bucket derived from [pilotId] (never plain-text email,
+  /// and can never collide with [guestBucket] or [legacyBucket]).
   static String bucketForPilotId(String? pilotId) {
     final trimmed = pilotId?.trim() ?? '';
     if (trimmed.isEmpty) return guestBucket;
     return 'acct_${_stableAccountHashHex(trimmed)}';
   }
 
-  /// Sanitizes an explicit bucket name to prevent path traversal.
-  static String sanitizeBucket(String? bucket) {
+  static String _cleanBucketToken(String? bucket) {
     final trimmed = bucket?.trim() ?? '';
     if (trimmed.isEmpty || trimmed == '.' || trimmed == '..') {
+      return '';
+    }
+    return trimmed.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  }
+
+  /// Returns true when [bucket] refers to a reserved internal bucket name
+  /// (currently [legacyBucket], matched case-insensitively).
+  static bool isReservedBucket(String? bucket) {
+    final cleaned = _cleanBucketToken(bucket);
+    return cleaned.toLowerCase() == legacyBucket;
+  }
+
+  /// Sanitizes an explicit bucket name to prevent path traversal and prevents
+  /// any caller from targeting reserved buckets (such as [legacyBucket]).
+  static String sanitizeBucket(String? bucket) {
+    final cleaned = _cleanBucketToken(bucket);
+    if (cleaned.isEmpty || cleaned.toLowerCase() == legacyBucket) {
       return guestBucket;
     }
-    final cleaned = trimmed.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    return cleaned.isEmpty ? guestBucket : cleaned;
+    return cleaned;
   }
 
   /// Saves (or replaces) [flight] into [bucket] (defaulting to the store's
@@ -54,13 +77,32 @@ abstract class LocalFlightStore {
   /// Deletes a single stored flight by [id] from [bucket].
   Future<void> deleteFlight(String id, {String? bucket});
 
-  /// Moves all flights from [fromBucket] into [toBucket], enforcing retention
+  /// Moves flights from [fromBucket] into [toBucket], enforcing retention
   /// limits in [toBucket] and removing moved files from [fromBucket].
+  ///
+  /// When [flightIds] is provided, only flights whose `id` is in [flightIds]
+  /// are moved. Refuses reserved buckets (returns `0`).
   /// Returns the number of flights moved.
   Future<int> moveFlights({
     required String fromBucket,
     required String toBucket,
+    Set<String>? flightIds,
   });
+
+  /// Returns the count of migrated pre-#11 legacy flights stored in the
+  /// isolated `legacy/` folder. Never exposes legacy tracks to guest views.
+  Future<int> countLegacyFlights();
+
+  /// Moves all migrated legacy flights from `legacy/` into [toBucket],
+  /// enforcing retention limits and removing moved files from `legacy/`.
+  ///
+  /// Throws [ArgumentError] if [toBucket] resolves to [guestBucket] or a
+  /// reserved bucket. Returns the number of flights moved.
+  Future<int> adoptLegacyFlights({required String toBucket});
+
+  /// Permanently deletes all migrated legacy flight files from `legacy/`.
+  /// Returns the number of legacy files deleted.
+  Future<int> deleteLegacyFlights();
 
   // TODO(club-less-app-f): Future<void> markUploaded(String id, String remoteId);
 }
@@ -101,8 +143,8 @@ String _stableAccountHashHex(String input) {
 /// `<appDocumentsDir>/local_flights/<bucket>/<id>.json`.
 ///
 /// Automatically migrates legacy un-bucketed `<appDocumentsDir>/local_flights/*.json`
-/// files from earlier builds into `<appDocumentsDir>/local_flights/guest/` on
-/// first access.
+/// files from earlier builds into the isolated reserved folder
+/// `<appDocumentsDir>/local_flights/legacy/` on first access (never `guest/`).
 class FileLocalFlightStore implements LocalFlightStore {
   FileLocalFlightStore({
     Future<Directory> Function()? directoryProvider,
@@ -112,7 +154,7 @@ class FileLocalFlightStore implements LocalFlightStore {
 
   final Future<Directory> Function() _directoryProvider;
   final String _defaultBucket;
-  bool _legacyMigrated = false;
+  Future<void>? _legacyMigrationFuture;
 
   String _resolveBucket(String? bucket) =>
       bucket == null ? _defaultBucket : LocalFlightStore.sanitizeBucket(bucket);
@@ -123,11 +165,25 @@ class FileLocalFlightStore implements LocalFlightStore {
     if (!await root.exists()) {
       await root.create(recursive: true);
     }
-    if (!_legacyMigrated) {
-      await _migrateLegacyRootFiles(root);
-      _legacyMigrated = true;
+    final pending = _legacyMigrationFuture ??= _migrateLegacyRootFiles(root);
+    try {
+      await pending;
+    } catch (_) {
+      _legacyMigrationFuture = null;
+      rethrow;
     }
     return root;
+  }
+
+  Future<Directory> _legacyDir({bool create = false}) async {
+    final root = await _rootDir();
+    final dir = Directory(
+      '${root.path}${Platform.pathSeparator}${LocalFlightStore.legacyBucket}',
+    );
+    if (create && !await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
   }
 
   Future<void> _migrateLegacyRootFiles(Directory root) async {
@@ -138,19 +194,19 @@ class FileLocalFlightStore implements LocalFlightStore {
       }
     }
     if (legacyFiles.isEmpty) return;
-    final guestDir = Directory(
-      '${root.path}${Platform.pathSeparator}${LocalFlightStore.guestBucket}',
+    final legacyDir = Directory(
+      '${root.path}${Platform.pathSeparator}${LocalFlightStore.legacyBucket}',
     );
-    if (!await guestDir.exists()) {
-      await guestDir.create(recursive: true);
+    if (!await legacyDir.exists()) {
+      await legacyDir.create(recursive: true);
     }
     for (final file in legacyFiles) {
       final sep = Platform.pathSeparator;
       final fileName = file.path.split(sep).last;
-      final destPath = '${guestDir.path}$sep$fileName';
+      final destPath = '${legacyDir.path}$sep$fileName';
       final dest = File(destPath);
       if (await dest.exists()) {
-        // Keep already-migrated guest copy and remove legacy root duplicate.
+        // Keep already-migrated legacy copy and remove legacy root duplicate.
         try {
           await file.delete();
         } catch (_) {}
@@ -165,7 +221,7 @@ class FileLocalFlightStore implements LocalFlightStore {
         } catch (_) {}
       }
     }
-    await _pruneOverflowDir(guestDir);
+    await _pruneOverflowDir(legacyDir);
   }
 
   Future<Directory> _bucketDir(String bucket, {bool create = true}) async {
@@ -277,7 +333,12 @@ class FileLocalFlightStore implements LocalFlightStore {
   Future<int> moveFlights({
     required String fromBucket,
     required String toBucket,
+    Set<String>? flightIds,
   }) async {
+    if (LocalFlightStore.isReservedBucket(fromBucket) ||
+        LocalFlightStore.isReservedBucket(toBucket)) {
+      return 0;
+    }
     final sourceBucket = LocalFlightStore.sanitizeBucket(fromBucket);
     final targetBucket = LocalFlightStore.sanitizeBucket(toBucket);
     if (sourceBucket == targetBucket) return 0;
@@ -285,7 +346,10 @@ class FileLocalFlightStore implements LocalFlightStore {
     final sourceDir = await _bucketDir(sourceBucket, create: false);
     if (!await sourceDir.exists()) return 0;
 
-    final flights = await _readDirFlights(sourceDir);
+    final allFlights = await _readDirFlights(sourceDir);
+    final flights = flightIds == null
+        ? allFlights
+        : allFlights.where((f) => flightIds.contains(f.id)).toList();
     if (flights.isEmpty) return 0;
 
     final targetDir = await _bucketDir(targetBucket, create: true);
@@ -309,15 +373,106 @@ class FileLocalFlightStore implements LocalFlightStore {
     await _pruneOverflowDir(targetDir);
     return moved;
   }
+
+  @override
+  Future<int> countLegacyFlights() async {
+    final dir = await _legacyDir(create: false);
+    final flights = await _readDirFlights(dir);
+    return flights.length;
+  }
+
+  @override
+  Future<int> adoptLegacyFlights({required String toBucket}) async {
+    if (LocalFlightStore.isReservedBucket(toBucket)) {
+      throw ArgumentError.value(
+        toBucket,
+        'toBucket',
+        'Cannot adopt legacy flights into reserved bucket',
+      );
+    }
+    final targetBucket = LocalFlightStore.sanitizeBucket(toBucket);
+    if (targetBucket == LocalFlightStore.guestBucket) {
+      throw ArgumentError.value(
+        toBucket,
+        'toBucket',
+        'Cannot adopt legacy flights into guest bucket',
+      );
+    }
+
+    final legacyDir = await _legacyDir(create: false);
+    if (!await legacyDir.exists()) return 0;
+
+    final flights = await _readDirFlights(legacyDir);
+    if (flights.isEmpty) return 0;
+
+    final targetDir = await _bucketDir(targetBucket, create: true);
+    var moved = 0;
+    for (final flight in flights) {
+      final fileName = _safeFileName(flight.id);
+      final srcFile = File('${legacyDir.path}${Platform.pathSeparator}$fileName');
+      final dstPath = '${targetDir.path}${Platform.pathSeparator}$fileName';
+      if (!await srcFile.exists()) continue;
+      final dstFile = File(dstPath);
+      if (await dstFile.exists()) {
+        // Keep existing account copy and remove legacy duplicate.
+        try {
+          await srcFile.delete();
+          moved++;
+        } catch (_) {}
+        continue;
+      }
+      try {
+        await srcFile.rename(dstPath);
+        moved++;
+      } catch (_) {
+        try {
+          await srcFile.copy(dstPath);
+          await srcFile.delete();
+          moved++;
+        } catch (_) {}
+      }
+    }
+    await _pruneOverflowDir(targetDir);
+    await _removeLegacyDirIfEmpty(legacyDir);
+    return moved;
+  }
+
+  @override
+  Future<int> deleteLegacyFlights() async {
+    final legacyDir = await _legacyDir(create: false);
+    if (!await legacyDir.exists()) return 0;
+    var deleted = 0;
+    await for (final entity in legacyDir.list(followLinks: false)) {
+      if (entity is! File) continue;
+      final isJson = entity.path.endsWith('.json');
+      final isTmp = entity.path.endsWith('.json.tmp');
+      if (!isJson && !isTmp) continue;
+      try {
+        await entity.delete();
+        if (isJson) deleted++;
+      } catch (_) {}
+    }
+    await _removeLegacyDirIfEmpty(legacyDir);
+    return deleted;
+  }
+
+  Future<void> _removeLegacyDirIfEmpty(Directory legacyDir) async {
+    try {
+      if (await legacyDir.exists() && await legacyDir.list().isEmpty) {
+        await legacyDir.delete();
+      }
+    } catch (_) {}
+  }
 }
 
 /// Deterministic in-memory [LocalFlightStore] with per-account bucket isolation
-/// for unit/widget/golden tests.
+/// and a separate reserved legacy pool for unit/widget/golden tests.
 class InMemoryLocalFlightStore implements LocalFlightStore {
   InMemoryLocalFlightStore({
     List<LocalFlight> initial = const [],
     String initialBucket = LocalFlightStore.guestBucket,
     String defaultBucket = LocalFlightStore.guestBucket,
+    List<LocalFlight> initialLegacy = const [],
   }) : _defaultBucket = LocalFlightStore.sanitizeBucket(defaultBucket) {
     final bucket = LocalFlightStore.sanitizeBucket(initialBucket);
     if (initial.isNotEmpty) {
@@ -326,10 +481,14 @@ class InMemoryLocalFlightStore implements LocalFlightStore {
         map[f.id] = f;
       }
     }
+    for (final f in initialLegacy) {
+      _legacy[f.id] = f;
+    }
   }
 
   final String _defaultBucket;
   final Map<String, Map<String, LocalFlight>> _byBucket = {};
+  final Map<String, LocalFlight> _legacy = {};
 
   String _resolveBucket(String? bucket) =>
       bucket == null ? _defaultBucket : LocalFlightStore.sanitizeBucket(bucket);
@@ -388,17 +547,67 @@ class InMemoryLocalFlightStore implements LocalFlightStore {
   Future<int> moveFlights({
     required String fromBucket,
     required String toBucket,
+    Set<String>? flightIds,
   }) async {
+    if (LocalFlightStore.isReservedBucket(fromBucket) ||
+        LocalFlightStore.isReservedBucket(toBucket)) {
+      return 0;
+    }
     final source = LocalFlightStore.sanitizeBucket(fromBucket);
     final target = LocalFlightStore.sanitizeBucket(toBucket);
     if (source == target) return 0;
     final srcMap = _byBucket[source];
     if (srcMap == null || srcMap.isEmpty) return 0;
+    final idsToMove = flightIds == null
+        ? srcMap.keys.toList()
+        : srcMap.keys.where(flightIds.contains).toList();
+    if (idsToMove.isEmpty) return 0;
     final dstMap = _byBucket.putIfAbsent(target, () => {});
-    final moved = srcMap.length;
-    dstMap.addAll(srcMap);
-    srcMap.clear();
+    for (final id in idsToMove) {
+      final flight = srcMap.remove(id);
+      if (flight != null) {
+        dstMap[id] = flight;
+      }
+    }
+    await _pruneBucket(target);
+    return idsToMove.length;
+  }
+
+  @override
+  Future<int> countLegacyFlights() async => _legacy.length;
+
+  @override
+  Future<int> adoptLegacyFlights({required String toBucket}) async {
+    if (LocalFlightStore.isReservedBucket(toBucket)) {
+      throw ArgumentError.value(
+        toBucket,
+        'toBucket',
+        'Cannot adopt legacy flights into reserved bucket',
+      );
+    }
+    final target = LocalFlightStore.sanitizeBucket(toBucket);
+    if (target == LocalFlightStore.guestBucket) {
+      throw ArgumentError.value(
+        toBucket,
+        'toBucket',
+        'Cannot adopt legacy flights into guest bucket',
+      );
+    }
+    if (_legacy.isEmpty) return 0;
+    final dstMap = _byBucket.putIfAbsent(target, () => {});
+    final moved = _legacy.length;
+    for (final entry in _legacy.entries) {
+      dstMap.putIfAbsent(entry.key, () => entry.value);
+    }
+    _legacy.clear();
     await _pruneBucket(target);
     return moved;
+  }
+
+  @override
+  Future<int> deleteLegacyFlights() async {
+    final deleted = _legacy.length;
+    _legacy.clear();
+    return deleted;
   }
 }
