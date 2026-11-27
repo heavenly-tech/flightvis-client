@@ -165,7 +165,12 @@
   "permWarningTitle": "Faltan permisos para transmitir",
   "permWarningBackground": "Debes activar «Permitir todo el tiempo» en ubicación.",
   "permWarningFix": "Corregir",
-  "permStartBlocked": "No puedes comenzar el seguimiento sin ubicación en segundo plano.",
+  "permStartBlocked": "No puedes comenzar el seguimiento sin permiso de ubicación.",
+  "permFineRequiredToStart": "Necesitas permiso de ubicación para iniciar el vuelo.",
+  "permOemHintBattery": "Si no aparece, abre Ajustes > Apps > flight_vis > Batería y elige «Sin restricciones».",
+  "permOemHintBackground": "Elige «Permitir todo el tiempo» en Ubicación.",
+  "permOemHintNotifications": "Activa las notificaciones en Ajustes > Apps > flight_vis > Notificaciones.",
+  "permOemHintFine": "Activa la ubicación precisa en Ajustes > Apps > flight_vis > Permisos.",
   "appName": "flight_vis",
   "pilotCheckInInvalidCode": "Código de registro no válido.",
   "pilotGpsStartFailed": "No se pudo iniciar el GPS. Revisa los permisos de ubicación.",
@@ -277,5 +282,48 @@
     }
   },
   "pilotMapPublicWaitingPosition": "Esperando tu posición para mostrar vuelos públicos cercanos",
+  "sessionExpiredPrompt": "Tu sesión expiró. Inicia sesión de nuevo.",
+  "mapPollServerOffline": "Sin conexión con el servidor; reintentando…",
+  "mapClubRequiresSignIn": "Inicia sesión para ver los vuelos de tu club",
+  "pilotHubLiveMapButton": "Ver mapa en vivo",
+  "pilotHubStartFlightButton": "Iniciar vuelo",
+  "pilotHubLiveMapTitle": "Mapa en vivo",
+  "pilotHubFlightBroadcastSignedOut": "Inicia sesión para transmitir en vivo",
+  "pilotHubFlightBroadcastNoCheckIn": "Haz el registro en tu club para transmitir vuelos del club",
+  "pilotHubLocalFlightsTitle": "Mis vuelos locales",
+  "pilotHubLocalFlightsSubtitle": "Vuelos guardados en tu teléfono",
+  "pilotHubLocalFlightsCount": "{count, plural, =0{Sin vuelos guardados} =1{1 vuelo guardado en tu teléfono} other{{count} vuelos guardados en tu teléfono}}",
+  "@pilotHubLocalFlightsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightStartTitle": "Iniciar vuelo local",
+  "localFlightTailLabel": "Matrícula (opcional)",
+  "localFlightTailHint": "Ej. CC-ABC",
+  "localFlightNoClubNote": "Vuelo sin club: se guarda en tu teléfono. Pronto se podrá subir.",
+  "localFlightOfflineNote": "Se guarda solo en tu teléfono sin enviar datos al servidor.",
+  "localFlightScreenTitle": "Vuelo local",
+  "localFlightNoTail": "Sin matrícula",
+  "localFlightRecordingActive": "Grabando en tu teléfono",
+  "localFlightRecordingFailed": "No se pudo iniciar la grabación GPS. Revisa los permisos de ubicación.",
+  "localFlightStopAction": "Finalizar vuelo local",
+  "localFlightEndConfirmTitle": "¿Finalizar y guardar este vuelo en tu teléfono?",
+  "localFlightSavedNotice": "Vuelo guardado en tu teléfono.",
+  "localFlightsEmpty": "Todavía no tienes vuelos guardados en este teléfono.",
+  "localFlightPointsCount": "{count} puntos",
+  "@localFlightPointsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightDurationMinutes": "{minutes} min",
+  "@localFlightDurationMinutes": {
+    "placeholders": {
+      "minutes": {"type": "int"}
+    }
+  },
+  "localFlightUploadSoon": "Guardado localmente. La subida al servidor estará disponible pronto.",
+  "pilotPublicRequiresVerifiedEmail": "Verifica tu correo para transmitir de forma pública.",
   "@@locale": "es"
 }

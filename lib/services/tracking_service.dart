@@ -63,7 +63,8 @@ class TrackingService {
     await _session.syncCursorFromExistingLogs();
     try {
       await _tracker.start();
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('TrackingService.start failed: $e\n$st');
       return false;
     }
     await _fixSource.startRecording();

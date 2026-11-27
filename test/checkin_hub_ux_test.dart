@@ -183,7 +183,7 @@ void main() {
     expect(find.byType(HomeHubScreen), findsOneWidget);
   });
 
-  testWidgets('HomeHubScreen shows locked subtitle on Detalles del vuelo when gate blocks flight', (tester) async {
+  testWidgets('HomeHubScreen explains disabled Detalles del vuelo inline for signed-out and signed-in without check-in', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await PreferencesStore.open();
     final repo = AppRepository(
@@ -191,7 +191,15 @@ void main() {
       prefs: prefs,
       client: FlightVisClient(baseUrl: prefs.baseUrl()),
     );
+    final approvedPilot = PilotProfile(
+      id: 'p1',
+      name: 'Demo Pilot',
+      email: 'pilot@demo.test',
+      status: 'approved',
+      role: 'pilot',
+    );
 
+    // 1. Signed out -> broadcast entry disabled with sign-in reason.
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
@@ -205,19 +213,47 @@ void main() {
     );
     await tester.pump();
 
-    final tile = tester.widget<ListTile>(find.byKey(FlightVisTestKeys.hubFlightDetails));
-    expect(tile.enabled, isFalse);
-    expect(find.text('Escanea primero el QR del club para desbloquear.'), findsOneWidget);
+    final signedOutTile =
+        tester.widget<ListTile>(find.byKey(FlightVisTestKeys.hubFlightDetails));
+    expect(signedOutTile.enabled, isFalse);
+    expect(find.text('Inicia sesión para transmitir en vivo'), findsOneWidget);
     expect(find.text('Elige matrícula y visibilidad, luego comienza'), findsNothing);
 
-    // Grant valid check-in and re-render.
-    await prefs.setCheckinExpiresAtMs(DateTime.now().millisecondsSinceEpoch + 3600 * 1000);
+    // 2. Signed in without check-in -> broadcast entry disabled with club check-in reason.
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: HomeHubScreen(
+          key: const ValueKey('hub-signed-in-no-checkin'),
+          repo: repo,
+          pilot: approvedPilot,
+          onStartFlight: (_, _) {},
+          onRequestLogin: () {},
+          onLogout: () {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final noCheckinTile =
+        tester.widget<ListTile>(find.byKey(FlightVisTestKeys.hubFlightDetails));
+    expect(noCheckinTile.enabled, isFalse);
+    expect(
+      find.text('Haz el registro en tu club para transmitir vuelos del club'),
+      findsOneWidget,
+    );
+
+    // 3. Signed in with valid check-in -> broadcast entry unlocked.
+    await prefs.setCheckinExpiresAtMs(
+      DateTime.now().millisecondsSinceEpoch + 3600 * 1000,
+    );
     await tester.pumpWidget(
       PilotAppShell(
         locale: const Locale('es', 'CL'),
         home: HomeHubScreen(
           key: const ValueKey('hub-unlocked'),
           repo: repo,
+          pilot: approvedPilot,
           onStartFlight: (_, _) {},
           onRequestLogin: () {},
           onLogout: () {},
@@ -226,9 +262,13 @@ void main() {
     );
     await tester.pump();
 
-    final unlockedTile = tester.widget<ListTile>(find.byKey(FlightVisTestKeys.hubFlightDetails));
+    final unlockedTile =
+        tester.widget<ListTile>(find.byKey(FlightVisTestKeys.hubFlightDetails));
     expect(unlockedTile.enabled, isTrue);
-    expect(find.text('Escanea primero el QR del club para desbloquear.'), findsNothing);
+    expect(
+      find.text('Haz el registro en tu club para transmitir vuelos del club'),
+      findsNothing,
+    );
     expect(find.text('Elige matrícula y visibilidad, luego comienza'), findsOneWidget);
   });
 }

@@ -326,6 +326,54 @@ Future<void> main() async {
       continue;
     }
 
+    if (method == 'GET' && path == '/api/public/live-trails') {
+      final lat = double.tryParse(request.uri.queryParameters['lat'] ?? '');
+      final lon = double.tryParse(request.uri.queryParameters['lon'] ?? '');
+      if (lat == null ||
+          lon == null ||
+          !lat.isFinite ||
+          !lon.isFinite ||
+          lat < -90 ||
+          lat > 90 ||
+          lon < -180 ||
+          lon > 180) {
+        await jsonResponse(400, {'error': 'lat and lon required'});
+        continue;
+      }
+      final rawRadius = int.tryParse(request.uri.queryParameters['radius_km'] ?? '');
+      final effectiveRadiusKm = (rawRadius ?? 20).clamp(5, 500);
+      final etag = 'W/"mock-public-r$effectiveRadiusKm"';
+      if (request.headers.value('if-none-match') == etag) {
+        request.response.statusCode = 304;
+        request.response.headers.set('etag', etag);
+        await request.response.close();
+        continue;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      request.response.headers.set('etag', etag);
+      await jsonResponse(200, {
+        'flights': [
+          {
+            'flightId': 'flt-pub-1',
+            'tail': 'CC-PUB',
+            'layer': 'public',
+            'trailMinutes': 5,
+            'points': [
+              [now - 180000, -33.465, -70.562, 1020.0],
+              [now - 90000, -33.462, -70.558, 1040.0],
+              [now - 10000, -33.459, -70.555, null],
+            ],
+          },
+        ],
+        'caps': {
+          'maxFlights': 50,
+          'maxPointsPerFlight': 300,
+          'maxWindowMinutes': 120,
+        },
+      });
+      continue;
+    }
+
     if (method == 'POST' && path == '/api/flights') {
       if (!checkinValid()) {
         await jsonResponse(403, {'error': 'check-in required'});

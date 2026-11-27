@@ -15,11 +15,13 @@ class TailPickerScreen extends StatefulWidget {
     super.key,
     required this.repo,
     required this.onFlightStarted,
+    this.pilot,
     this.permissions,
   });
 
   final AppRepository repo;
   final void Function(StartFlightResult flight, String tail) onFlightStarted;
+  final PilotProfile? pilot;
   final FlightPermissionsClient? permissions;
 
   @override
@@ -39,6 +41,8 @@ class _TailPickerScreenState extends State<TailPickerScreen>
 
   FlightPermissionsClient get _permissions =>
       widget.permissions ?? FlightPermissions.instance;
+
+  bool get _allowPublicVisibility => widget.pilot?.hasVerifiedEmail ?? true;
 
   int? get _clubTrailMinutesDefault =>
       widget.repo.client.clubTrailMinutesDefault ??
@@ -117,15 +121,36 @@ class _TailPickerScreenState extends State<TailPickerScreen>
       setState(() => _error = l10n.pilotSelectTail);
       return;
     }
+
+    // Foreground (fine) location is the ONLY hard permission requirement.
+    // Background location, notifications, and battery exemption only warn.
+    final permStatus = await _permissions.check();
+    if (!permStatus.fineLocationGranted) {
+      final granted = await _permissions.requestFineLocation();
+      final rechecked = await _permissions.check();
+      if (mounted) setState(() => _permissionStatus = rechecked);
+      if (!granted && !rechecked.fineLocationGranted) {
+        if (mounted) {
+          setState(() => _error = l10n.permFineRequiredToStart);
+        }
+        return;
+      }
+    }
+
     setState(() {
       _error = null;
       _loading = true;
     });
-    final showPilotNamePublic = _visibility == 'public' && _showPilotNamePublic;
+    final effectiveVisibility =
+        (_visibility == 'public' && !_allowPublicVisibility)
+            ? 'club'
+            : _visibility;
+    final showPilotNamePublic =
+        effectiveVisibility == 'public' && _showPilotNamePublic;
     try {
       final result = await widget.repo.client.startFlight(
         tail: tail,
-        visibility: _visibility,
+        visibility: effectiveVisibility,
         showPilotNamePublic: showPilotNamePublic,
         trailMinutes: _trailMinutes,
         sendTrail: _trailMinutes != null,
@@ -151,6 +176,10 @@ class _TailPickerScreenState extends State<TailPickerScreen>
       nowMs: DateTime.now().millisecondsSinceEpoch,
     );
     final blockMsg = checkinBlockMessage(l10n, gate.startBlock());
+    final effectiveVisibility =
+        (_visibility == 'public' && !_allowPublicVisibility)
+            ? 'club'
+            : _visibility;
     return Scaffold(
       key: FlightVisTestKeys.tailPicker,
       appBar: AppBar(title: Text(l10n.pilotFlightDetailsTitle)),
@@ -216,7 +245,7 @@ class _TailPickerScreenState extends State<TailPickerScreen>
                     ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _visibility,
+                    value: effectiveVisibility,
                     decoration: InputDecoration(
                       labelText: l10n.pilotVisibilityLabel,
                       border: const OutlineInputBorder(),
@@ -224,7 +253,8 @@ class _TailPickerScreenState extends State<TailPickerScreen>
                     items: [
                       DropdownMenuItem(value: 'private', child: Text(l10n.pilotVisibilityPrivate)),
                       DropdownMenuItem(value: 'club', child: Text(l10n.pilotVisibilityClub)),
-                      DropdownMenuItem(value: 'public', child: Text(l10n.pilotVisibilityPublic)),
+                      if (_allowPublicVisibility)
+                        DropdownMenuItem(value: 'public', child: Text(l10n.pilotVisibilityPublic)),
                     ],
                     onChanged: (v) => setState(() {
                       _visibility = v ?? 'club';
@@ -233,7 +263,16 @@ class _TailPickerScreenState extends State<TailPickerScreen>
                       }
                     }),
                   ),
-                  if (_visibility == 'public')
+                  if (!_allowPublicVisibility) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      l10n.pilotPublicRequiresVerifiedEmail,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                  if (effectiveVisibility == 'public')
                     SwitchListTile(
                       title: Text(l10n.pilotShowPilotNamePublic),
                       value: _showPilotNamePublic,

@@ -45,6 +45,7 @@ class PilotProfile {
     required this.role,
     this.licenseNo,
     this.clubTrailMinutesDefault,
+    this.emailVerified,
   });
 
   final String id;
@@ -55,23 +56,62 @@ class PilotProfile {
   final String? licenseNo;
   final int? clubTrailMinutesDefault;
 
+  /// Explicit email-verified flag when exposed by the server (`emailVerified`,
+  /// `email_verified`, or non-null `emailVerifiedAt`/`email_verified_at`).
+  final bool? emailVerified;
+
   factory PilotProfile.fromJson(
     Map<String, dynamic> json, {
     int? clubTrailMinutesDefault,
-  }) =>
-      PilotProfile(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        email: json['email'] as String,
-        status: json['status'] as String,
-        role: json['role'] as String,
-        licenseNo: json['licenseNo'] as String?,
-        clubTrailMinutesDefault: clubTrailMinutesDefault ??
-            _parseTrailMinutes(json['clubTrailMinutesDefault']),
-      );
+  }) {
+    bool? parsedEmailVerified;
+    final rawVerified = json['emailVerified'] ?? json['email_verified'];
+    if (rawVerified is bool) {
+      parsedEmailVerified = rawVerified;
+    } else if (json.containsKey('emailVerifiedAt') ||
+        json.containsKey('email_verified_at')) {
+      final rawAt = json['emailVerifiedAt'] ?? json['email_verified_at'];
+      parsedEmailVerified = rawAt != null && rawAt.toString().trim().isNotEmpty;
+    }
+    return PilotProfile(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      email: json['email'] as String,
+      status: json['status'] as String,
+      role: json['role'] as String,
+      licenseNo: json['licenseNo'] as String?,
+      clubTrailMinutesDefault: clubTrailMinutesDefault ??
+          _parseTrailMinutes(json['clubTrailMinutesDefault']),
+      emailVerified: parsedEmailVerified,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'email': email,
+        'status': status,
+        'role': role,
+        if (licenseNo != null) 'licenseNo': licenseNo,
+        if (clubTrailMinutesDefault != null)
+          'clubTrailMinutesDefault': clubTrailMinutesDefault,
+        if (emailVerified != null) 'emailVerified': emailVerified,
+      };
 
   bool get isApproved => status == 'approved';
   bool get isGuest => status == 'guest';
+
+  /// Whether this pilot may broadcast with `visibility=public`.
+  ///
+  /// When the server exposes an explicit `emailVerified` flag, requires `true`.
+  /// Otherwise treats guest/unapproved accounts (or synthetic `@guest.invalid`
+  /// emails) as unverified and hides public visibility.
+  bool get hasVerifiedEmail {
+    if (emailVerified != null) return emailVerified!;
+    if (!isApproved || isGuest) return false;
+    final lower = email.trim().toLowerCase();
+    return lower.isNotEmpty && !lower.endsWith('@guest.invalid');
+  }
 }
 
 class TailOption {
@@ -487,16 +527,20 @@ class FlightVisClient {
     final session = _sessionFromResponse(response);
     if (session != null) _sessionId = session;
     final loginPilot = PilotProfile.fromJson(body['pilot'] as Map<String, dynamic>);
-    final me = await meProfile();
-    return me ?? loginPilot;
+    try {
+      final me = await meProfile();
+      return me ?? loginPilot;
+    } on FlightVisException {
+      return loginPilot;
+    }
   }
 
   Future<PilotProfile?> meProfile() async {
     if (!hasSession) return null;
     final response = await _http.get(_uri(FlightVisApiPaths.clubMe), headers: _headers());
-    if (response.statusCode == 401) {
+    if (response.statusCode == 401 || response.statusCode == 403) {
       _clubTrailMinutesDefault = null;
-      return null;
+      _throwForError(response);
     }
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
@@ -777,6 +821,59 @@ class FlightVisClient {
       queryParameters: queryParameters,
     );
     final headers = _headers();
+    if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
+      headers['If-None-Match'] = ifNoneMatch;
+    }
+    final response = await _http.get(uri, headers: headers);
+    final responseEtag = response.headers['etag'];
+    if (response.statusCode == 304) {
+      return LiveTrailsResponse.notModified(etag: responseEtag ?? ifNoneMatch);
+    }
+    if (response.statusCode != 200) _throwForError(response);
+    final body = _decodeJson(response);
+    final rawFlights = body['flights'] as List<dynamic>? ?? const [];
+    final flights = rawFlights
+        .whereType<Map<String, dynamic>>()
+        .map(LiveTrailFlight.fromJson)
+        .toList(growable: false);
+    final rawCaps = body['caps'];
+    final caps = rawCaps is Map<String, dynamic>
+        ? LiveTrailsCaps.fromJson(rawCaps)
+        : null;
+    return LiveTrailsResponse(
+      flights: flights,
+      caps: caps,
+      etag: responseEtag,
+    );
+  }
+
+  /// Polls nearby public aircraft trails anonymously via
+  /// `GET /api/public/live-trails?lat=...&lon=...&radius_km=...`.
+  ///
+  /// Never sends `Cookie` or `Authorization` headers (only `Accept-Language`
+  /// and optional `If-None-Match`). Skips the network call when coordinates are
+  /// invalid.
+  Future<LiveTrailsResponse> fetchPublicLiveTrails({
+    required double lat,
+    required double lon,
+    required int radiusKm,
+    String? ifNoneMatch,
+  }) async {
+    if (!_hasValidCoordinates(lat, lon)) {
+      return const LiveTrailsResponse(flights: []);
+    }
+    final clampedRadius = radiusKm.clamp(5, 500);
+    final uri = _uri(FlightVisApiPaths.publicLiveTrails).replace(
+      queryParameters: <String, String>{
+        'lat': _formatCoordinate(lat),
+        'lon': _formatCoordinate(lon),
+        'radius_km': clampedRadius.toString(),
+      },
+    );
+    final headers = <String, String>{};
+    if (_acceptLanguage != null && _acceptLanguage!.isNotEmpty) {
+      headers['Accept-Language'] = _acceptLanguage!;
+    }
     if (ifNoneMatch != null && ifNoneMatch.isNotEmpty) {
       headers['If-None-Match'] = ifNoneMatch;
     }

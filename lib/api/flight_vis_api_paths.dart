@@ -20,6 +20,7 @@ abstract final class FlightVisApiPaths {
   static const meDevices = '/api/me/devices';
   static const meFlights = '/api/me/flights';
   static const meLiveTrails = '/api/me/live-trails';
+  static const publicLiveTrails = '/api/public/live-trails';
   static const flights = '/api/flights';
 
   static String flightEnd(String flightId) => '/api/flights/$flightId/end';

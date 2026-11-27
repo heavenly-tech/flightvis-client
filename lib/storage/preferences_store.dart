@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/flight_vis_client.dart';
 import '../app_config.dart';
 import '../dev/dev_tools_gate.dart';
 import '../services/locale_preferences.dart';
@@ -45,6 +48,7 @@ class PreferencesStore {
   static const activeClubNameKey = 'fv_active_club_name';
   static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
   static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
+  static const cachedPilotProfileKey = 'fv_cached_pilot_profile';
 
   final SharedPreferences _prefs;
 
@@ -180,6 +184,30 @@ class PreferencesStore {
       await _prefs.remove(activeClubNameKey);
     } else {
       await _prefs.setString(activeClubNameKey, name);
+    }
+  }
+
+  /// Cached last verified pilot profile so transient offline startups do not
+  /// sign out the user while `/api/club/me` is unreachable.
+  PilotProfile? cachedPilotProfile() {
+    final raw = _prefs.getString(cachedPilotProfileKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return PilotProfile.fromJson(decoded);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setCachedPilotProfile(PilotProfile? profile) async {
+    if (profile == null) {
+      await _prefs.remove(cachedPilotProfileKey);
+    } else {
+      await _prefs.setString(cachedPilotProfileKey, jsonEncode(profile.toJson()));
     }
   }
 }

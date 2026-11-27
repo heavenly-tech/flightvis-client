@@ -48,6 +48,20 @@ void _expectExportPolicy(String xml) {
 }
 
 void main() {
+  test('source AndroidManifest declares battery exemption, notifications, and non-exported local recorder service', () {
+    final xml = File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(
+      xml,
+      contains('android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS'),
+    );
+    expect(xml, contains('android.permission.POST_NOTIFICATIONS'));
+    expect(xml, contains('android.permission.INTERNET'));
+    expect(xml, contains('android.permission.FOREGROUND_SERVICE_LOCATION'));
+    expect(xml, contains('android:name=".LocalFlightRecorderService"'));
+    expect(xml, contains('android:foregroundServiceType="location"'));
+    _expectExportPolicy(xml);
+  });
+
   test('C-3 merged debug manifest policy (BootReceiver / BOOT_COMPLETED / export)', () async {
     if (!Platform.isLinux) return;
 
@@ -62,6 +76,8 @@ void main() {
 
     final xml = File(path).readAsStringSync();
     expect(xml, contains('package="cl.heavenly.flightvis"'));
+    expect(xml, contains('android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS'));
+    expect(xml, contains('android.permission.POST_NOTIFICATIONS'));
     expect(xml, contains('TrackerService'));
     expect(xml, isNot(contains('org.traccar.client.BootReceiver')));
     _expectNoBootCompletedReceivers(xml);

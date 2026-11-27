@@ -16,14 +16,22 @@ import 'package:flight_vis/ci_test_keys.dart';
 import 'package:flight_vis/map/map_tile_config.dart';
 import 'package:flight_vis/map/own_trail_buffer.dart';
 import 'package:flight_vis/screens/checkin_screen.dart';
+import 'package:flight_vis/screens/home_hub_screen.dart';
+import 'package:flight_vis/screens/live_map_screen.dart';
+import 'package:flight_vis/screens/local_flight_screen.dart';
 import 'package:flight_vis/screens/login_screen.dart';
 import 'package:flight_vis/screens/pairing_screen.dart';
 import 'package:flight_vis/screens/permissions_onboarding_screen.dart';
 import 'package:flight_vis/screens/tail_picker_screen.dart';
 import 'package:flight_vis/screens/tracking_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
+import 'package:flight_vis/services/device_location_provider.dart';
+import 'package:flight_vis/services/flight_permissions.dart';
+import 'package:flight_vis/services/flight_start_mode.dart';
 import 'package:flight_vis/services/local_fix_source.dart';
+import 'package:flight_vis/services/local_flight_recorder.dart';
 import 'package:flight_vis/services/tracking_service.dart';
+import 'package:flight_vis/storage/local_flight_store.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
 import 'package:flight_vis/storage/secure_store.dart';
 
@@ -350,4 +358,219 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(390, 844));
     }
   });
+
+  testWidgets('permission banner golden (multiple gaps + OEM hint)', (tester) async {
+    final repo = await _repo();
+    final perms = _GoldenPermissions(
+      const FlightPermissionStatus(
+        fineLocationGranted: true,
+        backgroundLocationGranted: false,
+        notificationsGranted: false,
+        batteryUnrestricted: false,
+      ),
+    );
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'p1',
+          name: 'Pablo Pilot',
+          email: 'pablo@club.cl',
+          status: 'approved',
+          role: 'pilot',
+        ),
+        onStartFlight: (_, _) {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: perms,
+        localFlightStore: InMemoryLocalFlightStore(),
+        initialPermissionHintGap: PermissionGap.battery,
+      ),
+      '08-permission-banner',
+    );
+    await _maybeExportShot(tester, '08-permission-banner.png');
+  });
+
+  testWidgets('hub signed-in without check-in golden', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      PreferencesStore.activeClubSlugKey: 'demo-club',
+      PreferencesStore.activeClubNameKey: 'Club Aéreo Demo',
+    });
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(baseUrl: prefs.baseUrl()),
+    );
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'p1',
+          name: 'Pablo Pilot',
+          email: 'pablo@club.cl',
+          status: 'approved',
+          role: 'pilot',
+        ),
+        onStartFlight: (_, _) {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        localFlightStore: InMemoryLocalFlightStore(),
+      ),
+      '09-hub-signed-in-no-checkin',
+    );
+    await _maybeExportShot(tester, '09-hub-signed-in-no-checkin.png');
+  });
+
+  testWidgets('pre-tracking live map golden (signed-in pilot)', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      PreferencesStore.mapLayerOwnKey: true,
+      PreferencesStore.mapLayerClubKey: true,
+      PreferencesStore.mapLayerPublicKey: true,
+    });
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+      ),
+    );
+    await _golden(
+      tester,
+      LiveMapScreen(
+        repo: repo,
+        loggedIn: true,
+        deviceLocationProvider: FakeDeviceLocationProvider(
+          location: _demoOwnFixes().last,
+        ),
+        tileProvider: FakeTileProvider(),
+        enableMapPolling: false,
+        initialRemoteFlights: _demoRemoteFlights(),
+      ),
+      '10-live-map',
+    );
+    await _maybeExportShot(tester, '10-live-map.png');
+  });
+
+  testWidgets('guest live map golden (public-only anonymous)', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+      ),
+    );
+    await _golden(
+      tester,
+      LiveMapScreen(
+        repo: repo,
+        loggedIn: false,
+        deviceLocationProvider: FakeDeviceLocationProvider(
+          location: _demoOwnFixes().last,
+        ),
+        tileProvider: FakeTileProvider(),
+        enableMapPolling: false,
+        initialRemoteFlights: _demoRemoteFlights(),
+      ),
+      '11-guest-map',
+    );
+    await _maybeExportShot(tester, '11-guest-map.png');
+  });
+
+  testWidgets('hub signed-out golden (both primary buttons)', (tester) async {
+    final repo = await _repo();
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: null,
+        onStartFlight: (_, _) {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        localFlightStore: InMemoryLocalFlightStore(),
+      ),
+      '12-hub-signed-out',
+    );
+    await _maybeExportShot(tester, '12-hub-signed-out.png');
+  });
+
+  testWidgets('local flight recording golden', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      PreferencesStore.mapLayerOwnKey: true,
+      PreferencesStore.mapLayerPublicKey: true,
+    });
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        httpClient: http_testing.MockClient((_) async => http.Response('{}', 200)),
+      ),
+    );
+    final recorder = FakeLocalFlightRecorder(initialFixes: _demoOwnFixes());
+    addTearDown(recorder.dispose);
+    await _golden(
+      tester,
+      LocalFlightScreen(
+        repo: repo,
+        localRecorder: recorder,
+        localFlightStore: InMemoryLocalFlightStore(),
+        localReason: LocalFlightReason.noClubCheckin,
+        tail: 'CC-LOC',
+        onStopped: () {},
+        tileProvider: FakeTileProvider(),
+        enableMapPolling: false,
+        initialOwnFixes: _demoOwnFixes(),
+        initialRemoteFlights: _demoRemoteFlights(),
+      ),
+      '13-local-flight',
+    );
+    await _maybeExportShot(tester, '13-local-flight.png');
+  });
+}
+
+class _GoldenPermissions extends FlightPermissionsClient {
+  const _GoldenPermissions(this.status);
+
+  final FlightPermissionStatus status;
+
+  @override
+  Future<FlightPermissionStatus> check() async => status;
+  @override
+  Future<bool> requestFineLocation() async => status.fineLocationGranted;
+  @override
+  Future<bool> requestBackgroundLocation() async =>
+      status.backgroundLocationGranted;
+  @override
+  Future<bool> requestNotifications() async => status.notificationsGranted;
+  @override
+  Future<bool> requestBatteryExemption() async => status.batteryUnrestricted;
+  @override
+  Future<bool> openSettings() async => true;
+  @override
+  Future<void> openGapSettings(PermissionGap gap) async {}
 }

@@ -165,7 +165,12 @@
   "permWarningTitle": "Missing permissions to track",
   "permWarningBackground": "You must enable Allow all the time for location.",
   "permWarningFix": "Fix",
-  "permStartBlocked": "Cannot start tracking without background location.",
+  "permStartBlocked": "Cannot start tracking without location permission.",
+  "permFineRequiredToStart": "Location permission is required to start a flight.",
+  "permOemHintBattery": "If it doesn't appear, open Settings > Apps > flight_vis > Battery and choose \"Unrestricted\".",
+  "permOemHintBackground": "Choose \"Allow all the time\" in Location.",
+  "permOemHintNotifications": "Enable notifications in Settings > Apps > flight_vis > Notifications.",
+  "permOemHintFine": "Enable precise location in Settings > Apps > flight_vis > Permissions.",
   "appName": "flight_vis",
   "pilotCheckInInvalidCode": "Invalid check-in code.",
   "pilotGpsStartFailed": "Could not start GPS — check location permissions.",
@@ -276,5 +281,48 @@
       "km": {"type": "int"}
     }
   },
-  "pilotMapPublicWaitingPosition": "Waiting for your position to show nearby public flights"
+  "pilotMapPublicWaitingPosition": "Waiting for your position to show nearby public flights",
+  "sessionExpiredPrompt": "Your session expired. Sign in again.",
+  "mapPollServerOffline": "No connection to the server; retrying…",
+  "mapClubRequiresSignIn": "Sign in to see your club's flights",
+  "pilotHubLiveMapButton": "View live map",
+  "pilotHubStartFlightButton": "Start flight",
+  "pilotHubLiveMapTitle": "Live map",
+  "pilotHubFlightBroadcastSignedOut": "Sign in to broadcast live",
+  "pilotHubFlightBroadcastNoCheckIn": "Check in at your club to broadcast club flights",
+  "pilotHubLocalFlightsTitle": "My local flights",
+  "pilotHubLocalFlightsSubtitle": "Flights saved on your phone",
+  "pilotHubLocalFlightsCount": "{count, plural, =0{No saved flights} =1{1 flight saved on your phone} other{{count} flights saved on your phone}}",
+  "@pilotHubLocalFlightsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightStartTitle": "Start local flight",
+  "localFlightTailLabel": "Tail (optional)",
+  "localFlightTailHint": "e.g. N12345",
+  "localFlightNoClubNote": "Non-club flight: saved on your phone. Upload will be available soon.",
+  "localFlightOfflineNote": "Saved only on your phone without sending data to the server.",
+  "localFlightScreenTitle": "Local flight",
+  "localFlightNoTail": "No tail",
+  "localFlightRecordingActive": "Recording on your phone",
+  "localFlightRecordingFailed": "Could not start GPS recording. Check location permissions.",
+  "localFlightStopAction": "Finish local flight",
+  "localFlightEndConfirmTitle": "Finish and save this flight on your phone?",
+  "localFlightSavedNotice": "Flight saved on your phone.",
+  "localFlightsEmpty": "You don't have any saved flights on this phone yet.",
+  "localFlightPointsCount": "{count} points",
+  "@localFlightPointsCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "localFlightDurationMinutes": "{minutes} min",
+  "@localFlightDurationMinutes": {
+    "placeholders": {
+      "minutes": {"type": "int"}
+    }
+  },
+  "localFlightUploadSoon": "Saved locally. Uploading to the server will be available soon.",
+  "pilotPublicRequiresVerifiedEmail": "Verify your email to broadcast publicly."
 }

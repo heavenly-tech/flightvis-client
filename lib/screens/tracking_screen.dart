@@ -11,6 +11,7 @@ import '../l10n/api_errors.dart';
 import '../l10n/pilot_l10n.dart';
 import '../map/own_trail_buffer.dart';
 import '../services/app_repository.dart';
+import '../services/device_location_provider.dart';
 import '../services/local_fix_source.dart';
 import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
@@ -25,6 +26,8 @@ class TrackingScreen extends StatefulWidget {
     required this.tail,
     required this.tracking,
     required this.onStopped,
+    this.onSessionExpired,
+    this.deviceLocationProvider,
     this.tileProvider,
     this.fixSource,
     this.enableMapPolling,
@@ -38,6 +41,8 @@ class TrackingScreen extends StatefulWidget {
   final String tail;
   final TrackingService tracking;
   final VoidCallback onStopped;
+  final VoidCallback? onSessionExpired;
+  final DeviceLocationProvider? deviceLocationProvider;
   final TileProvider? tileProvider;
   final LocalFixSource? fixSource;
   final bool? enableMapPolling;
@@ -167,11 +172,31 @@ class _TrackingScreenState extends State<TrackingScreen>
       checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
     );
     try {
-      await widget.tracking.start();
-      if (mounted) setState(() => _active = true);
-    } on PlatformException {
+      final started = await widget.tracking.start();
+      if (!mounted) return;
+      if (started) {
+        setState(() => _active = true);
+      } else {
+        setState(() {
+          _active = false;
+          _error = context.pilotL10n.pilotGpsStartFailed;
+        });
+      }
+    } on PlatformException catch (e) {
+      debugPrint('TrackingScreen._bootstrap start PlatformException: $e');
       if (mounted) {
-        setState(() => _error = context.pilotL10n.pilotGpsStartFailed);
+        setState(() {
+          _active = false;
+          _error = context.pilotL10n.pilotGpsStartFailed;
+        });
+      }
+    } catch (e) {
+      debugPrint('TrackingScreen._bootstrap start error: $e');
+      if (mounted) {
+        setState(() {
+          _active = false;
+          _error = context.pilotL10n.pilotGpsStartFailed;
+        });
       }
     }
   }
@@ -288,6 +313,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                       trailMinutesOverride: _trailMinutes,
                       clubDefaultMinutes: _clubTrailMinutesDefault,
                       fixSource: widget.fixSource ?? widget.tracking.fixSource,
+                      deviceLocationProvider: widget.deviceLocationProvider,
+                      onSessionExpired: widget.onSessionExpired,
                       mapHeight: mapHeight,
                       tileProvider: widget.tileProvider,
                       pollInterval: widget.mapPollInterval,

@@ -12,10 +12,14 @@ import kotlinx.coroutines.launch
 import org.traccar.client.sharedTracker
 
 /**
- * In-memory ring buffer observing the existing Traccar SDK tracker's
- * `StateFlow<State>` (`lastAcceptedLocation`) so the tracking map renders the
- * pilot's own live trail from local fixes without opening a duplicate GPS
- * subscription or making server round-trips.
+ * In-memory ring buffer forwarding local GPS fixes to Flutter via
+ * `EventChannel("cl.heavenly.flightvis/tracking_positions")`.
+ *
+ * Used in two mutually exclusive modes:
+ * - Club broadcast: observes the Traccar SDK tracker's `StateFlow<State>`
+ *   (`lastAcceptedLocation`) without opening a duplicate GPS subscription.
+ * - Local-only recording: fed directly by [LocalFlightRecorderService] via
+ *   [recordFix] with zero Traccar or network involvement.
  */
 object LocalPositionRecorder {
     private const val MAX_POINTS = 2000
@@ -40,6 +44,61 @@ object LocalPositionRecorder {
         eventSink = sink
     }
 
+    fun recordFix(
+        timeMs: Long,
+        lat: Double,
+        lon: Double,
+        alt: Double?,
+        bearing: Double?,
+        speed: Double?,
+    ) {
+        if (!lat.isFinite() || !lon.isFinite()) return
+        if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) return
+        val safeAlt = alt?.takeIf { it.isFinite() }
+        val safeBearing = bearing?.takeIf { it.isFinite() }
+        val safeSpeed = speed?.takeIf { it.isFinite() }
+        val payload =
+            synchronized(lock) {
+                if (timeMs == lastTimeMs && lat == lastLat && lon == lastLon) {
+                    return@synchronized null
+                }
+                lastTimeMs = timeMs
+                lastLat = lat
+                lastLon = lon
+                val entry =
+                    mapOf<String, Any?>(
+                        "timeMs" to timeMs,
+                        "lat" to lat,
+                        "lon" to lon,
+                        "alt" to safeAlt,
+                        "bearing" to safeBearing,
+                        "speed" to safeSpeed,
+                    )
+                buffer.addLast(entry)
+                val cutoff = timeMs - MAX_AGE_MS
+                while (buffer.isNotEmpty()) {
+                    val oldestTime = (buffer.first()["timeMs"] as? Number)?.toLong() ?: break
+                    if (oldestTime < cutoff) {
+                        buffer.removeFirst()
+                    } else {
+                        break
+                    }
+                }
+                while (buffer.size > MAX_POINTS) {
+                    buffer.removeFirst()
+                }
+                entry
+            }
+        if (payload != null) {
+            val sink = eventSink
+            if (sink != null) {
+                mainHandler.post {
+                    eventSink?.success(payload)
+                }
+            }
+        }
+    }
+
     fun startObserving() {
         synchronized(lock) {
             if (observerJob?.isActive == true) return
@@ -57,48 +116,14 @@ object LocalPositionRecorder {
                         val pos = state.lastAcceptedLocation ?: return@collect
                         val lat = pos.latitude ?: return@collect
                         val lon = pos.longitude ?: return@collect
-                        if (!lat.isFinite() || !lon.isFinite()) return@collect
-                        val timeMs = pos.time
-                        val payload =
-                            synchronized(lock) {
-                                if (timeMs == lastTimeMs && lat == lastLat && lon == lastLon) {
-                                    return@synchronized null
-                                }
-                                lastTimeMs = timeMs
-                                lastLat = lat
-                                lastLon = lon
-                                val entry =
-                                    mapOf<String, Any?>(
-                                        "timeMs" to timeMs,
-                                        "lat" to lat,
-                                        "lon" to lon,
-                                        "alt" to pos.altitude,
-                                        "bearing" to pos.bearing,
-                                        "speed" to pos.speed,
-                                    )
-                                buffer.addLast(entry)
-                                val cutoff = timeMs - MAX_AGE_MS
-                                while (buffer.isNotEmpty()) {
-                                    val oldestTime = (buffer.first()["timeMs"] as? Number)?.toLong() ?: break
-                                    if (oldestTime < cutoff) {
-                                        buffer.removeFirst()
-                                    } else {
-                                        break
-                                    }
-                                }
-                                while (buffer.size > MAX_POINTS) {
-                                    buffer.removeFirst()
-                                }
-                                entry
-                            }
-                        if (payload != null) {
-                            val sink = eventSink
-                            if (sink != null) {
-                                mainHandler.post {
-                                    eventSink?.success(payload)
-                                }
-                            }
-                        }
+                        recordFix(
+                            timeMs = pos.time,
+                            lat = lat,
+                            lon = lon,
+                            alt = pos.altitude,
+                            bearing = pos.bearing?.toDouble(),
+                            speed = pos.speed?.toDouble(),
+                        )
                     }
                 }
         }

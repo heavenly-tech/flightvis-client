@@ -12,6 +12,7 @@ import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/ci_test_keys.dart';
 import 'package:flight_vis/screens/tail_picker_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
+import 'package:flight_vis/services/flight_permissions.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
 import 'package:flight_vis/storage/secure_store.dart';
 
@@ -428,4 +429,205 @@ void main() {
     expect(startedFlight?.trailMinutes, 15);
     expect(repo.prefs.activeFlightTrailMinutes(), 15);
   });
+
+  testWidgets('Start proceeds when battery, notifications, and background are missing but fine is granted', (tester) async {
+    var startFlightCalls = 0;
+    StartFlightResult? startedFlight;
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == FlightVisApiPaths.flights) {
+          startFlightCalls++;
+          return http.Response(
+            jsonEncode({
+              'id': 'f-warn-only',
+              'visibility': 'club',
+              'showPilotNamePublic': false,
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    final perms = _TailTestPermissions(
+      status: const FlightPermissionStatus(
+        fineLocationGranted: true,
+        backgroundLocationGranted: false,
+        notificationsGranted: false,
+        batteryUnrestricted: false,
+      ),
+    );
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          permissions: perms,
+          onFlightStarted: (flight, _) => startedFlight = flight,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Banner warns, but Start is NOT blocked.
+    expect(find.byKey(FlightVisTestKeys.permissionWarningCard), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.tap(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.pumpAndSettle();
+
+    expect(startFlightCalls, 1);
+    expect(startedFlight?.id, 'f-warn-only');
+  });
+
+  testWidgets('Start is blocked with a clear message when fine location is denied', (tester) async {
+    var startFlightCalls = 0;
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        if (request.method == 'POST' && request.url.path == FlightVisApiPaths.flights) {
+          startFlightCalls++;
+          return http.Response(jsonEncode({'id': 'should-not-happen'}), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    final perms = _TailTestPermissions(
+      status: const FlightPermissionStatus(
+        fineLocationGranted: false,
+        backgroundLocationGranted: true,
+        notificationsGranted: true,
+        batteryUnrestricted: true,
+      ),
+      requestFineResult: false,
+    );
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          permissions: perms,
+          onFlightStarted: (_, _) => fail('must not start without fine location'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.tap(find.byKey(FlightVisTestKeys.tailStart));
+    await tester.pumpAndSettle();
+
+    expect(perms.requestFineCalls, 1);
+    expect(startFlightCalls, 0);
+    expect(
+      find.text('Necesitas permiso de ubicación para iniciar el vuelo.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('hides public visibility option when pilot email is unverified', (tester) async {
+    final repo = await _buildRepo(
+      http_testing.MockClient((request) async {
+        if (request.url.path == FlightVisApiPaths.meTails) {
+          return http.Response(
+            jsonEncode({
+              'tails': [
+                {'id': 'a1', 'tail': 'CC-ABC', 'type_code': 'C172'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+
+    final unverifiedPilot = PilotProfile(
+      id: 'p-unv',
+      name: 'Unverified',
+      email: 'pilot@example.test',
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: false,
+    );
+
+    await tester.pumpWidget(
+      PilotAppShell(
+        locale: const Locale('es', 'CL'),
+        home: TailPickerScreen(
+          repo: repo,
+          pilot: unverifiedPilot,
+          onFlightStarted: (_, _) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Verifica tu correo para transmitir de forma pública.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Club'));
+    await tester.pumpAndSettle();
+    expect(find.text('Público'), findsNothing);
+    expect(find.text('Privado'), findsOneWidget);
+  });
+}
+
+class _TailTestPermissions extends FlightPermissionsClient {
+  _TailTestPermissions({
+    required this.status,
+    this.requestFineResult = true,
+  });
+
+  FlightPermissionStatus status;
+  final bool requestFineResult;
+  int requestFineCalls = 0;
+
+  @override
+  Future<FlightPermissionStatus> check() async => status;
+
+  @override
+  Future<bool> requestFineLocation() async {
+    requestFineCalls++;
+    return requestFineResult;
+  }
+
+  @override
+  Future<bool> requestBackgroundLocation() async => true;
+
+  @override
+  Future<bool> requestNotifications() async => true;
+
+  @override
+  Future<bool> requestBatteryExemption() async => true;
+
+  @override
+  Future<bool> openSettings() async => true;
+
+  @override
+  Future<void> openGapSettings(PermissionGap gap) async {}
 }

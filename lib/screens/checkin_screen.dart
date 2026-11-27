@@ -25,6 +25,7 @@ class CheckinScreen extends StatefulWidget {
     this.initialClubSlug,
     this.onLoginRequired,
     this.onStartFlight,
+    this.pilot,
     this.permissions,
   });
 
@@ -34,6 +35,7 @@ class CheckinScreen extends StatefulWidget {
   final void Function(String flightId, String tailLabel)? onStartFlight;
   final String? initialScan;
   final String? initialClubSlug;
+  final PilotProfile? pilot;
   final FlightPermissionsClient? permissions;
 
   @override
@@ -90,6 +92,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
       MaterialPageRoute<void>(
         builder: (routeContext) => TailPickerScreen(
           repo: widget.repo,
+          pilot: widget.pilot,
           permissions: widget.permissions,
           onFlightStarted: (flight, tail) {
             Navigator.of(routeContext).maybePop();

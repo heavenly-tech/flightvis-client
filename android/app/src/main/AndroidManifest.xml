@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         tools:replace="android:label"
         android:label="@string/app_name"
@@ -69,6 +71,10 @@
         <receiver
             android:name=".CheckinExpiryStopReceiver"
             android:exported="false" />
+        <service
+            android:name=".LocalFlightRecorderService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
     <queries>
         <intent>
