@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,13 +9,72 @@ import '../dev/dev_tools_gate.dart';
 import '../services/locale_preferences.dart';
 import 'local_flight_store.dart';
 
+/// Persisted marker recording that THIS app install recently requested an
+/// account magic link / signup (M-30).
+///
+/// Auto-completing an incoming `/api/account/auth/magic` App Link is permitted
+/// ONLY when this marker is present and fresh (within [PreferencesStore.magicLinkRequestTtl],
+/// default 30 minutes) AND the user is neither signed in nor tracking.
+class PendingMagicLinkRequest {
+  const PendingMagicLinkRequest({
+    required this.nonce,
+    required this.email,
+    required this.expiresAtMs,
+  });
+
+  final String nonce;
+  final String email;
+  final int expiresAtMs;
+
+  bool isFresh(int nowMs) => nonce.isNotEmpty && nowMs < expiresAtMs;
+
+  Map<String, dynamic> toJson() => {
+        'nonce': nonce,
+        'email': email,
+        'expiresAtMs': expiresAtMs,
+      };
+
+  static PendingMagicLinkRequest? fromJson(Map<String, dynamic> json) {
+    final nonce = (json['nonce'] as String?)?.trim();
+    final email = (json['email'] as String?)?.trim() ?? '';
+    final expiresAtMs = (json['expiresAtMs'] as num?)?.toInt();
+    if (nonce == null || nonce.isEmpty || expiresAtMs == null) return null;
+    return PendingMagicLinkRequest(
+      nonce: nonce,
+      email: email,
+      expiresAtMs: expiresAtMs,
+    );
+  }
+}
+
+/// Pure M-30 gate deciding whether an incoming `/api/account/auth/magic` App
+/// Link may auto-complete without a confirmation dialog.
+///
+/// Returns `true` ONLY when:
+/// - the user is NOT currently signed in,
+/// - the user is NOT currently tracking a flight, and
+/// - this install recorded a fresh [PendingMagicLinkRequest] marker.
+bool shouldAutoCompleteAccountMagicLink({
+  required PendingMagicLinkRequest? pendingRequest,
+  required int nowMs,
+  required bool isSignedIn,
+  required bool isTracking,
+}) {
+  if (isSignedIn || isTracking) return false;
+  if (pendingRequest == null) return false;
+  return pendingRequest.isFresh(nowMs);
+}
+
 class PreferencesStore {
   PreferencesStore(this._prefs);
 
   static const baseUrlKey = 'fv_base_url';
   static const checkinExpiresAtKey = 'fv_checkin_expires_at_ms';
   static const activeFlightIdKey = 'fv_active_flight_id';
+  static const activeFlightModeKey = 'fv_active_flight_mode';
+  static const activeFlightTailKey = 'fv_active_flight_tail';
   static const activeFlightTrailMinutesKey = 'fv_active_flight_trail_minutes';
+  static const preferredFlightModeKey = 'fv_preferred_flight_mode';
   static const clubTrailMinutesDefaultKey = 'fv_club_trail_minutes_default';
   static const mapLayerOwnKey = 'fv_map_layer_own';
   static const mapLayerClubKey = 'fv_map_layer_club';
@@ -50,10 +110,17 @@ class PreferencesStore {
   static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
   static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
   static const cachedPilotProfileKey = 'fv_cached_pilot_profile';
+  static const cachedAccountProfileKey = 'fv_cached_account_profile';
   static const legacyFlightsResolvedKey = 'fv_legacy_flights_resolved';
   static const legacyFlightsClaimantBucketKey =
       'fv_legacy_flights_claimant_bucket';
   static const guestFlightsKeptOnPhoneKey = 'fv_guest_flights_kept_on_phone';
+  static const pendingMagicLinkRequestKey = 'fv_pending_magic_link_request';
+  static const lastSignedInAccountIdKey = 'fv_last_signed_in_account_id';
+
+  /// Expiry window for a locally recorded magic-link / signup request marker
+  /// (M-30: auto-complete allowed only while fresh).
+  static const Duration magicLinkRequestTtl = Duration(minutes: 30);
 
   final SharedPreferences _prefs;
 
@@ -102,9 +169,44 @@ class PreferencesStore {
   Future<void> setActiveFlightId(String? id) async {
     if (id == null) {
       await _prefs.remove(activeFlightIdKey);
+      await _prefs.remove(activeFlightModeKey);
+      await _prefs.remove(activeFlightTailKey);
       await _prefs.remove(activeFlightTrailMinutesKey);
     } else {
       await _prefs.setString(activeFlightIdKey, id);
+    }
+  }
+
+  /// Active broadcast flight mode (`'club'` or `'personal'`). Defaults to `'club'`.
+  String activeFlightMode() =>
+      _prefs.getString(activeFlightModeKey) == 'personal' ? 'personal' : 'club';
+
+  Future<void> setActiveFlightMode(String? mode) async {
+    if (mode == null || mode.isEmpty) {
+      await _prefs.remove(activeFlightModeKey);
+    } else {
+      await _prefs.setString(activeFlightModeKey, mode);
+    }
+  }
+
+  String? activeFlightTail() => _prefs.getString(activeFlightTailKey);
+
+  Future<void> setActiveFlightTail(String? tail) async {
+    if (tail == null || tail.isEmpty) {
+      await _prefs.remove(activeFlightTailKey);
+    } else {
+      await _prefs.setString(activeFlightTailKey, tail);
+    }
+  }
+
+  /// Last user-selected hub broadcast mode (`'club'` or `'personal'`).
+  String? preferredFlightMode() => _prefs.getString(preferredFlightModeKey);
+
+  Future<void> setPreferredFlightMode(String? mode) async {
+    if (mode == null || mode.isEmpty) {
+      await _prefs.remove(preferredFlightModeKey);
+    } else {
+      await _prefs.setString(preferredFlightModeKey, mode);
     }
   }
 
@@ -216,6 +318,32 @@ class PreferencesStore {
     }
   }
 
+  /// Cached last verified global account profile for offline startups.
+  AccountProfile? cachedAccountProfile() {
+    final raw = _prefs.getString(cachedAccountProfileKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return AccountProfile.fromJson(decoded);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setCachedAccountProfile(AccountProfile? profile) async {
+    if (profile == null) {
+      await _prefs.remove(cachedAccountProfileKey);
+    } else {
+      await _prefs.setString(
+        cachedAccountProfileKey,
+        jsonEncode(profile.toJson()),
+      );
+    }
+  }
+
   /// True once the first signed-in account has resolved the one-time legacy
   /// local-flights choice (adopted or deleted). Persists across restarts so no
   /// other account or guest is ever offered legacy files.
@@ -310,5 +438,77 @@ class PreferencesStore {
         entry.key: (entry.value.toList()..sort()),
     };
     await _prefs.setString(guestFlightsKeptOnPhoneKey, jsonEncode(encoded));
+  }
+
+  /// Reads the locally stored magic-link / signup request marker (M-30).
+  PendingMagicLinkRequest? pendingMagicLinkRequest() {
+    final raw = _prefs.getString(pendingMagicLinkRequestKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return PendingMagicLinkRequest.fromJson(decoded);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setPendingMagicLinkRequest(
+    PendingMagicLinkRequest? request,
+  ) async {
+    if (request == null) {
+      await _prefs.remove(pendingMagicLinkRequestKey);
+    } else {
+      await _prefs.setString(
+        pendingMagicLinkRequestKey,
+        jsonEncode(request.toJson()),
+      );
+    }
+  }
+
+  Future<PendingMagicLinkRequest> recordMagicLinkRequest({
+    required String email,
+    int? nowMs,
+    Duration ttl = magicLinkRequestTtl,
+    String? nonce,
+  }) async {
+    final effectiveNow = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    final effectiveNonce = (nonce != null && nonce.trim().isNotEmpty)
+        ? nonce.trim()
+        : _generateNonceHex();
+    final marker = PendingMagicLinkRequest(
+      nonce: effectiveNonce,
+      email: email.trim(),
+      expiresAtMs: effectiveNow + ttl.inMilliseconds,
+    );
+    await setPendingMagicLinkRequest(marker);
+    return marker;
+  }
+
+  Future<void> clearPendingMagicLinkRequest() =>
+      setPendingMagicLinkRequest(null);
+
+  /// Last signed-in global account id (or legacy pilot id) used to detect
+  /// account changes and clear `fv_personal_device_token` (M-31).
+  String? lastSignedInAccountId() {
+    final raw = _prefs.getString(lastSignedInAccountIdKey)?.trim();
+    return (raw != null && raw.isNotEmpty) ? raw : null;
+  }
+
+  Future<void> setLastSignedInAccountId(String? accountId) async {
+    final trimmed = accountId?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      await _prefs.remove(lastSignedInAccountIdKey);
+    } else {
+      await _prefs.setString(lastSignedInAccountIdKey, trimmed);
+    }
+  }
+
+  static String _generateNonceHex() {
+    final rng = Random.secure();
+    final bytes = List<int>.generate(16, (_) => rng.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }

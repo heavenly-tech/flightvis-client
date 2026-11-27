@@ -1294,6 +1294,48 @@ void main() {
         2,
       );
     });
+
+    test('L-84: adoptClaimedLegacyFlights moves good flight and deletes corrupt leftover so legacy/ is removed', () async {
+      final tempDir = await Directory.systemTemp.createTemp('fv_legacy_l84_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final legacyDir = Directory(
+        '${tempDir.path}${Platform.pathSeparator}local_flights${Platform.pathSeparator}legacy',
+      );
+      await legacyDir.create(recursive: true);
+      final goodFlight = sampleFlight('legacy_good', 'CC-OK1', 5000);
+      await File('${legacyDir.path}${Platform.pathSeparator}legacy_good.json')
+          .writeAsString(jsonEncode(goodFlight.toJson()));
+      // Corrupt JSON file that fails to parse and would otherwise stay in legacy/ forever.
+      await File('${legacyDir.path}${Platform.pathSeparator}legacy_corrupt.json')
+          .writeAsString('{not valid json');
+
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await PreferencesStore.open();
+      final store = FileLocalFlightStore(directoryProvider: () async => tempDir);
+
+      final moved = await LocalFlightMigration.adoptClaimedLegacyFlights(
+        store: store,
+        prefs: prefs,
+        accountBucket: bucketA,
+      );
+      expect(moved, 1);
+
+      // Good flight was moved into the account bucket.
+      final accountFlights = await store.listFlights(bucket: bucketA);
+      expect(accountFlights.map((f) => f.id).toList(), ['legacy_good']);
+      expect(accountFlights.single.tail, 'CC-OK1');
+
+      // legacy/ directory is empty or removed (corrupt file was cleaned up).
+      final dirStillExists = await legacyDir.exists();
+      if (dirStillExists) {
+        expect(await legacyDir.list().toList(), isEmpty);
+      }
+      expect(dirStillExists, isFalse);
+      expect(prefs.legacyFlightsResolved(), isTrue);
+    });
   });
 
   group('M-28: legacy local flights end-to-end UI isolation, adopt-once, delete & dismiss', () {

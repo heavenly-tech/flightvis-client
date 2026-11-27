@@ -1,3 +1,4 @@
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/widgets.dart';
 
 import '../api/flight_vis_client.dart';
@@ -7,6 +8,7 @@ import '../storage/preferences_store.dart';
 import '../storage/secure_store.dart';
 
 typedef InstallIdProvider = Future<String> Function();
+typedef DeviceModelProvider = Future<String?> Function();
 
 /// Wires HTTP client, secure storage, and preferences.
 class AppRepository {
@@ -15,14 +17,37 @@ class AppRepository {
     required this.prefs,
     required this.client,
     InstallIdProvider? installIdProvider,
-  }) : _installIdProvider = installIdProvider ?? DeviceInstallId.getOrCreate;
+    DeviceModelProvider? deviceModelProvider,
+    DateTime Function()? clock,
+  })  : _installIdProvider = installIdProvider ?? DeviceInstallId.getOrCreate,
+        _deviceModelProvider = deviceModelProvider ?? _defaultDeviceModel,
+        _clock = clock ?? DateTime.now;
 
   final SecureStore secure;
   final PreferencesStore prefs;
   final FlightVisClient client;
   final InstallIdProvider _installIdProvider;
+  final DeviceModelProvider _deviceModelProvider;
+  final DateTime Function() _clock;
+
+  int nowMs() => _clock().millisecondsSinceEpoch;
 
   LocalePreferences get localePrefs => prefs.locale;
+
+  static Future<String?> _defaultDeviceModel() async {
+    try {
+      final info = DeviceInfoPlugin();
+      final android = await info.androidInfo;
+      final model = android.model.trim();
+      return model.isEmpty ? null : model;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String> readInstallId() => _installIdProvider();
+
+  Future<String?> readDeviceModel() => _deviceModelProvider();
 
   static Future<AppRepository> create({
     SecureStore? secure,
@@ -32,12 +57,16 @@ class AppRepository {
     final secureStore = secure ?? SecureStore();
     final preferences = prefs ?? await PreferencesStore.open();
     final sessionId = await secureStore.readSessionId();
+    final accountSessionId = await secureStore.readAccountSessionId();
     final deviceToken = await secureStore.readDeviceToken();
+    final personalDeviceToken = await secureStore.readPersonalDeviceToken();
     final api = client ??
         FlightVisClient(
           baseUrl: preferences.baseUrl(),
           sessionId: sessionId,
+          accountSessionId: accountSessionId,
           deviceToken: deviceToken,
+          personalDeviceToken: personalDeviceToken,
           clubSlug: preferences.activeClubSlug(),
         );
     final repo = AppRepository(secure: secureStore, prefs: preferences, client: api);
@@ -67,6 +96,12 @@ class AppRepository {
     } else {
       await secure.writeSessionId(id);
     }
+    final acctId = client.accountSessionId;
+    if (acctId == null) {
+      await secure.clearAccountSessionId();
+    } else {
+      await secure.writeAccountSessionId(acctId);
+    }
   }
 
   Future<void> persistDeviceToken(String token) async {
@@ -74,11 +109,64 @@ class AppRepository {
     client.setDeviceToken(token);
   }
 
+  Future<void> persistPersonalDeviceToken(String token) async {
+    await secure.writePersonalDeviceToken(token);
+    client.setPersonalDeviceToken(token);
+  }
+
+  /// Clears `fv_personal_device_token` from secure storage and memory (M-31).
+  Future<void> clearPersonalDeviceToken() async {
+    await secure.clearPersonalDeviceToken();
+    client.setPersonalDeviceToken(null);
+  }
+
+  /// Clears `fv_personal_device_token` whenever the signed-in account id
+  /// changes (M-31), and persists [newAccountId] as the active account id.
+  /// Returns `true` when an account switch was detected and the token cleared.
+  Future<bool> clearPersonalDeviceTokenIfAccountChanged(
+    String newAccountId,
+  ) async {
+    final normalized = newAccountId.trim();
+    if (normalized.isEmpty) return false;
+    final previous = (prefs.lastSignedInAccountId() ??
+            prefs.cachedAccountProfile()?.id ??
+            prefs.cachedPilotProfile()?.id)
+        ?.trim();
+    final changed =
+        previous != null && previous.isNotEmpty && previous != normalized;
+    if (changed) {
+      await clearPersonalDeviceToken();
+    }
+    await prefs.setLastSignedInAccountId(normalized);
+    return changed;
+  }
+
+  Future<String?> readDeviceTokenForMode(String flightMode) async {
+    if (flightMode == 'personal') {
+      final inMem = client.personalDeviceToken?.trim();
+      if (inMem != null && inMem.isNotEmpty) return inMem;
+      final stored = (await secure.readPersonalDeviceToken())?.trim();
+      if (stored != null && stored.isNotEmpty) {
+        client.setPersonalDeviceToken(stored);
+        return stored;
+      }
+      return null;
+    }
+    final inMem = client.deviceToken?.trim();
+    if (inMem != null && inMem.isNotEmpty) return inMem;
+    final stored = (await secure.readDeviceToken())?.trim();
+    if (stored != null && stored.isNotEmpty) {
+      client.setDeviceToken(stored);
+      return stored;
+    }
+    return null;
+  }
+
   void refreshBaseUrl() {
     client.baseUrl = prefs.baseUrl();
   }
 
-  /// Ensures a device bearer token exists when a session is active.
+  /// Ensures a club device bearer token exists when a session is active.
   ///
   /// When there is no session, skips `POST /api/me/devices` so anonymous/guest
   /// startup never triggers or surfaces a 401.
@@ -94,13 +182,49 @@ class AppRepository {
         client.setSessionId(storedSession);
       }
     }
-    if (!client.hasSession) return;
+    if (!client.hasAccountSession) {
+      final storedAcct = (await secure.readAccountSessionId())?.trim();
+      if (storedAcct != null && storedAcct.isNotEmpty) {
+        client.setAccountSessionId(storedAcct);
+      }
+    }
+    if (!client.hasAnySession) return;
     final reg = await client.registerDevice(
       installId: await _installIdProvider(),
+      model: await _deviceModelProvider(),
     );
     if (reg != null && reg.token.isNotEmpty) {
       await persistDeviceToken(reg.token);
     }
+  }
+
+  /// Ensures a personal (club-less) device bearer token exists via
+  /// `POST /api/account/devices {mode: "personal"}` without overwriting any
+  /// club device token.
+  Future<String> ensurePersonalDeviceRegistered() async {
+    final inMem = client.personalDeviceToken?.trim();
+    if (inMem != null && inMem.length >= 32) {
+      return inMem;
+    }
+    final existing = (await secure.readPersonalDeviceToken())?.trim();
+    if (existing != null && existing.length >= 32) {
+      client.setPersonalDeviceToken(existing);
+      return existing;
+    }
+    if (!client.hasAccountSession) {
+      final storedAcct = (await secure.readAccountSessionId())?.trim();
+      if (storedAcct != null && storedAcct.isNotEmpty) {
+        client.setAccountSessionId(storedAcct);
+      }
+    }
+    final reg = await client.registerAccountDevice(
+      mode: 'personal',
+      installId: await _installIdProvider(),
+      label: 'Android',
+      model: await _deviceModelProvider(),
+    );
+    await persistPersonalDeviceToken(reg.token);
+    return reg.token;
   }
 
   /// Submits a rotating QR (`v1.…`) or browser-landing handoff/claim (`h1.…`)
@@ -111,9 +235,8 @@ class AppRepository {
   /// 2. Posts the token to `POST /api/checkin` with the guest session cookie.
   /// 3. Persists the server-issued device token (`result.deviceToken`, never
   ///    the raw `deviceId`) so tracking sends `id=<deviceToken>` to `/api/osmand`.
-  /// 4. If the server omitted `token` on check-in and no device token is stored
-  ///    yet, falls back to `POST /api/me/devices` with the guest session cookie
-  ///    without surfacing 401 / `ignored: true` errors.
+  /// 4. Also handles E1 multi-club check-ins where the server mints/reuses a
+  ///    target-club device token without rebinding the old club or personal device.
   Future<CheckinResult> submitCheckin(
     String token, {
     String? clubSlug,
@@ -131,15 +254,35 @@ class AppRepository {
         client.setSessionId(storedSession);
       }
     }
-    if (!client.hasDeviceToken && !client.hasSession) {
+    if (!client.hasAccountSession) {
+      final storedAcct = (await secure.readAccountSessionId())?.trim();
+      if (storedAcct != null && storedAcct.isNotEmpty) {
+        client.setAccountSessionId(storedAcct);
+      }
+    }
+    if (!client.hasDeviceToken && !client.hasAnySession) {
       await client.startGuestSession(name: 'Android');
       await persistSession();
     }
-    final result = await client.checkin(token, clubSlug: clubSlug);
+    String? installId;
+    String? model;
+    if (client.hasAccountSession) {
+      try {
+        installId = await _installIdProvider();
+      } catch (_) {}
+      model = await _deviceModelProvider();
+    }
+    final result = await client.checkin(
+      token,
+      clubSlug: clubSlug,
+      installId: installId,
+      label: installId != null ? 'Android' : null,
+      model: model,
+    );
     final issuedToken = result.deviceToken?.trim();
     if (issuedToken != null && issuedToken.isNotEmpty) {
       await persistDeviceToken(issuedToken);
-    } else if (!client.hasDeviceToken && client.hasSession) {
+    } else if (!client.hasDeviceToken && client.hasAnySession) {
       try {
         await ensureDeviceRegistered();
       } catch (_) {}

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 
@@ -109,7 +110,9 @@ class _LocalFlightScreenState extends State<LocalFlightScreen> {
         });
       }
     } catch (e) {
-      debugPrint('LocalFlightScreen._startRecording failed: $e');
+      if (kDebugMode) {
+        debugPrint('LocalFlightScreen._startRecording failed: $e');
+      }
       if (!mounted) return;
       setState(() {
         _active = false;
@@ -177,7 +180,9 @@ class _LocalFlightScreenState extends State<LocalFlightScreen> {
       );
       if (mounted) widget.onStopped();
     } catch (e) {
-      debugPrint('LocalFlightScreen._stopFlight failed: $e');
+      if (kDebugMode) {
+        debugPrint('LocalFlightScreen._stopFlight failed: $e');
+      }
       if (mounted) {
         setState(() {
           _stopping = false;

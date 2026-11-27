@@ -36,6 +36,55 @@ void main() {
       expect((link! as MagicLinkDeepLink).token, 'abc123');
     });
 
+    test('parses account magic App Link URL with optional purpose (app F)', () {
+      final withoutPurpose = FlightDeepLink.parseIncoming(
+        Uri.parse(
+          'https://flight.heavenly.cl/api/account/auth/magic?token=acct_tok_1',
+        ),
+      );
+      expect(
+        withoutPurpose,
+        const AccountMagicLinkDeepLink(token: 'acct_tok_1'),
+      );
+
+      final withPurpose = FlightDeepLink.parseIncoming(
+        Uri.parse(
+          'https://flight.heavenly.cl/api/account/auth/magic?token=acct_tok_2&purpose=account_signup',
+        ),
+      );
+      expect(
+        withPurpose,
+        const AccountMagicLinkDeepLink(
+          token: 'acct_tok_2',
+          purpose: 'account_signup',
+        ),
+      );
+
+      final intentFallback = FlightDeepLink.parseIncoming(
+        Uri.parse(
+          'intent://flight.heavenly.cl/api/account/auth/magic?token=acct_tok_3#Intent;'
+          'scheme=https;package=cl.heavenly.flightvis;end',
+        ),
+      );
+      expect(
+        intentFallback,
+        const AccountMagicLinkDeepLink(token: 'acct_tok_3'),
+      );
+
+      expect(
+        FlightDeepLink.parseIncoming(
+          Uri.parse('https://flight.heavenly.cl/api/account/auth/magic'),
+        ),
+        isNull,
+      );
+      expect(
+        FlightDeepLink.parseIncoming(
+          Uri.parse('https://evil.example/api/account/auth/magic?token=x'),
+        ),
+        isNull,
+      );
+    });
+
     test('ignores unrelated paths on production host', () {
       expect(
         FlightDeepLink.parseIncoming(Uri.parse('https://flight.heavenly.cl/club/screen')),

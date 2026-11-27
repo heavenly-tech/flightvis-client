@@ -24,7 +24,19 @@ void main() {
         'esperás',
         'entrás',
         'cerrás',
+        'generás',
+        'operás',
+        'recuperás',
+        'declarás',
+        'preparás',
+        'liberás',
+        'comparás',
       ]) {
+        expect(
+          isSpanishTuFuture(word),
+          isFalse,
+          reason: 'L-85: "$word" must NOT be exempted as a tú future',
+        );
         expect(
           findSpanishVoseoViolations('Ahora $word continuar.'),
           contains('present:$word'),
@@ -109,6 +121,13 @@ void main() {
         'esperarás',
         'mirarás',
         'entrarás',
+        'estarás',
+        'recibirás',
+        'encontrarás',
+        'volverás',
+        'generarás',
+        'operarás',
+        'recuperarás',
       ]) {
         expect(
           isSpanishTuFuture(future),

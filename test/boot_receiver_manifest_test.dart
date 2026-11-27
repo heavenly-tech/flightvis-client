@@ -59,6 +59,15 @@ void main() {
     expect(xml, contains('android.permission.FOREGROUND_SERVICE_LOCATION'));
     expect(xml, contains('android:name=".LocalFlightRecorderService"'));
     expect(xml, contains('android:foregroundServiceType="location"'));
+    expect(xml, contains('android:pathPrefix="/api/club/auth/magic"'));
+    expect(xml, contains('android:pathPrefix="/api/account/auth/magic"'));
+    expect(
+      RegExp(
+        r'<intent-filter[^>]*android:autoVerify="true"[\s\S]*?android:host="flight\.heavenly\.cl"[\s\S]*?android:pathPrefix="/api/account/auth/magic"[\s\S]*?</intent-filter>',
+      ).hasMatch(xml),
+      isTrue,
+      reason: 'AndroidManifest must claim https://flight.heavenly.cl/api/account/auth/magic with autoVerify="true"',
+    );
     _expectExportPolicy(xml);
   });
 

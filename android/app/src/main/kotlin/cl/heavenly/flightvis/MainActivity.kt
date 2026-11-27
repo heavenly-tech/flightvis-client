@@ -25,7 +25,18 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         captureLaunchIntent(intent)
+        LocalPositionRecorder.init(applicationContext)
         super.onCreate(savedInstanceState)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        LocalPositionRecorder.setAppForeground(true)
+    }
+
+    override fun onStop() {
+        LocalPositionRecorder.setAppForeground(false)
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -67,6 +78,7 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "startLocalFixRecorder" -> {
+                        LocalPositionRecorder.init(applicationContext)
                         LocalPositionRecorder.startObserving()
                         result.success(null)
                     }
@@ -75,6 +87,36 @@ class MainActivity : FlutterActivity() {
                     }
                     "clearRecentPositions" -> {
                         LocalPositionRecorder.clear()
+                        result.success(null)
+                    }
+                    "setActiveNativeFlight" -> {
+                        LocalPositionRecorder.init(applicationContext)
+                        val args = call.arguments as? Map<*, *>
+                        val flightId = (args?.get("flightId") as? String)?.trim()
+                        val flightMode = (args?.get("flightMode") as? String)?.trim() ?: "club"
+                        if (!flightId.isNullOrEmpty()) {
+                            NativeFixQueueStore.setActiveFlight(
+                                applicationContext,
+                                flightId,
+                                flightMode,
+                            )
+                        } else {
+                            NativeFixQueueStore.clearActiveFlight(applicationContext)
+                        }
+                        result.success(null)
+                    }
+                    "clearActiveNativeFlight" -> {
+                        NativeFixQueueStore.clearActiveFlight(applicationContext)
+                        result.success(null)
+                    }
+                    "readNativeFixQueue" -> {
+                        result.success(NativeFixQueueStore.readAllAsMaps(applicationContext))
+                    }
+                    "truncateNativeFixQueue" -> {
+                        val args = call.arguments as? Map<*, *>
+                        val rawKeys = args?.get("keys") as? List<*>
+                        val keys = rawKeys?.mapNotNull { it as? String }?.toSet()
+                        NativeFixQueueStore.truncateImported(applicationContext, keys)
                         result.success(null)
                     }
                     "isIgnoringBatteryOptimizations" -> {

@@ -1,5 +1,6 @@
 package cl.heavenly.flightvis
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import io.flutter.plugin.common.EventChannel
@@ -13,13 +14,15 @@ import org.traccar.client.sharedTracker
 
 /**
  * In-memory ring buffer forwarding local GPS fixes to Flutter via
- * `EventChannel("cl.heavenly.flightvis/tracking_positions")`.
+ * `EventChannel("cl.heavenly.flightvis/tracking_positions")`, plus native
+ * on-disk fallback persistence ([NativeFixQueueStore]) when the Dart isolate is
+ * detached or backgrounded during an offline/degraded broadcast flight.
  *
  * Used in two mutually exclusive modes:
- * - Club broadcast: observes the Traccar SDK tracker's `StateFlow<State>`
+ * - Club/personal broadcast: observes the Traccar SDK tracker's `StateFlow<State>`
  *   (`lastAcceptedLocation`) without opening a duplicate GPS subscription.
  * - Local-only recording: fed directly by [LocalFlightRecorderService] via
- *   [recordFix] with zero Traccar or network involvement.
+ *   [recordFix] with `persistToUploadQueue = false` (zero network/upload queue).
  */
 object LocalPositionRecorder {
     private const val MAX_POINTS = 2000
@@ -31,6 +34,12 @@ object LocalPositionRecorder {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile
+    private var appContext: Context? = null
+
+    @Volatile
+    private var appForeground: Boolean = false
+
+    @Volatile
     private var eventSink: EventChannel.EventSink? = null
 
     @Volatile
@@ -39,6 +48,14 @@ object LocalPositionRecorder {
     private var lastTimeMs: Long? = null
     private var lastLat: Double? = null
     private var lastLon: Double? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    fun setAppForeground(foreground: Boolean) {
+        appForeground = foreground
+    }
 
     fun setSink(sink: EventChannel.EventSink?) {
         eventSink = sink
@@ -51,12 +68,15 @@ object LocalPositionRecorder {
         alt: Double?,
         bearing: Double?,
         speed: Double?,
+        accuracy: Double? = null,
+        persistToUploadQueue: Boolean = false,
     ) {
         if (!lat.isFinite() || !lon.isFinite()) return
         if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0) return
         val safeAlt = alt?.takeIf { it.isFinite() }
         val safeBearing = bearing?.takeIf { it.isFinite() }
         val safeSpeed = speed?.takeIf { it.isFinite() }
+        val safeAccuracy = accuracy?.takeIf { it.isFinite() }
         val payload =
             synchronized(lock) {
                 if (timeMs == lastTimeMs && lat == lastLat && lon == lastLon) {
@@ -90,6 +110,21 @@ object LocalPositionRecorder {
                 entry
             }
         if (payload != null) {
+            if (persistToUploadQueue && !LocalFlightRecorderService.isRecording) {
+                val ctx = appContext
+                if (ctx != null) {
+                    NativeFixQueueStore.appendForActiveFlight(
+                        context = ctx,
+                        timeMs = timeMs,
+                        lat = lat,
+                        lon = lon,
+                        alt = safeAlt,
+                        speed = safeSpeed,
+                        course = safeBearing,
+                        accuracy = safeAccuracy,
+                    )
+                }
+            }
             val sink = eventSink
             if (sink != null) {
                 mainHandler.post {
@@ -116,6 +151,20 @@ object LocalPositionRecorder {
                         val pos = state.lastAcceptedLocation ?: return@collect
                         val lat = pos.latitude ?: return@collect
                         val lon = pos.longitude ?: return@collect
+                        val shouldPersist =
+                            if (eventSink == null) {
+                                true
+                            } else if (!appForeground) {
+                                val messages =
+                                    try {
+                                        activeTracker.getLogs().map { it.message }
+                                    } catch (_: Exception) {
+                                        emptyList()
+                                    }
+                                NativeFixQueueLogic.isLatestLogDegraded(messages)
+                            } else {
+                                false
+                            }
                         recordFix(
                             timeMs = pos.time,
                             lat = lat,
@@ -123,6 +172,7 @@ object LocalPositionRecorder {
                             alt = pos.altitude,
                             bearing = pos.bearing?.toDouble(),
                             speed = pos.speed?.toDouble(),
+                            persistToUploadQueue = shouldPersist,
                         )
                     }
                 }

@@ -362,5 +362,54 @@
     "placeholders": {
       "count": {"type": "int"}
     }
-  }
+  },
+  "errorClubVisibilityRequiresClub": "Club visibility requires a club membership.",
+  "errorInvalidTail": "Enter a valid tail registration (1 to 16 letters, numbers, or hyphens).",
+  "errorMagicLinkExpired": "The sign-in link expired. Request a new one.",
+  "errorMagicLinkInvalid": "The sign-in link is invalid or was already used.",
+  "errorWeakPassword": "Use at least 8 characters for the password.",
+  "errorSignupFailed": "We couldn't create your account. Check your email and try again.",
+  "pilotModeLabel": "Flight mode",
+  "pilotModeClub": "Club",
+  "pilotModePublicPilot": "Public pilot",
+  "pilotHubPublicPilotStatus": "Public pilot (no club)",
+  "pilotHubPersonalBroadcastTitle": "Broadcast as public pilot",
+  "pilotHubPersonalBroadcastSubtitle": "Broadcast live without club check-in using a free-text tail",
+  "pilotHubLocalRecordAction": "Record flight on this phone only",
+  "pilotHubClubPickerTitle": "Switch active club",
+  "pilotHubClubSwitchButton": "Switch club",
+  "pilotHubClubSwitched": "Active club: {name}",
+  "@pilotHubClubSwitched": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "personalFlightTitle": "Public pilot flight",
+  "personalFlightIntro": "Broadcast without club check-in. Enter the tail and choose visibility.",
+  "personalFlightTailHint": "e.g. N12345",
+  "personalFlightTailHelper": "1 to 16 characters: A-Z, 0-9, or hyphen (-)",
+  "personalFlightTailRequired": "Enter a valid tail (A-Z, 0-9, or hyphen).",
+  "pilotCreateAccountTitle": "Create account",
+  "pilotCreateAccountPasswordOptional": "Password (optional, min. 8 characters)",
+  "pilotCreateAccountSubmit": "Send sign-up link",
+  "pilotCreateAccountSent": "We sent a magic link to your email. Open it on this phone to sign in.",
+  "pilotCreateAccountBrowserFallback": "Open in browser",
+  "pilotMagicLinkSigningIn": "Signing in with magic link…",
+  "pilotMagicLinkSignedIn": "Signed in successfully.",
+  "trackingQueuedFixesPending": "{count, plural, =1{1 position pending upload} other{{count} positions pending upload}}",
+  "@trackingQueuedFixesPending": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "trackingRateLimitedNotice": "Temporary server rate limit; still recording and retrying shortly.",
+  "trackingSendingPendingFixes": "Sending pending positions…",
+  "magicLinkConfirmTitleWithEmail": "Sign in as {email}?",
+  "@magicLinkConfirmTitleWithEmail": {
+    "placeholders": {
+      "email": {"type": "String"}
+    }
+  },
+  "magicLinkConfirmTitleGeneric": "Sign in with this link?",
+  "magicLinkConfirmTrackingWarning": "You have a flight in progress. Continuing will stop the current tracking."
 }

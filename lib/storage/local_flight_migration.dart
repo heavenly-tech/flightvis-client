@@ -76,6 +76,9 @@ abstract final class LocalFlightMigration {
     }
 
     final moved = await store.adoptLegacyFlights(toBucket: sanitized);
+    // L-84: clean up any leftover files in legacy/ that failed to parse or move
+    // while keeping every successfully moved flight in `sanitized`.
+    await store.deleteLegacyFlights();
     await prefs.setLegacyFlightsResolved(true);
     return moved;
   }

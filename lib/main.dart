@@ -7,6 +7,7 @@ import 'api/flight_vis_client.dart';
 import 'app_config.dart';
 import 'app_shell.dart';
 import 'ci_test_keys.dart';
+import 'l10n/api_errors.dart';
 import 'l10n/pilot_l10n.dart';
 import 'models/local_flight.dart';
 import 'screens/checkin_screen.dart';
@@ -23,8 +24,10 @@ import 'services/flight_start_mode.dart';
 import 'services/local_flight_recorder.dart';
 import 'services/tracking_lifecycle.dart';
 import 'services/tracking_service.dart';
+import 'storage/fix_upload_queue.dart';
 import 'storage/local_flight_migration.dart';
 import 'storage/local_flight_store.dart';
+import 'storage/preferences_store.dart';
 import 'util/checkin_expiry_format.dart';
 import 'util/flight_deep_link.dart';
 
@@ -52,9 +55,11 @@ class FlightVisApp extends StatefulWidget {
     this.deviceLocationProvider,
     this.localRecorder,
     this.localFlightStore,
+    this.uploadQueue,
     this.tileProvider,
     this.enableMapPolling,
     this.profileRetryDelay = const Duration(seconds: 5),
+    this.clock,
   });
 
   final AppRepository repo;
@@ -82,6 +87,9 @@ class FlightVisApp extends StatefulWidget {
   /// Optional injectable local flight store for tests.
   final LocalFlightStore? localFlightStore;
 
+  /// Optional injectable store-and-forward upload queue for tests.
+  final FixUploadQueueStore? uploadQueue;
+
   /// Optional injectable map tile provider for tests.
   final TileProvider? tileProvider;
 
@@ -90,6 +98,9 @@ class FlightVisApp extends StatefulWidget {
 
   /// Backoff delay before retrying `/api/club/me` after a transient error.
   final Duration profileRetryDelay;
+
+  /// Optional injectable wall clock for deterministic expiry checks (M-30).
+  final DateTime Function()? clock;
 
   @override
   State<FlightVisApp> createState() => _FlightVisAppState();
@@ -105,20 +116,29 @@ class _FlightVisAppState extends State<FlightVisApp>
 
   _Flow _flow = _Flow.loading;
   PilotProfile? _pilot;
+  AccountProfile? _accountProfile;
   String? _flightId;
   String? _tail;
+  String _activeFlightMode = 'club';
   String? _localTail;
   LocalFlightReason _localReason = LocalFlightReason.signedOut;
   bool _appReady = false;
   bool _sessionExpiredNotice = false;
   bool _clubUnavailableNotice = false;
+  String? _magicLinkNotice;
+  bool _magicLinkNoticeIsError = false;
   bool _profileRetryPending = false;
   int _localFlightsRevision = 0;
   bool _migrationPromptOpen = false;
+  bool _magicConfirmOpen = false;
   Timer? _profileRetryTimer;
   CheckinDeepLink? _queuedCheckin;
+  AccountMagicLinkDeepLink? _queuedAccountMagicLink;
   bool _checkinRouteOpen = false;
   late Locale _locale;
+
+  int _nowMs() =>
+      widget.clock?.call().millisecondsSinceEpoch ?? widget.repo.nowMs();
 
   TrackingService get _tracking => widget.trackingService ?? _defaultTracking;
 
@@ -177,6 +197,14 @@ class _FlightVisAppState extends State<FlightVisApp>
       if (mounted) _goHub();
       return;
     }
+    if (link is AccountMagicLinkDeepLink) {
+      if (!_appReady) {
+        _queuedAccountMagicLink = link;
+        return;
+      }
+      await _handleAccountMagicLink(link);
+      return;
+    }
     if (link is MagicLinkDeepLink) {
       try {
         var pilot = await widget.repo.client.completeMagicLink(
@@ -188,6 +216,8 @@ class _FlightVisAppState extends State<FlightVisApp>
           final me = await widget.repo.client.meProfile();
           if (me != null) pilot = me;
         } catch (_) {}
+        await widget.repo.clearPersonalDeviceTokenIfAccountChanged(pilot.id);
+        await widget.repo.prefs.clearPendingMagicLinkRequest();
         await widget.repo.persistSession();
         await widget.repo.prefs.setCachedPilotProfile(pilot);
         await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
@@ -216,6 +246,167 @@ class _FlightVisAppState extends State<FlightVisApp>
       }
       await _presentCheckinDeepLink(link);
     }
+  }
+
+  Future<void> _handleAccountMagicLink(AccountMagicLinkDeepLink link) async {
+    final isSignedIn =
+        (_pilot != null && _pilot!.isApproved) ||
+            widget.repo.client.hasAnySession;
+    final isTracking = _flow == _Flow.tracking ||
+        _flow == _Flow.localTracking ||
+        widget.repo.prefs.activeFlightId() != null;
+    final pendingReq = widget.repo.prefs.pendingMagicLinkRequest();
+    final autoComplete = shouldAutoCompleteAccountMagicLink(
+      pendingRequest: pendingReq,
+      nowMs: _nowMs(),
+      isSignedIn: isSignedIn,
+      isTracking: isTracking,
+    );
+
+    if (!autoComplete) {
+      if (_magicConfirmOpen) return;
+      _magicConfirmOpen = true;
+      bool? confirmed;
+      try {
+        final ctx = await _waitForNavigatorContext();
+        if (!mounted || ctx == null || !ctx.mounted) return;
+        final l10n = ctx.pilotL10n;
+        final linkEmail = link.email;
+        final title = (linkEmail != null && linkEmail.isNotEmpty)
+            ? l10n.magicLinkConfirmTitleWithEmail(linkEmail)
+            : l10n.magicLinkConfirmTitleGeneric;
+        confirmed = await showDialog<bool>(
+          context: ctx,
+          barrierDismissible: true,
+          builder: (dialogCtx) => AlertDialog(
+            key: FlightVisTestKeys.magicLinkConfirmDialog,
+            title: Text(title),
+            content: isTracking
+                ? Text(l10n.magicLinkConfirmTrackingWarning)
+                : null,
+            actions: [
+              TextButton(
+                key: FlightVisTestKeys.magicLinkConfirmCancel,
+                onPressed: () => Navigator.pop(dialogCtx, false),
+                child: Text(l10n.cancelButton),
+              ),
+              FilledButton(
+                key: FlightVisTestKeys.magicLinkConfirmProceed,
+                onPressed: () => Navigator.pop(dialogCtx, true),
+                child: Text(l10n.pilotSignInButton),
+              ),
+            ],
+          ),
+        );
+      } finally {
+        _magicConfirmOpen = false;
+      }
+      if (confirmed != true || !mounted) return;
+
+      // M-30: if the pilot was tracking and explicitly confirmed switching
+      // accounts, stop tracking via the M-24 path BEFORE completing sign-in.
+      if (_flow == _Flow.tracking ||
+          widget.repo.prefs.activeFlightId() != null) {
+        await _stopClubTrackingAndClearCheckin();
+        if (mounted && _flow == _Flow.tracking) {
+          setState(() => _flow = _Flow.hub);
+        }
+      } else if (_flow == _Flow.localTracking) {
+        try {
+          await _localRecorder.stop();
+        } catch (_) {}
+        _localTail = null;
+        if (mounted) {
+          setState(() => _flow = _Flow.hub);
+        }
+      }
+    }
+
+    try {
+      widget.repo.refreshBaseUrl();
+      String? installId;
+      try {
+        installId = await widget.repo.readInstallId();
+      } catch (_) {}
+      final model = await widget.repo.readDeviceModel();
+      final prevClubSession = widget.repo.client.sessionId;
+      final auth = await widget.repo.client.completeAccountMagicLink(
+        link.token,
+        purpose: link.purpose,
+        installId: installId,
+        label: 'Android',
+        model: model,
+      );
+      await widget.repo.prefs.clearPendingMagicLinkRequest();
+      // M-31: clear personal device token whenever the signed-in account changes.
+      final accountChanged = await widget.repo
+          .clearPersonalDeviceTokenIfAccountChanged(auth.profile.id);
+      if (accountChanged && auth.profile.activeMembershipId == null) {
+        if (widget.repo.client.sessionId == prevClubSession) {
+          widget.repo.client.setSessionId(null);
+        }
+        await widget.repo.prefs.setCheckinExpiresAtMs(null);
+        await widget.repo.prefs.setActiveClub(slug: null, name: null);
+        widget.repo.client.setClubSlug(null);
+      }
+      await widget.repo.persistSession();
+      final device = auth.device;
+      if (device != null && device.token.isNotEmpty) {
+        if (auth.profile.activeMembershipId == null) {
+          await widget.repo.persistPersonalDeviceToken(device.token);
+        } else {
+          await widget.repo.persistDeviceToken(device.token);
+        }
+      }
+      var account = auth.profile;
+      try {
+        final fresh = await widget.repo.client.accountMe();
+        if (fresh != null) account = fresh;
+      } catch (_) {}
+      await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
+      await widget.repo.prefs.setCachedAccountProfile(account);
+      PilotProfile? pilot;
+      final activeMem = account.activeMembership;
+      if (activeMem != null) {
+        await widget.repo.setActiveClub(
+          slug: activeMem.slug,
+          name: activeMem.name,
+        );
+        try {
+          pilot = await widget.repo.client.meProfile();
+        } catch (_) {}
+      }
+      pilot ??= account.toPersonalPilotProfile();
+      await widget.repo.prefs.setCachedPilotProfile(pilot);
+      if (mounted) {
+        setState(() {
+          _accountProfile = account;
+          _pilot = pilot;
+          _sessionExpiredNotice = false;
+          _clubUnavailableNotice = false;
+          _profileRetryPending = false;
+          _magicLinkNotice = null;
+          _magicLinkNoticeIsError = false;
+        });
+        _profileRetryTimer?.cancel();
+        await _resumePendingCheckin();
+        if (_queuedCheckin == null) {
+          _goHub();
+          unawaited(_maybePromptLocalFlightsMigration());
+        }
+      }
+    } on FlightVisException catch (e) {
+      if (mounted) {
+        final ctx = _navigatorKey.currentContext;
+        final msg = (ctx != null && ctx.mounted)
+            ? localizeApiException(ctx.pilotL10n, e)
+            : e.message;
+        setState(() {
+          _magicLinkNotice = msg;
+          _magicLinkNoticeIsError = true;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _rememberPendingCheckin(CheckinDeepLink link) async {
@@ -310,13 +501,21 @@ class _FlightVisAppState extends State<FlightVisApp>
   Future<void> _clearExpiredSession({bool clearDeviceToken = false}) async {
     await _stopClubTrackingAndClearCheckin();
     await widget.repo.secure.clearSessionId();
+    await widget.repo.secure.clearAccountSessionId();
     widget.repo.client.setSessionId(null);
+    widget.repo.client.setAccountSessionId(null);
+    // M-31: always clear personal device token on session expiry (M-24 paths).
+    await widget.repo.clearPersonalDeviceToken();
     if (clearDeviceToken) {
       await widget.repo.secure.clearDeviceToken();
       widget.repo.client.setDeviceToken(null);
     }
+    await widget.repo.prefs.setLastSignedInAccountId(null);
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
     await widget.repo.prefs.setCachedPilotProfile(null);
+    await widget.repo.prefs.setCachedAccountProfile(null);
     await widget.repo.prefs.setClubTrailMinutesDefault(null);
+    _accountProfile = null;
     _profileRetryTimer?.cancel();
     _profileRetryTimer = null;
     _profileRetryPending = false;
@@ -334,14 +533,84 @@ class _FlightVisAppState extends State<FlightVisApp>
   }
 
   Future<void> _retryProfileRefresh() async {
-    if (!mounted || !widget.repo.client.hasSession) {
+    if (!mounted || !widget.repo.client.hasAnySession) {
       _profileRetryPending = false;
       return;
+    }
+    if (widget.repo.client.hasAccountSession) {
+      try {
+        final account = await widget.repo.client.accountMe();
+        if (!mounted) return;
+        if (account == null) {
+          await _clearExpiredSession();
+          if (mounted) {
+            setState(() {
+              _pilot = null;
+              _accountProfile = null;
+              if (_flow == _Flow.tracking) _flow = _Flow.hub;
+            });
+          }
+          return;
+        }
+        await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
+        await widget.repo.prefs.setCachedAccountProfile(account);
+        PilotProfile? pilot;
+        var clubUnavailable = false;
+        if (account.activeMembershipId != null) {
+          try {
+            pilot = await widget.repo.client.meProfile();
+          } on FlightVisException catch (e) {
+            if (e.isClubUnavailable) {
+              clubUnavailable = true;
+            }
+          } catch (_) {}
+        }
+        pilot ??= account.toPersonalPilotProfile();
+        await widget.repo.prefs.setCachedPilotProfile(pilot);
+        await widget.repo.prefs.setClubTrailMinutesDefault(
+          widget.repo.client.clubTrailMinutesDefault,
+        );
+        _profileRetryPending = clubUnavailable;
+        if (!clubUnavailable) {
+          _profileRetryTimer?.cancel();
+          _profileRetryTimer = null;
+        }
+        if (mounted) {
+          setState(() {
+            _accountProfile = account;
+            _pilot = pilot;
+            _sessionExpiredNotice = false;
+            _clubUnavailableNotice = clubUnavailable;
+          });
+        }
+        return;
+      } on FlightVisException catch (e) {
+        if (!mounted) return;
+        if (e.statusCode == 401) {
+          await _clearExpiredSession(
+            clearDeviceToken: e.reason == 'invalid_device',
+          );
+          if (mounted) {
+            setState(() {
+              _pilot = null;
+              _accountProfile = null;
+              if (_flow == _Flow.tracking) _flow = _Flow.hub;
+            });
+          }
+          return;
+        }
+        _profileRetryPending = true;
+        return;
+      } catch (_) {
+        if (mounted) _profileRetryPending = true;
+        return;
+      }
     }
     try {
       final pilot = await widget.repo.client.meProfile();
       if (!mounted) return;
       if (pilot != null) {
+        await widget.repo.clearPersonalDeviceTokenIfAccountChanged(pilot.id);
         await widget.repo.prefs.setCachedPilotProfile(pilot);
         await widget.repo.prefs.setClubTrailMinutesDefault(
           widget.repo.client.clubTrailMinutesDefault,
@@ -378,7 +647,7 @@ class _FlightVisAppState extends State<FlightVisApp>
           });
         }
       } else if (e.isClubUnavailable) {
-        if (_flow == _Flow.tracking) {
+        if (_flow == _Flow.tracking && _activeFlightMode != 'personal') {
           await _tracking.stop();
           await widget.repo.prefs.setActiveFlightId(null);
           _flightId = null;
@@ -389,7 +658,9 @@ class _FlightVisAppState extends State<FlightVisApp>
           setState(() {
             _clubUnavailableNotice = true;
             _sessionExpiredNotice = false;
-            if (_flow == _Flow.tracking) _flow = _Flow.hub;
+            if (_flow == _Flow.tracking && _activeFlightMode != 'personal') {
+              _flow = _Flow.hub;
+            }
           });
         }
       } else {
@@ -415,19 +686,92 @@ class _FlightVisAppState extends State<FlightVisApp>
     widget.repo.syncClubFromPrefs();
     final rawSession = await widget.repo.secure.readSessionId();
     final session = rawSession?.trim();
-    var hasSession = session != null && session.isNotEmpty;
+    var hasClubSession = session != null && session.isNotEmpty;
+    final rawAccountSession = await widget.repo.secure.readAccountSessionId();
+    final accountSession = rawAccountSession?.trim();
+    var hasAccountSession =
+        accountSession != null && accountSession.isNotEmpty;
     final rawToken = await widget.repo.secure.readDeviceToken();
     final token = rawToken?.trim();
-    widget.repo.client.setSessionId(hasSession ? session : null);
+    final rawPersonalToken =
+        await widget.repo.secure.readPersonalDeviceToken();
+    final personalToken = rawPersonalToken?.trim();
+    widget.repo.client.setSessionId(hasClubSession ? session : null);
+    widget.repo.client
+        .setAccountSessionId(hasAccountSession ? accountSession : null);
     if (token != null && token.isNotEmpty) {
       widget.repo.client.setDeviceToken(token);
     }
+    if (personalToken != null && personalToken.isNotEmpty) {
+      widget.repo.client.setPersonalDeviceToken(personalToken);
+    }
 
     PilotProfile? pilot;
-    if (hasSession) {
+    AccountProfile? account;
+    if (hasAccountSession) {
+      try {
+        account = await widget.repo.client.accountMe();
+        if (account != null) {
+          await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
+          await widget.repo.prefs.setCachedAccountProfile(account);
+          _sessionExpiredNotice = false;
+          _clubUnavailableNotice = false;
+          _profileRetryPending = false;
+          _profileRetryTimer?.cancel();
+          _profileRetryTimer = null;
+          final activeMem = account.activeMembership;
+          if (activeMem != null) {
+            await widget.repo.setActiveClub(
+              slug: activeMem.slug,
+              name: activeMem.name,
+            );
+            try {
+              pilot = await widget.repo.client.meProfile();
+              await widget.repo.prefs.setClubTrailMinutesDefault(
+                widget.repo.client.clubTrailMinutesDefault,
+              );
+            } on FlightVisException catch (e) {
+              if (e.isClubUnavailable) {
+                _clubUnavailableNotice = true;
+                _scheduleProfileRetry();
+              }
+            } catch (_) {}
+          }
+          pilot ??= account.toPersonalPilotProfile();
+          await widget.repo.prefs.setCachedPilotProfile(pilot);
+        } else {
+          await _clearExpiredSession();
+          hasAccountSession = false;
+          hasClubSession = false;
+          pilot = null;
+          account = null;
+        }
+      } on FlightVisException catch (e) {
+        if (e.statusCode == 401) {
+          await _clearExpiredSession(
+            clearDeviceToken: e.reason == 'invalid_device',
+          );
+          hasAccountSession = false;
+          hasClubSession = false;
+          pilot = null;
+          account = null;
+        } else {
+          account = widget.repo.prefs.cachedAccountProfile();
+          pilot = widget.repo.prefs.cachedPilotProfile() ??
+              account?.toPersonalPilotProfile();
+          _scheduleProfileRetry();
+        }
+      } catch (_) {
+        account = widget.repo.prefs.cachedAccountProfile();
+        pilot = widget.repo.prefs.cachedPilotProfile() ??
+            account?.toPersonalPilotProfile();
+        _scheduleProfileRetry();
+      }
+    } else if (hasClubSession) {
       try {
         pilot = await widget.repo.client.meProfile();
         if (pilot != null) {
+          await widget.repo.clearPersonalDeviceTokenIfAccountChanged(pilot.id);
           await widget.repo.prefs.setCachedPilotProfile(pilot);
           await widget.repo.prefs.setClubTrailMinutesDefault(
             widget.repo.client.clubTrailMinutesDefault,
@@ -440,7 +784,7 @@ class _FlightVisAppState extends State<FlightVisApp>
         } else {
           // Server reported pilot=null for a stored session -> expired/stale.
           await _clearExpiredSession();
-          hasSession = false;
+          hasClubSession = false;
           pilot = null;
         }
       } on FlightVisException catch (e) {
@@ -448,7 +792,7 @@ class _FlightVisAppState extends State<FlightVisApp>
           await _clearExpiredSession(
             clearDeviceToken: e.reason == 'invalid_device',
           );
-          hasSession = false;
+          hasClubSession = false;
           pilot = null;
         } else if (e.isClubUnavailable) {
           // Suspended club (403 {"error":"club unavailable"}) is NOT expiry:
@@ -471,7 +815,8 @@ class _FlightVisAppState extends State<FlightVisApp>
       _clubUnavailableNotice = false;
     }
 
-    if (hasSession && pilot != null && !_clubUnavailableNotice) {
+    final hasAnySession = hasClubSession || hasAccountSession;
+    if (hasClubSession && pilot != null && !pilot.isClublessAccount && !_clubUnavailableNotice) {
       try {
         final register = widget.repo.ensureDeviceRegistered(
           preferPilotRegistration: true,
@@ -486,11 +831,22 @@ class _FlightVisAppState extends State<FlightVisApp>
 
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     var activeFlight = widget.repo.prefs.activeFlightId();
-    final canResumeClubSession = hasSession && !_clubUnavailableNotice;
+    final activeFlightMode = widget.repo.prefs.activeFlightMode();
+    final isPersonalActive = activeFlightMode == 'personal';
+    final canResumeSession = isPersonalActive
+        ? hasAnySession
+        : (hasAnySession && !_clubUnavailableNotice);
     bool? serverSaysActive;
-    if (activeFlight != null && canResumeClubSession) {
+    if (activeFlight != null && canResumeSession) {
       try {
-        serverSaysActive = await widget.repo.client.isFlightActiveOnServer(activeFlight);
+        final activeToken = await widget.repo.readDeviceTokenForMode(
+          activeFlightMode,
+        );
+        serverSaysActive = await widget.repo.client.isFlightActiveOnServer(
+          activeFlight,
+          mode: isPersonalActive ? 'personal' : null,
+          deviceToken: isPersonalActive ? activeToken : null,
+        );
       } catch (e) {
         serverSaysActive = serverFlightActiveFromError(e);
       }
@@ -502,7 +858,8 @@ class _FlightVisAppState extends State<FlightVisApp>
       serverSaysActive: serverSaysActive,
       checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
       nowMs: nowMs,
-      hasSession: canResumeClubSession,
+      hasSession: canResumeSession,
+      isPersonalFlight: isPersonalActive,
     );
     if (!resumeTracking) {
       if (widget.stopStickyTrackerOnRestore || activeFlight != null) {
@@ -513,12 +870,25 @@ class _FlightVisAppState extends State<FlightVisApp>
         activeFlight = null;
       }
     }
+    // When resuming an active broadcast flight, import & truncate the native
+    // queue BEFORE mounting TrackingScreen so there is no dual-store race on
+    // queue.json. When no flight is active, run the cleanup import after
+    // setState so hub/permissions restore is never delayed by platform I/O.
+    if (!AppConfig.screenshotTest && activeFlight != null) {
+      await _importNativeQueueOnStartup(
+        pilot: pilot,
+        activeFlightId: activeFlight,
+      );
+    }
+
     if (!mounted) return;
     setState(() {
+      _accountProfile = account;
       _pilot = pilot;
       if (activeFlight != null) {
         _flightId = activeFlight;
-        _tail = _tail ?? '—';
+        _activeFlightMode = activeFlightMode;
+        _tail = widget.repo.prefs.activeFlightTail() ?? _tail ?? '—';
         _flow = _Flow.tracking;
         _appReady = true;
         return;
@@ -531,6 +901,22 @@ class _FlightVisAppState extends State<FlightVisApp>
       _appReady = true;
     });
 
+    if (!AppConfig.screenshotTest && activeFlight == null) {
+      unawaited(
+        _importNativeQueueOnStartup(
+          pilot: pilot,
+          activeFlightId: null,
+        ),
+      );
+    }
+
+    final queuedMagic = _queuedAccountMagicLink;
+    if (queuedMagic != null) {
+      _queuedAccountMagicLink = null;
+      await _handleAccountMagicLink(queuedMagic);
+      return;
+    }
+
     final queued = _queuedCheckin;
     if (queued != null) {
       await _presentCheckinDeepLink(queued);
@@ -539,6 +925,25 @@ class _FlightVisAppState extends State<FlightVisApp>
     } else if (_flow == _Flow.hub) {
       await _maybePromptLocalFlightsMigration();
     }
+  }
+
+  Future<void> _importNativeQueueOnStartup({
+    required PilotProfile? pilot,
+    required String? activeFlightId,
+  }) async {
+    try {
+      final nativeFixes = await _tracking.nativeFixQueue.readQueuedFixes();
+      if (nativeFixes.isEmpty) return;
+      final store = widget.uploadQueue ??
+          FileFixUploadQueueStore(
+            accountBucket: LocalFlightStore.bucketForPilot(pilot),
+          );
+      await store.enqueueAll(nativeFixes);
+      await _tracking.nativeFixQueue.truncateQueuedFixes(
+        importedDedupKeys: nativeFixes.map((f) => f.dedupKey),
+      );
+      await store.pruneOrphaned(activeFlightId: activeFlightId);
+    } catch (_) {}
   }
 
   void _goHub() => setState(() => _flow = _Flow.hub);
@@ -773,12 +1178,73 @@ class _FlightVisAppState extends State<FlightVisApp>
     }
   }
 
-  void _startFlight(String id, String tail) async {
+  void _startFlight(String id, String tail) =>
+      _startBroadcastFlight(id, tail, flightMode: 'club');
+
+  void _startBroadcastFlight(
+    String id,
+    String tail, {
+    String flightMode = 'club',
+  }) async {
     await widget.repo.prefs.setActiveFlightId(id);
+    await widget.repo.prefs.setActiveFlightMode(flightMode);
+    await widget.repo.prefs.setActiveFlightTail(tail);
+    if (!mounted) return;
     setState(() {
       _flightId = id;
       _tail = tail;
+      _activeFlightMode = flightMode;
       _flow = _Flow.tracking;
+    });
+  }
+
+  Future<void> _switchClub(AccountMembership membership) async {
+    final prevSlug = widget.repo.prefs.activeClubSlug();
+    final result = await widget.repo.client.switchClub(membership.id);
+    await widget.repo.persistSession();
+    if (prevSlug != null && prevSlug != result.clubSlug) {
+      await widget.repo.prefs.setCheckinExpiresAtMs(null);
+    }
+    await widget.repo.setActiveClub(
+      slug: result.clubSlug,
+      name: result.clubName,
+    );
+    var account = _accountProfile;
+    try {
+      final fresh = await widget.repo.client.accountMe();
+      if (fresh != null) account = fresh;
+    } catch (_) {}
+    if (account != null) {
+      await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
+      await widget.repo.prefs.setCachedAccountProfile(account);
+    }
+    PilotProfile? pilot = _pilot;
+    try {
+      final clubPilot = await widget.repo.client.meProfile();
+      if (clubPilot != null) pilot = clubPilot;
+      await widget.repo.prefs.setClubTrailMinutesDefault(
+        widget.repo.client.clubTrailMinutesDefault,
+      );
+    } catch (_) {}
+    if (pilot != null) {
+      await widget.repo.prefs.setCachedPilotProfile(pilot);
+    }
+    try {
+      final installId = await widget.repo.readInstallId();
+      final model = await widget.repo.readDeviceModel();
+      final reg = await widget.repo.client.registerAccountDevice(
+        mode: 'club',
+        installId: installId,
+        label: 'Android',
+        model: model,
+      );
+      await widget.repo.persistDeviceToken(reg.token);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _accountProfile = account;
+      _pilot = pilot;
+      _clubUnavailableNotice = false;
     });
   }
 
@@ -794,6 +1260,7 @@ class _FlightVisAppState extends State<FlightVisApp>
     setState(() {
       _flightId = null;
       _tail = null;
+      _activeFlightMode = 'club';
       _flow = _Flow.hub;
     });
   }
@@ -811,11 +1278,22 @@ class _FlightVisAppState extends State<FlightVisApp>
     } catch (_) {}
     await _stopClubTrackingAndClearCheckin();
     await widget.repo.secure.clearSessionId();
+    await widget.repo.secure.clearAccountSessionId();
     widget.repo.client.setSessionId(null);
+    widget.repo.client.setAccountSessionId(null);
+    // M-31: always clear personal device token on logout.
+    await widget.repo.clearPersonalDeviceToken();
+    await widget.repo.prefs.setLastSignedInAccountId(null);
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
     await widget.repo.prefs.setCachedPilotProfile(null);
+    await widget.repo.prefs.setCachedAccountProfile(null);
     await widget.repo.prefs.setClubTrailMinutesDefault(null);
+    await widget.repo.prefs.setPreferredFlightMode(null);
+    _accountProfile = null;
     _sessionExpiredNotice = false;
     _clubUnavailableNotice = false;
+    _magicLinkNotice = null;
+    _magicLinkNoticeIsError = false;
     _profileRetryPending = false;
     _profileRetryTimer?.cancel();
     _profileRetryTimer = null;
@@ -874,7 +1352,10 @@ class _FlightVisAppState extends State<FlightVisApp>
       _Flow.hub => HomeHubScreen(
           repo: widget.repo,
           pilot: _pilot,
+          accountProfile: _accountProfile,
           onStartFlight: _startFlight,
+          onStartBroadcastFlight: _startBroadcastFlight,
+          onSwitchClub: _switchClub,
           onStartLocalFlight: _startLocalFlight,
           onRequestLogin: () => setState(() => _flow = _Flow.login),
           onLogout: _logout,
@@ -885,15 +1366,21 @@ class _FlightVisAppState extends State<FlightVisApp>
           localFlightStore: _localFlightStore,
           sessionExpiredNotice: _sessionExpiredNotice,
           clubUnavailableNotice: _clubUnavailableNotice,
+          magicLinkNotice: _magicLinkNotice,
+          magicLinkNoticeIsError: _magicLinkNoticeIsError,
           localFlightsRevision: _localFlightsRevision,
           tileProvider: widget.tileProvider,
           enableMapPolling: widget.enableMapPolling,
         ),
       _Flow.tracking => TrackingScreen(
+          key: ValueKey<String>('tracking_${_flightId!}'),
           repo: widget.repo,
           flightId: _flightId!,
           tail: _tail ?? '—',
+          flightMode: _activeFlightMode,
+          accountBucket: _currentFlightBucket,
           tracking: _tracking,
+          uploadQueue: widget.uploadQueue,
           onStopped: _stopped,
           onSessionExpired: _openSignInFromActiveFlight,
           deviceLocationProvider: widget.deviceLocationProvider,

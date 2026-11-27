@@ -76,6 +76,8 @@ class _LoginScreenState extends State<LoginScreen> {
       });
       return;
     }
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(pilot.id);
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
     await widget.repo.persistSession();
     await widget.repo.prefs.setCachedPilotProfile(pilot);
     await widget.repo.ensureDeviceRegistered(preferPilotRegistration: true);
@@ -121,6 +123,41 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _afterAccountAuth(AccountAuthResult result) async {
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(
+      result.profile.id,
+    );
+    await widget.repo.prefs.clearPendingMagicLinkRequest();
+    await widget.repo.persistSession();
+    final device = result.device;
+    if (device != null && device.token.isNotEmpty) {
+      if (result.profile.activeMembershipId == null) {
+        await widget.repo.persistPersonalDeviceToken(device.token);
+      } else {
+        await widget.repo.persistDeviceToken(device.token);
+      }
+    }
+    var account = result.profile;
+    try {
+      final fresh = await widget.repo.client.accountMe();
+      if (fresh != null) account = fresh;
+    } catch (_) {}
+    await widget.repo.clearPersonalDeviceTokenIfAccountChanged(account.id);
+    await widget.repo.prefs.setCachedAccountProfile(account);
+    PilotProfile? pilot;
+    if (account.activeMembershipId != null) {
+      try {
+        pilot = await widget.repo.client.meProfile();
+      } catch (_) {}
+    }
+    pilot ??= account.toPersonalPilotProfile();
+    await widget.repo.prefs.setCachedPilotProfile(pilot);
+    if (mounted) {
+      setState(() => _busy = false);
+      widget.onLoggedIn();
+    }
+  }
+
   Future<void> _sendMagic() async {
     final l10n = context.pilotL10n;
     final email = _email.text.trim();
@@ -139,9 +176,24 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       widget.repo.refreshBaseUrl();
-      await widget.repo.client.sendMagicLink(
-        email,
-        locale: widget.repo.client.acceptLanguage,
+      try {
+        await widget.repo.client.sendAccountMagicLink(
+          email,
+          locale: widget.repo.client.acceptLanguage,
+        );
+      } on FlightVisException catch (e) {
+        if (e.statusCode == 404) {
+          await widget.repo.client.sendMagicLink(
+            email,
+            locale: widget.repo.client.acceptLanguage,
+          );
+        } else {
+          rethrow;
+        }
+      }
+      await widget.repo.prefs.recordMagicLinkRequest(
+        email: email,
+        nowMs: widget.repo.nowMs(),
       );
       if (!mounted) return;
       setState(() {
@@ -157,17 +209,31 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _openAccountSignup() async {
+  Future<void> _openAccountSignupBrowser() async {
     final l10n = context.pilotL10n;
-    setState(() {
-      _error = null;
-      _info = null;
-    });
     widget.repo.refreshBaseUrl();
     final uri = AccountSignupUrl.build(serverBaseUrl: widget.repo.prefs.baseUrl());
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
       setState(() => _error = l10n.pilotCreateAccountOpenFailed);
+    }
+  }
+
+  Future<void> _openAccountSignup() async {
+    setState(() {
+      _error = null;
+      _info = null;
+    });
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (_) => _AccountSignupDialog(
+        repo: widget.repo,
+        initialEmail: _email.text.trim(),
+        onOpenBrowser: _openAccountSignupBrowser,
+      ),
+    );
+    if (sent == true && mounted) {
+      setState(() => _info = context.pilotL10n.pilotCreateAccountSent);
     }
   }
 
@@ -180,7 +246,32 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       widget.repo.refreshBaseUrl();
       widget.repo.syncClubFromPrefs();
-      final pilot = await widget.repo.client.login(_email.text, _password.text);
+      String? installId;
+      try {
+        installId = await widget.repo.readInstallId();
+      } catch (_) {}
+      final model = await widget.repo.readDeviceModel();
+      try {
+        final accountAuth = await widget.repo.client.accountLogin(
+          _email.text,
+          _password.text,
+          installId: installId,
+          label: 'Android',
+          model: model,
+        );
+        await _afterAccountAuth(accountAuth);
+        return;
+      } on FlightVisException catch (e) {
+        // Fall back to legacy club password login only on 401/404; never swallow 429.
+        if (e.statusCode != 401 && e.statusCode != 404) {
+          rethrow;
+        }
+      }
+      final pilot = await widget.repo.client.login(
+        _email.text,
+        _password.text,
+        installId: installId,
+      );
       await _afterPilot(pilot);
     } on FlightVisException catch (e) {
       if (!mounted) return;
@@ -189,6 +280,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _busy = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _busy = false;
@@ -304,6 +396,158 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AccountSignupDialog extends StatefulWidget {
+  const _AccountSignupDialog({
+    required this.repo,
+    required this.initialEmail,
+    required this.onOpenBrowser,
+  });
+
+  final AppRepository repo;
+  final String initialEmail;
+  final Future<void> Function() onOpenBrowser;
+
+  @override
+  State<_AccountSignupDialog> createState() => _AccountSignupDialogState();
+}
+
+class _AccountSignupDialogState extends State<_AccountSignupDialog> {
+  late final TextEditingController _emailController;
+  final TextEditingController _passwordController = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final l10n = context.pilotL10n;
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = l10n.loginEmailRequired);
+      return;
+    }
+    final password = _passwordController.text;
+    if (password.isNotEmpty && password.length < 8) {
+      setState(() => _error = l10n.errorWeakPassword);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      widget.repo.refreshBaseUrl();
+      await widget.repo.client.accountSignup(
+        email: email,
+        password: password.isEmpty ? null : password,
+      );
+      await widget.repo.prefs.recordMagicLinkRequest(
+        email: email,
+        nowMs: widget.repo.nowMs(),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on FlightVisException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = localizeApiException(context.pilotL10n, e);
+        _busy = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = context.pilotL10n.errorSignupFailed;
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
+    return AlertDialog(
+      key: FlightVisTestKeys.loginSignupDialog,
+      title: Text(l10n.pilotCreateAccountTitle),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l10n.pilotCreateAccountNote,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: FlightVisTestKeys.loginSignupEmail,
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
+              decoration: InputDecoration(
+                labelText: l10n.pilotEmailLabel,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              key: FlightVisTestKeys.loginSignupPassword,
+              controller: _passwordController,
+              obscureText: true,
+              autofillHints: const [AutofillHints.newPassword],
+              decoration: InputDecoration(
+                labelText: l10n.pilotCreateAccountPasswordOptional,
+                border: const OutlineInputBorder(),
+              ),
+              onSubmitted: (_) => _busy ? null : _submit(),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        Navigator.pop(context, false);
+                        await widget.onOpenBrowser();
+                      },
+                child: Text(l10n.pilotCreateAccountBrowserFallback),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context, false),
+          child: Text(l10n.cancelButton),
+        ),
+        FilledButton(
+          key: FlightVisTestKeys.loginSignupSubmit,
+          onPressed: _busy ? null : _submit,
+          child: Text(l10n.pilotCreateAccountSubmit),
+        ),
+      ],
     );
   }
 }
