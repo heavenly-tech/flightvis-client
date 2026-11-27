@@ -10,6 +10,8 @@ abstract final class FlightVisTestKeys {
   static const hubLocalFlights = ValueKey<String>('flightvis_hub_local_flights');
   static const hubSessionExpiredBanner =
       ValueKey<String>('flightvis_hub_session_expired');
+  static const hubClubUnavailableBanner =
+      ValueKey<String>('flightvis_hub_club_unavailable');
   static const hubStartError = ValueKey<String>('flightvis_hub_start_error');
   static const hubCheckIn = ValueKey<String>('flightvis_hub_check_in');
   static const checkinScreen = ValueKey<String>('flightvis_checkin_screen');
@@ -75,6 +77,21 @@ abstract final class FlightVisTestKeys {
       ValueKey<String>('flightvis_local_flight_stop_confirm');
   static const localFlightsListScreen =
       ValueKey<String>('flightvis_local_flights_list');
+  static const localFlightsGuestBanner =
+      ValueKey<String>('flightvis_local_flights_guest_banner');
+  static const localFlightsGuestDialog =
+      ValueKey<String>('flightvis_local_flights_guest_dialog');
+  static const localFlightsMoveToAccount =
+      ValueKey<String>('flightvis_local_flights_move_to_account');
+  static const localFlightsKeepOnPhone =
+      ValueKey<String>('flightvis_local_flights_keep_on_phone');
+  static const localFlightDeleteDialog =
+      ValueKey<String>('flightvis_local_flight_delete_dialog');
+  static const localFlightDeleteConfirm =
+      ValueKey<String>('flightvis_local_flight_delete_confirm');
+
+  static ValueKey<String> localFlightDelete(String id) =>
+      ValueKey<String>('flightvis_local_flight_delete_$id');
 
   static ValueKey<String> mapPublicRadiusOption(int km) =>
       ValueKey<String>('flightvis_map_public_radius_$km');

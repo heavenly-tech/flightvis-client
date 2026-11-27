@@ -268,7 +268,18 @@ void main() {
     final repo = AppRepository(secure: _FakeSecure(), prefs: prefs, client: client);
     await _golden(
       tester,
-      TailPickerScreen(repo: repo, onFlightStarted: (_, _) {}),
+      TailPickerScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'p1',
+          name: 'Demo Pilot',
+          email: 'pilot@demo.test',
+          status: 'approved',
+          role: 'pilot',
+          emailVerified: true,
+        ),
+        onFlightStarted: (_, _) {},
+      ),
       '05-tail-picker',
     );
   });

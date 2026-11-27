@@ -75,10 +75,10 @@ class TrackingService {
   Future<void> stop() async {
     if (AppConfig.screenshotTest) return;
     try {
-      await CheckinExpiryAlarm.cancel();
+      await _tracker.stop();
     } catch (_) {}
     try {
-      await _tracker.stop();
+      await CheckinExpiryAlarm.cancel();
     } catch (_) {}
     try {
       await _fixSource.clear();

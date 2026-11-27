@@ -31,6 +31,7 @@ class LocalFlightScreen extends StatefulWidget {
     required this.localFlightStore,
     required this.localReason,
     required this.onStopped,
+    this.storageBucket,
     this.tail,
     this.onSessionExpired,
     this.deviceLocationProvider,
@@ -47,6 +48,7 @@ class LocalFlightScreen extends StatefulWidget {
   final LocalFlightStore localFlightStore;
   final LocalFlightReason localReason;
   final VoidCallback onStopped;
+  final String? storageBucket;
   final String? tail;
   final VoidCallback? onSessionExpired;
   final DeviceLocationProvider? deviceLocationProvider;
@@ -169,7 +171,10 @@ class _LocalFlightScreenState extends State<LocalFlightScreen> {
         tail: LocalFlight.sanitizeTail(widget.tail),
         fixes: mergedFixes,
       );
-      await widget.localFlightStore.save(flight);
+      await widget.localFlightStore.save(
+        flight,
+        bucket: widget.storageBucket,
+      );
       if (mounted) widget.onStopped();
     } catch (e) {
       debugPrint('LocalFlightScreen._stopFlight failed: $e');

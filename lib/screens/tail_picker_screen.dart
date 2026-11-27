@@ -42,7 +42,7 @@ class _TailPickerScreenState extends State<TailPickerScreen>
   FlightPermissionsClient get _permissions =>
       widget.permissions ?? FlightPermissions.instance;
 
-  bool get _allowPublicVisibility => widget.pilot?.hasVerifiedEmail ?? true;
+  bool get _allowPublicVisibility => widget.pilot?.emailVerified ?? false;
 
   int? get _clubTrailMinutesDefault =>
       widget.repo.client.clubTrailMinutesDefault ??

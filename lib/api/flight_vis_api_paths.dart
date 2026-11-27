@@ -23,6 +23,7 @@ abstract final class FlightVisApiPaths {
   static const publicLiveTrails = '/api/public/live-trails';
   static const flights = '/api/flights';
 
+  static String flightBySlug(String slug) => '/api/flights/${Uri.encodeComponent(slug)}';
   static String flightEnd(String flightId) => '/api/flights/$flightId/end';
   static String flightTrail(String flightId) => '/api/flights/$flightId/trail';
   static String clubBySlug(String slug) => '/api/clubs/${Uri.encodeComponent(slug)}';

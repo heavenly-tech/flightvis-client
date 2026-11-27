@@ -2,26 +2,32 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 
 import 'package:flight_vis/api/flight_vis_api_paths.dart';
 import 'package:flight_vis/api/flight_vis_client.dart';
 import 'package:flight_vis/app_shell.dart';
 import 'package:flight_vis/ci_test_keys.dart';
+import 'package:flight_vis/main.dart';
 import 'package:flight_vis/map/map_tile_config.dart';
 import 'package:flight_vis/map/own_trail_buffer.dart';
 import 'package:flight_vis/models/local_flight.dart';
 import 'package:flight_vis/screens/home_hub_screen.dart';
 import 'package:flight_vis/screens/local_flight_screen.dart';
+import 'package:flight_vis/screens/local_flights_list_screen.dart';
 import 'package:flight_vis/screens/tail_picker_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
 import 'package:flight_vis/services/device_location_provider.dart';
 import 'package:flight_vis/services/flight_permissions.dart';
 import 'package:flight_vis/services/flight_start_mode.dart';
+import 'package:flight_vis/services/local_fix_source.dart';
 import 'package:flight_vis/services/local_flight_recorder.dart';
+import 'package:flight_vis/services/tracking_service.dart';
 import 'package:flight_vis/state/checkin_gate.dart';
 import 'package:flight_vis/storage/local_flight_store.dart';
 import 'package:flight_vis/storage/preferences_store.dart';
@@ -31,20 +37,26 @@ import 'package:flight_vis/util/checkin_expiry_format.dart';
 import 'helpers/fake_tile_provider.dart';
 
 class _FakeSecure extends SecureStore {
+  String? _session;
+  String? _device = '01234567890123456789012345678901';
+
   @override
-  Future<String?> readDeviceToken() async => '01234567890123456789012345678901';
+  Future<String?> readDeviceToken() async => _device;
   @override
-  Future<String?> readSessionId() async => null;
+  Future<String?> readSessionId() async => _session;
   @override
-  Future<void> writeDeviceToken(String token) async {}
+  Future<void> writeDeviceToken(String token) async => _device = token;
   @override
-  Future<void> clearDeviceToken() async {}
+  Future<void> clearDeviceToken() async => _device = null;
   @override
-  Future<void> writeSessionId(String sessionId) async {}
+  Future<void> writeSessionId(String sessionId) async => _session = sessionId;
   @override
-  Future<void> clearSessionId() async {}
+  Future<void> clearSessionId() async => _session = null;
   @override
-  Future<void> clearAll() async {}
+  Future<void> clearAll() async {
+    _device = null;
+    _session = null;
+  }
 }
 
 class _FakePermissions extends FlightPermissionsClient {
@@ -86,16 +98,37 @@ class _FakePermissions extends FlightPermissionsClient {
   Future<void> openGapSettings(PermissionGap gap) async {}
 }
 
+class _FakeTracker extends Fake implements TraccarClientSdk {
+  @override
+  Future<void> init(Config config) async {}
+  @override
+  Future<void> setConfig(Config config) async {}
+  @override
+  Future<void> start() async {}
+  @override
+  Future<void> stop() async {}
+  @override
+  Future<bool> isTracking() async => false;
+  @override
+  Future<List<LogEntry>> getLogs() async => const [];
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   CheckinExpiryFormat.ensureInitialized();
 
+  const trackingChannel = MethodChannel('cl.heavenly.flightvis/tracking');
+
   setUp(() {
     TrackingMapTestHooks.tileProviderOverride = FakeTileProvider();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(trackingChannel, (_) async => null);
   });
 
   tearDown(() {
     TrackingMapTestHooks.tileProviderOverride = null;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(trackingChannel, null);
   });
 
   group('FlightStartMode resolver', () {
@@ -530,6 +563,320 @@ void main() {
       expect(find.byKey(FlightVisTestKeys.hubStartError), findsOneWidget);
       expect(
         find.text('Necesitas permiso de ubicación para iniciar el vuelo.'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('M-25: per-account local flight buckets, legacy migration, move & delete', () {
+    final pilotA = PilotProfile(
+      id: 'pilot-alpha-123',
+      name: 'Ana',
+      email: 'ana.secret@club.cl',
+      status: 'approved',
+      role: 'pilot',
+    );
+    final pilotB = PilotProfile(
+      id: 'pilot-bravo-456',
+      name: 'Beto',
+      email: 'beto.secret@club.cl',
+      status: 'approved',
+      role: 'pilot',
+    );
+
+    LocalFlight sampleFlight(String id, String tail, int startMs) => LocalFlight(
+          id: id,
+          startedAtMs: startMs,
+          endedAtMs: startMs + 120_000,
+          tail: tail,
+          fixes: const [
+            LocalFix(timeMs: 1000, latitude: -33.45, longitude: -70.55),
+          ],
+        );
+
+    test('bucket isolation on disk: user A flights invisible to user B and guest, never embeds email', () async {
+      final tempDir = await Directory.systemTemp.createTemp('fv_buckets_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final bucketA = LocalFlightStore.bucketForPilot(pilotA);
+      final bucketB = LocalFlightStore.bucketForPilot(pilotB);
+      expect(LocalFlightStore.bucketForPilot(null), LocalFlightStore.guestBucket);
+      expect(bucketA, isNot(LocalFlightStore.guestBucket));
+      expect(bucketA, isNot(bucketB));
+      expect(bucketA, isNot(contains('ana.secret')));
+      expect(bucketA, isNot(contains('club.cl')));
+      expect(bucketA, isNot(contains('pilot-alpha-123')));
+
+      final store = FileLocalFlightStore(directoryProvider: () async => tempDir);
+      await store.save(sampleFlight('f_a1', 'CC-AAA', 1000), bucket: bucketA);
+      await store.save(sampleFlight('f_b1', 'CC-BBB', 2000), bucket: bucketB);
+      await store.save(
+        sampleFlight('f_g1', 'CC-GST', 3000),
+        bucket: LocalFlightStore.guestBucket,
+      );
+
+      // Verify path structure <docs>/local_flights/<bucket>/<id>.json with no email in paths.
+      final diskFiles = await tempDir
+          .list(recursive: true)
+          .where((e) => e is File && e.path.endsWith('.json'))
+          .map((e) => e.path)
+          .toList();
+      expect(diskFiles, hasLength(3));
+      for (final p in diskFiles) {
+        expect(p, isNot(contains('ana.secret')));
+        expect(p, isNot(contains('beto.secret')));
+      }
+
+      // User A sees only A; B sees only B; guest sees only guest.
+      expect((await store.listFlights(bucket: bucketA)).map((f) => f.id), ['f_a1']);
+      expect(await store.getFlight('f_b1', bucket: bucketA), isNull);
+      expect(await store.getFlight('f_g1', bucket: bucketA), isNull);
+
+      expect((await store.listFlights(bucket: bucketB)).map((f) => f.id), ['f_b1']);
+      expect(await store.getFlight('f_a1', bucket: bucketB), isNull);
+
+      expect(
+        (await store.listFlights(bucket: LocalFlightStore.guestBucket))
+            .map((f) => f.id),
+        ['f_g1'],
+      );
+      expect(
+        await store.getFlight('f_a1', bucket: LocalFlightStore.guestBucket),
+        isNull,
+      );
+    });
+
+    test('migrates legacy un-bucketed local_flights/*.json files into guest on first run', () async {
+      final tempDir = await Directory.systemTemp.createTemp('fv_legacy_mig_');
+      addTearDown(() async {
+        if (await tempDir.exists()) await tempDir.delete(recursive: true);
+      });
+
+      final legacyRoot = Directory(
+        '${tempDir.path}${Platform.pathSeparator}local_flights',
+      );
+      await legacyRoot.create(recursive: true);
+      final legacy1 = sampleFlight('legacy_1', 'CC-OLD', 5000);
+      final legacy2 = sampleFlight('legacy_2', 'CC-TWO', 6000);
+      await File('${legacyRoot.path}${Platform.pathSeparator}legacy_1.json')
+          .writeAsString(jsonEncode(legacy1.toJson()));
+      await File('${legacyRoot.path}${Platform.pathSeparator}legacy_2.json')
+          .writeAsString(jsonEncode(legacy2.toJson()));
+
+      final store = FileLocalFlightStore(directoryProvider: () async => tempDir);
+      final bucketA = LocalFlightStore.bucketForPilot(pilotA);
+
+      // Account bucket does not see migrated legacy files.
+      expect(await store.listFlights(bucket: bucketA), isEmpty);
+
+      // Guest bucket now owns both migrated files; root files are removed.
+      final guestFlights =
+          await store.listFlights(bucket: LocalFlightStore.guestBucket);
+      expect(guestFlights.map((f) => f.id).toList(), ['legacy_2', 'legacy_1']);
+      expect(
+        await File('${legacyRoot.path}${Platform.pathSeparator}legacy_1.json')
+            .exists(),
+        isFalse,
+      );
+      expect(
+        await File(
+          '${legacyRoot.path}${Platform.pathSeparator}guest${Platform.pathSeparator}legacy_1.json',
+        ).exists(),
+        isTrue,
+      );
+    });
+
+    testWidgets('signed-in Mis vuelos locales offers move-to-account vs keep-on-phone choice and per-flight delete', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await PreferencesStore.open();
+      final repo = AppRepository(
+        secure: _FakeSecure(),
+        prefs: prefs,
+        client: FlightVisClient(baseUrl: 'https://example.test'),
+      );
+      final bucketA = LocalFlightStore.bucketForPilot(pilotA);
+      final bucketB = LocalFlightStore.bucketForPilot(pilotB);
+      final store = InMemoryLocalFlightStore();
+      await store.save(
+        sampleFlight('g1', 'CC-G01', 1000),
+        bucket: LocalFlightStore.guestBucket,
+      );
+      await store.save(
+        sampleFlight('g2', 'CC-G02', 2000),
+        bucket: LocalFlightStore.guestBucket,
+      );
+      await store.save(sampleFlight('b1', 'CC-OTR', 3000), bucket: bucketB);
+
+      // 1. Open as pilot A -> sees banner for 2 guest flights, does NOT see pilot B's flight.
+      await tester.pumpWidget(
+        PilotAppShell(
+          locale: const Locale('es', 'CL'),
+          home: LocalFlightsListScreen(
+            key: const ValueKey('list-keep'),
+            repo: repo,
+            store: store,
+            accountBucket: bucketA,
+            tileProvider: FakeTileProvider(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(FlightVisTestKeys.localFlightsGuestBanner), findsOneWidget);
+      expect(find.text('Tienes 2 vuelos guardados sin cuenta.'), findsOneWidget);
+      expect(find.text('Guardar en mi cuenta'), findsOneWidget);
+      expect(find.text('Dejarlos en este teléfono'), findsOneWidget);
+      expect(find.text('CC-OTR'), findsNothing);
+
+      // Choosing "Dejarlos en este teléfono" hides banner and keeps flights in guest bucket.
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightsKeepOnPhone));
+      await tester.pumpAndSettle();
+      expect(find.byKey(FlightVisTestKeys.localFlightsGuestBanner), findsNothing);
+      expect(
+        await store.listFlights(bucket: LocalFlightStore.guestBucket),
+        hasLength(2),
+      );
+      expect(await store.listFlights(bucket: bucketA), isEmpty);
+
+      // 2. Re-open as pilot A and choose "Guardar en mi cuenta" -> moves flights into account A.
+      await tester.pumpWidget(
+        PilotAppShell(
+          locale: const Locale('es', 'CL'),
+          home: LocalFlightsListScreen(
+            key: const ValueKey('list-move'),
+            repo: repo,
+            store: store,
+            accountBucket: bucketA,
+            tileProvider: FakeTileProvider(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightsMoveToAccount));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(FlightVisTestKeys.localFlightsGuestBanner), findsNothing);
+      expect(
+        await store.listFlights(bucket: LocalFlightStore.guestBucket),
+        isEmpty,
+      );
+      expect(await store.listFlights(bucket: bucketA), hasLength(2));
+      expect(find.text('CC-G01'), findsOneWidget);
+      expect(find.text('CC-G02'), findsOneWidget);
+
+      // 3. Delete one flight with confirmation (first cancel, then confirm).
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightDelete('g1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(FlightVisTestKeys.localFlightDeleteDialog), findsOneWidget);
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      expect(find.text('CC-G01'), findsOneWidget);
+
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightDelete('g1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightDeleteConfirm));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CC-G01'), findsNothing);
+      expect(find.text('CC-G02'), findsOneWidget);
+      expect((await store.listFlights(bucket: bucketA)).map((f) => f.id), ['g2']);
+    });
+
+    testWidgets('FlightVisApp sign-in prompts to move guest flights and logout isolates account tracks from guest', (tester) async {
+      tester.platformDispatcher.localeTestValue = const Locale('es', 'CL');
+      addTearDown(tester.platformDispatcher.clearLocaleTestValue);
+      SharedPreferences.setMockInitialValues({
+        PreferencesStore.permissionsOnboardingKey: true,
+      });
+      final prefs = await PreferencesStore.open();
+      final secure = _FakeSecure();
+      final store = InMemoryLocalFlightStore();
+      await store.save(
+        sampleFlight('guest_1', 'CC-GST', 1000),
+        bucket: LocalFlightStore.guestBucket,
+      );
+
+      final client = FlightVisClient(
+        baseUrl: 'https://example.test',
+        httpClient: http_testing.MockClient((request) async {
+          if (request.url.path == FlightVisApiPaths.clubMe) {
+            return http.Response(
+              jsonEncode({
+                'email_verified': true,
+                'pilot': {
+                  'id': pilotA.id,
+                  'name': pilotA.name,
+                  'email': pilotA.email,
+                  'status': 'approved',
+                  'role': 'pilot',
+                },
+              }),
+              200,
+            );
+          }
+          if (request.url.path == FlightVisApiPaths.clubLogout) {
+            return http.Response(jsonEncode({'ok': true}), 200);
+          }
+          return http.Response('{}', 200);
+        }),
+      );
+      final repo = AppRepository(secure: secure, prefs: prefs, client: client);
+      final perms = _FakePermissions(
+        status: const FlightPermissionStatus(
+          fineLocationGranted: true,
+          backgroundLocationGranted: true,
+          notificationsGranted: true,
+          batteryUnrestricted: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        FlightVisApp(
+          repo: repo,
+          bindPlatformDeepLinks: false,
+          stopStickyTrackerOnRestore: false,
+          trackingService: TrackingService(
+            tracker: _FakeTracker(),
+            fixSource: InMemoryLocalFixSource(),
+          ),
+          permissions: perms,
+          localFlightStore: store,
+          tileProvider: FakeTileProvider(),
+          enableMapPolling: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Simulate completing sign-in with an existing guest flight on device.
+      await secure.writeSessionId('sess-ana');
+      final onLoggedIn = flightVisAppOnLoggedInTestHook!;
+      final loginFuture = onLoggedIn();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(FlightVisTestKeys.localFlightsGuestDialog), findsOneWidget);
+      expect(find.text('Tienes 1 vuelo guardado sin cuenta.'), findsOneWidget);
+      await tester.tap(find.byKey(FlightVisTestKeys.localFlightsMoveToAccount));
+      await tester.pumpAndSettle();
+      await loginFuture;
+
+      final bucketA = LocalFlightStore.bucketForPilot(pilotA);
+      expect(await store.listFlights(bucket: bucketA), hasLength(1));
+      expect(
+        await store.listFlights(bucket: LocalFlightStore.guestBucket),
+        isEmpty,
+      );
+
+      // Logout -> guest cannot see pilot A's tracks in "Mis vuelos locales".
+      await tester.tap(find.byIcon(Icons.logout));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(FlightVisTestKeys.hubLocalFlights));
+      await tester.pumpAndSettle();
+      expect(find.text('CC-GST'), findsNothing);
+      expect(
+        find.text('Todavía no tienes vuelos guardados en este teléfono.'),
         findsOneWidget,
       );
     });

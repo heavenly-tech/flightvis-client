@@ -8,12 +8,16 @@ bool checkinExpired({required int? expiresAtMs, required int nowMs}) {
 
 /// [serverSaysActive]: `true` = active on server; `false` = explicitly ended (including
 /// 404/409); `null` = unknown (offline / timeout) — resume when check-in is still valid.
+///
+/// Always returns `false` when [hasSession] is `false` (M-24 defence in depth).
 bool shouldResumeTracking({
   required String? activeFlightId,
   required bool? serverSaysActive,
   required int? checkinExpiresAtMs,
   required int nowMs,
+  bool hasSession = true,
 }) {
+  if (!hasSession) return false;
   if (activeFlightId == null || activeFlightId.isEmpty) return false;
   if (checkinExpired(expiresAtMs: checkinExpiresAtMs, nowMs: nowMs)) return false;
   if (serverSaysActive == false) return false;

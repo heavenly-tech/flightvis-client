@@ -135,5 +135,18 @@ void main() {
         isFalse,
       );
     });
+
+    test('M-24: missing session refuses to resume club tracking even with valid check-in', () {
+      expect(
+        shouldResumeTracking(
+          activeFlightId: _flightId,
+          serverSaysActive: true,
+          checkinExpiresAtMs: _validCheckin,
+          nowMs: 0,
+          hasSession: false,
+        ),
+        isFalse,
+      );
+    });
   });
 }
