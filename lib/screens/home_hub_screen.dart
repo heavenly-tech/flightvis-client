@@ -26,6 +26,7 @@ import 'live_map_screen.dart';
 import 'local_flight_screen.dart';
 import 'local_flights_list_screen.dart';
 import 'pairing_screen.dart';
+import 'personal_flight_start_screen.dart';
 import 'tail_picker_screen.dart';
 
 class HomeHubScreen extends StatefulWidget {
@@ -36,6 +37,9 @@ class HomeHubScreen extends StatefulWidget {
     required this.onRequestLogin,
     required this.onLogout,
     this.pilot,
+    this.accountProfile,
+    this.onStartBroadcastFlight,
+    this.onSwitchClub,
     this.onLocaleChanged,
     this.onStartLocalFlight,
     this.permissions,
@@ -44,6 +48,8 @@ class HomeHubScreen extends StatefulWidget {
     this.localFlightStore,
     this.sessionExpiredNotice = false,
     this.clubUnavailableNotice = false,
+    this.magicLinkNotice,
+    this.magicLinkNoticeIsError = false,
     this.localFlightsRevision = 0,
     this.tileProvider,
     this.enableMapPolling,
@@ -52,7 +58,11 @@ class HomeHubScreen extends StatefulWidget {
 
   final AppRepository repo;
   final PilotProfile? pilot;
+  final AccountProfile? accountProfile;
   final void Function(String flightId, String tailLabel) onStartFlight;
+  final void Function(String flightId, String tailLabel, {String flightMode})?
+      onStartBroadcastFlight;
+  final Future<void> Function(AccountMembership membership)? onSwitchClub;
   final VoidCallback onRequestLogin;
   final VoidCallback onLogout;
   final VoidCallback? onLocaleChanged;
@@ -75,6 +85,10 @@ class HomeHubScreen extends StatefulWidget {
   /// club broadcast disabled until available again).
   final bool clubUnavailableNotice;
 
+  /// Optional status/error banner from an App Link magic-link attempt.
+  final String? magicLinkNotice;
+  final bool magicLinkNoticeIsError;
+
   /// Incremented by the app shell when local flights change outside this screen
   /// (e.g. moving guest flights on sign-in) so the count badge refreshes.
   final int localFlightsRevision;
@@ -96,6 +110,8 @@ class _HomeHubScreenState extends State<HomeHubScreen>
   FlightPermissionStatus? _permissionStatus;
   String? _startError;
   int? _localFlightCount;
+  String _selectedMode = 'club';
+  bool _switchingClub = false;
   late final LocalFlightStore _fallbackLocalStore;
 
   FlightPermissionsClient get _permissions =>
@@ -106,10 +122,40 @@ class _HomeHubScreenState extends State<HomeHubScreen>
 
   String get _accountBucket => LocalFlightStore.bucketForPilot(widget.pilot);
 
+  bool get _isClublessAccount => widget.pilot?.isClublessAccount ?? false;
+
+  bool get _hasAccountSession =>
+      widget.repo.client.hasAccountSession || widget.accountProfile != null;
+
+  List<AccountMembership> get _activeMemberships =>
+      widget.accountProfile?.activeMemberships ?? const [];
+
+  bool get _showModePicker =>
+      _loggedIn &&
+      !_isClublessAccount &&
+      _hasAccountSession &&
+      _activeMemberships.isNotEmpty;
+
+  bool get _showClubPicker =>
+      _loggedIn &&
+      _hasAccountSession &&
+      widget.onSwitchClub != null &&
+      (_activeMemberships.length >= 2 ||
+          (_activeMemberships.length == 1 &&
+              widget.accountProfile?.activeMembershipId == null));
+
+  bool get _inPersonalMode =>
+      _loggedIn &&
+      (_isClublessAccount || (_showModePicker && _selectedMode == 'personal'));
+
   @override
   void initState() {
     super.initState();
     _fallbackLocalStore = FileLocalFlightStore();
+    final savedMode = widget.repo.prefs.preferredFlightMode();
+    if (savedMode == 'personal' || savedMode == 'club') {
+      _selectedMode = savedMode!;
+    }
     WidgetsBinding.instance.addObserver(this);
     _refreshPermissions();
     if (!AppConfig.screenshotTest) {
@@ -205,48 +251,42 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     );
   }
 
-  Future<void> _onTapStartFlight() async {
-    setState(() => _startError = null);
-
-    // Foreground (fine) location is the ONLY hard requirement to start.
-    // Missing battery/notifications/background only warn in the banner.
-    final status = await _permissions.check();
-    if (!status.fineLocationGranted) {
-      final granted = await _permissions.requestFineLocation();
-      final rechecked = await _permissions.check();
-      if (!mounted) return;
-      setState(() => _permissionStatus = rechecked);
-      if (!granted && !rechecked.fineLocationGranted) {
-        setState(() => _startError = context.pilotL10n.permFineRequiredToStart);
-        return;
-      }
+  void _notifyStartBroadcast(
+    String flightId,
+    String tail, {
+    String flightMode = 'club',
+  }) {
+    if (widget.onStartBroadcastFlight != null) {
+      widget.onStartBroadcastFlight!(flightId, tail, flightMode: flightMode);
+    } else {
+      widget.onStartFlight(flightId, tail);
     }
-    if (!mounted) return;
+  }
 
-    final resolution = resolveFlightStartMode(
-      pilot: widget.pilot,
-      checkinGate: _gate,
-      clubUnavailable: widget.clubUnavailableNotice,
-    );
-    if (resolution.isClubBroadcast) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (routeContext) => TailPickerScreen(
-            repo: widget.repo,
-            pilot: widget.pilot,
-            permissions: widget.permissions,
-            onFlightStarted: (flight, tail) {
-              Navigator.of(routeContext).pop();
-              widget.onStartFlight(flight.id, tail);
-            },
-          ),
+  Future<void> _selectMode(String mode) async {
+    if (mode == _selectedMode) return;
+    setState(() => _selectedMode = mode);
+    await widget.repo.prefs.setPreferredFlightMode(mode);
+  }
+
+  Future<void> _openPersonalFlightStart() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (routeContext) => PersonalFlightStartScreen(
+          repo: widget.repo,
+          pilot: widget.pilot,
+          permissions: widget.permissions,
+          onFlightStarted: (flight, tail) {
+            Navigator.of(routeContext).pop();
+            _notifyStartBroadcast(flight.id, tail, flightMode: 'personal');
+          },
         ),
-      );
-      return;
-    }
+      ),
+    );
+  }
 
-    final reason = resolution.localReason ?? LocalFlightReason.signedOut;
+  Future<void> _startLocalFlow(LocalFlightReason reason) async {
     final confirmedTail = await _showLocalFlightStartDialog(reason);
     if (!mounted || confirmedTail == null) return;
     final sanitized = LocalFlight.sanitizeTail(confirmedTail);
@@ -280,6 +320,129 @@ class _HomeHubScreenState extends State<HomeHubScreen>
       ),
     );
     await _refreshLocalFlightCount();
+  }
+
+  Future<void> _onTapRecordLocalOnly() async {
+    setState(() => _startError = null);
+    final status = await _permissions.check();
+    if (!status.fineLocationGranted) {
+      final granted = await _permissions.requestFineLocation();
+      final rechecked = await _permissions.check();
+      if (!mounted) return;
+      setState(() => _permissionStatus = rechecked);
+      if (!granted && !rechecked.fineLocationGranted) {
+        setState(() => _startError = context.pilotL10n.permFineRequiredToStart);
+        return;
+      }
+    }
+    if (!mounted) return;
+    await _startLocalFlow(
+      _loggedIn ? LocalFlightReason.noClubCheckin : LocalFlightReason.signedOut,
+    );
+  }
+
+  Future<void> _openClubPickerSheet() async {
+    final memberships = _activeMemberships;
+    if (memberships.isEmpty || widget.onSwitchClub == null) return;
+    final l10n = context.pilotL10n;
+    final activeId = widget.accountProfile?.activeMembershipId;
+    final chosen = await showModalBottomSheet<AccountMembership>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                l10n.pilotHubClubPickerTitle,
+                style: Theme.of(sheetCtx).textTheme.titleMedium,
+              ),
+            ),
+            for (final m in memberships)
+              ListTile(
+                key: FlightVisTestKeys.clubPickerOption(m.id),
+                leading: Icon(
+                  m.id == activeId
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                ),
+                title: Text(m.name),
+                subtitle: Text(m.slug),
+                onTap: () => Navigator.pop(sheetCtx, m),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => _switchingClub = true);
+    try {
+      await widget.onSwitchClub!(chosen);
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)
+          ?..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(context.pilotL10n.pilotHubClubSwitched(chosen.name)),
+            ),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _switchingClub = false);
+    }
+  }
+
+  Future<void> _onTapStartFlight() async {
+    setState(() => _startError = null);
+
+    // Foreground (fine) location is the ONLY hard requirement to start.
+    // Missing battery/notifications/background only warn in the banner.
+    final status = await _permissions.check();
+    if (!status.fineLocationGranted) {
+      final granted = await _permissions.requestFineLocation();
+      final rechecked = await _permissions.check();
+      if (!mounted) return;
+      setState(() => _permissionStatus = rechecked);
+      if (!granted && !rechecked.fineLocationGranted) {
+        setState(() => _startError = context.pilotL10n.permFineRequiredToStart);
+        return;
+      }
+    }
+    if (!mounted) return;
+
+    final resolution = resolveFlightStartMode(
+      pilot: widget.pilot,
+      checkinGate: _gate,
+      clubUnavailable: widget.clubUnavailableNotice,
+      preferPersonalBroadcast: _inPersonalMode,
+      hasAccountSession: _hasAccountSession,
+    );
+    if (resolution.isPersonalBroadcast) {
+      await _openPersonalFlightStart();
+      return;
+    }
+    if (resolution.isClubBroadcast) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (routeContext) => TailPickerScreen(
+            repo: widget.repo,
+            pilot: widget.pilot,
+            permissions: widget.permissions,
+            onFlightStarted: (flight, tail) {
+              Navigator.of(routeContext).pop();
+              _notifyStartBroadcast(flight.id, tail, flightMode: 'club');
+            },
+          ),
+        ),
+      );
+      return;
+    }
+
+    final reason = resolution.localReason ?? LocalFlightReason.signedOut;
+    await _startLocalFlow(reason);
   }
 
   /// Prompts for optional tail before starting local recording.
@@ -340,6 +503,9 @@ class _HomeHubScreenState extends State<HomeHubScreen>
 
   String _clubLine(BuildContext context) {
     final l10n = context.pilotL10n;
+    if (_isClublessAccount) {
+      return l10n.pilotHubPublicPilotStatus;
+    }
     final name =
         widget.repo.prefs.activeClubName() ?? widget.repo.prefs.activeClubSlug();
     if (name != null && name.isNotEmpty) {
@@ -355,15 +521,22 @@ class _HomeHubScreenState extends State<HomeHubScreen>
     final gate = _gate;
     final pilot = widget.pilot;
     final loggedIn = _loggedIn;
+    final inPersonalMode = _inPersonalMode;
     final canBroadcastClub =
         loggedIn && gate.canStartFlight && !widget.clubUnavailableNotice;
-    final broadcastSubtitle = widget.clubUnavailableNotice
-        ? l10n.clubUnavailableNotice
-        : (canBroadcastClub
-            ? l10n.pilotHubFlightSubtitle
-            : (!loggedIn
-                ? l10n.pilotHubFlightBroadcastSignedOut
-                : l10n.pilotHubFlightBroadcastNoCheckIn));
+    final canBroadcastCard = inPersonalMode || canBroadcastClub;
+    final broadcastTitle = inPersonalMode
+        ? l10n.pilotHubPersonalBroadcastTitle
+        : l10n.pilotHubFlightTitle;
+    final broadcastSubtitle = inPersonalMode
+        ? l10n.pilotHubPersonalBroadcastSubtitle
+        : (widget.clubUnavailableNotice
+            ? l10n.clubUnavailableNotice
+            : (canBroadcastClub
+                ? l10n.pilotHubFlightSubtitle
+                : (!loggedIn
+                    ? l10n.pilotHubFlightBroadcastSignedOut
+                    : l10n.pilotHubFlightBroadcastNoCheckIn)));
     final localFlightsSubtitle = _localFlightCount == null
         ? l10n.pilotHubLocalFlightsSubtitle
         : l10n.pilotHubLocalFlightsCount(_localFlightCount!);
@@ -406,8 +579,77 @@ class _HomeHubScreenState extends State<HomeHubScreen>
             loggedIn ? l10n.pilotHubSignedInAs(pilot!.name) : l10n.pilotHubGuestMode,
           ),
           const SizedBox(height: 4),
-          Text(_clubLine(context), style: theme.textTheme.titleMedium),
+          if (_showClubPicker)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _clubLine(context),
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                TextButton.icon(
+                  key: FlightVisTestKeys.hubClubSwitchButton,
+                  onPressed: _switchingClub ? null : _openClubPickerSheet,
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: Text(l10n.pilotHubClubSwitchButton),
+                ),
+              ],
+            )
+          else
+            Text(_clubLine(context), style: theme.textTheme.titleMedium),
+          if (_showModePicker) ...[
+            const SizedBox(height: 10),
+            SegmentedButton<String>(
+              key: FlightVisTestKeys.hubModePicker,
+              segments: [
+                ButtonSegment<String>(
+                  value: 'club',
+                  icon: const Icon(Icons.groups),
+                  label: Text(
+                    l10n.pilotModeClub,
+                    key: FlightVisTestKeys.hubModeClub,
+                  ),
+                ),
+                ButtonSegment<String>(
+                  value: 'personal',
+                  icon: const Icon(Icons.public),
+                  label: Text(
+                    l10n.pilotModePublicPilot,
+                    key: FlightVisTestKeys.hubModePersonal,
+                  ),
+                ),
+              ],
+              selected: {_selectedMode},
+              onSelectionChanged: (selection) {
+                if (selection.isNotEmpty) {
+                  unawaited(_selectMode(selection.first));
+                }
+              },
+            ),
+          ],
           const SizedBox(height: 12),
+          if (widget.magicLinkNotice != null &&
+              widget.magicLinkNotice!.isNotEmpty) ...[
+            Card(
+              key: FlightVisTestKeys.hubMagicStatusBanner,
+              color: widget.magicLinkNoticeIsError
+                  ? theme.colorScheme.errorContainer
+                  : theme.colorScheme.primaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  widget.magicLinkNotice!,
+                  style: TextStyle(
+                    color: widget.magicLinkNoticeIsError
+                        ? theme.colorScheme.onErrorContainer
+                        : theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (widget.clubUnavailableNotice) ...[
             Card(
               key: FlightVisTestKeys.hubClubUnavailableBanner,
@@ -508,6 +750,15 @@ class _HomeHubScreenState extends State<HomeHubScreen>
             icon: const Icon(Icons.flight_takeoff),
             label: Text(l10n.pilotHubStartFlightButton),
           ),
+          if (inPersonalMode) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: FlightVisTestKeys.hubLocalRecordAction,
+              onPressed: _onTapRecordLocalOnly,
+              icon: const Icon(Icons.save_alt),
+              label: Text(l10n.pilotHubLocalRecordAction),
+            ),
+          ],
           const SizedBox(height: 12),
           _navCard(
             context,
@@ -553,25 +804,35 @@ class _HomeHubScreenState extends State<HomeHubScreen>
           _navCard(
             context,
             key: FlightVisTestKeys.hubFlightDetails,
-            title: l10n.pilotHubFlightTitle,
+            title: broadcastTitle,
             subtitle: broadcastSubtitle,
             icon: Icons.cell_tower,
-            enabled: canBroadcastClub,
-            onTap: canBroadcastClub
-                ? () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TailPickerScreen(
-                          repo: widget.repo,
-                          pilot: widget.pilot,
-                          permissions: widget.permissions,
-                          onFlightStarted: (flight, tail) {
-                            Navigator.pop(context);
-                            widget.onStartFlight(flight.id, tail);
-                          },
+            enabled: canBroadcastCard,
+            onTap: canBroadcastCard
+                ? () {
+                    if (inPersonalMode) {
+                      unawaited(_openPersonalFlightStart());
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TailPickerScreen(
+                            repo: widget.repo,
+                            pilot: widget.pilot,
+                            permissions: widget.permissions,
+                            onFlightStarted: (flight, tail) {
+                              Navigator.pop(context);
+                              _notifyStartBroadcast(
+                                flight.id,
+                                tail,
+                                flightMode: 'club',
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    )
+                      );
+                    }
+                  }
                 : null,
           ),
           if (loggedIn)

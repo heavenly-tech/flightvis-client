@@ -59,7 +59,24 @@ String? localizeApiReason(AppLocalizations l10n, String? code) {
       return l10n.errorNotApproved;
     case 'email_not_verified':
     case 'email not verified':
+    case 'email_unverified':
+    case 'email unverified':
       return l10n.errorEmailNotVerified;
+    case 'club_visibility_requires_club':
+      return l10n.errorClubVisibilityRequiresClub;
+    case 'invalid tail':
+    case 'invalid_tail':
+      return l10n.errorInvalidTail;
+    case 'expired':
+      return l10n.errorMagicLinkExpired;
+    case 'invalid':
+      return l10n.errorMagicLinkInvalid;
+    case 'weak password':
+    case 'weak_password':
+      return l10n.errorWeakPassword;
+    case 'signup failed':
+    case 'signup_failed':
+      return l10n.errorSignupFailed;
     case 'no_session':
     case 'unauthorized':
       return l10n.errorUnauthorized;

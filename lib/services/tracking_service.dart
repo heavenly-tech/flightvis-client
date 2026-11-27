@@ -49,7 +49,11 @@ class TrackingService {
         stopDetection: false,
       ),
       wakeLock: true,
-      buffer: true,
+      // Store-and-forward offline buffering is owned by Dart `FixUploadQueueStore`
+      // + `FixUploadWorker` (`POST /api/ingest` in <=100-fix batches with
+      // Retry-After backoff and 413 splitting), so disable Traccar's competing
+      // single-fix SQLite replay queue to avoid double-spending the 120/min budget.
+      buffer: false,
       preferPlatformProviders: false,
     );
     // `init` is idempotent and ignores subsequent configs; `setConfig` ensures
@@ -88,6 +92,11 @@ class TrackingService {
   Future<bool> isTracking() async {
     if (AppConfig.screenshotTest) return true;
     return _tracker.isTracking();
+  }
+
+  Future<TrackingLogPollResult> pollIngestStatus() async {
+    if (AppConfig.screenshotTest) return TrackingLogPollResult.empty;
+    return _session.pollIngestStatus();
   }
 
   Future<bool> ingestFailureRequiresStop() async {

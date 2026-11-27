@@ -15,6 +15,17 @@ abstract final class FlightVisApiPaths {
   /// Browser magic consume (email links); app deep links use [authMagicComplete].
   static const clubAuthMagicConsume = '/api/club/auth/magic';
 
+  /// Global account / club-less (E1) endpoints (`club/account_routes.rs`).
+  static const accountSignup = '/api/account/signup';
+  static const accountLogin = '/api/account/login';
+  static const accountLogout = '/api/account/logout';
+  static const accountMagicLink = '/api/account/magic-link';
+  static const accountAuthMagicConsume = '/api/account/auth/magic';
+  static const accountAuthMagicComplete = '/api/account/auth/magic/complete';
+  static const accountMe = '/api/account/me';
+  static const accountSwitchClub = '/api/account/switch-club';
+  static const accountDevices = '/api/account/devices';
+
   static const checkin = '/api/checkin';
   static const meTails = '/api/me/tails';
   static const meDevices = '/api/me/devices';
@@ -22,6 +33,7 @@ abstract final class FlightVisApiPaths {
   static const meLiveTrails = '/api/me/live-trails';
   static const publicLiveTrails = '/api/public/live-trails';
   static const flights = '/api/flights';
+  static const ingest = '/api/ingest';
 
   static String flightBySlug(String slug) => '/api/flights/${Uri.encodeComponent(slug)}';
   static String flightEnd(String flightId) => '/api/flights/$flightId/end';

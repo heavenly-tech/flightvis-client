@@ -55,62 +55,207 @@ final Set<String> spanishVoseoAllowlist = {
   'traspiés',
 };
 
-/// Present-tense voseo forms of `-rar` verbs that end in `-rás` and must NOT
-/// be mistaken for `tú` future forms (e.g. `mirás` vs `mirarás`, `esperás` vs
-/// `esperarás`, `entrás` vs `entrarás`).
-const Set<String> spanishVoseoPresentRasForms = {
-  'mirás',
-  'esperás',
-  'entrás',
-  'cerrás',
-  'borrás',
-  'mostrás',
-  'encontrás',
-  'registrás',
-  'configurás',
-  'parás',
-  'tirás',
-  'comprás',
-  'mejorás',
-  'asegurás',
-  'declarás',
-  'preparás',
-  'ignorás',
-  'acelerás',
-  'lográs',
-  'sobrás',
-  'durás',
-  'llorás',
-  'curás',
-  'girás',
-  'agarrás',
-  'ahorrás',
+/// Explicit allowlist of irregular Spanish `tú` future forms ending in `-rás`
+/// (including prefixed compounds such as `obtendrás`, `dispondrás`, `desharás`,
+/// `satisfarás`, `preverás`).
+const Set<String> spanishIrregularTuFutureRoots = {
+  'podrás',
+  'tendrás',
+  'querrás',
+  'sabrás',
+  'harás',
+  'dirás',
+  'vendrás',
+  'pondrás',
+  'saldrás',
+  'valdrás',
+  'habrás',
+  'cabrás',
 };
 
-/// Irregular and monosyllabic/short Spanish `tú` future forms ending in `-rás`
-/// (including prefixed compounds such as `obtendrás`, `dispondrás`, `desharás`).
-final RegExp _spanishIrregularTuFuture = RegExp(
-  r'^(?:[\p{L}]*(?:podrás|tendrás|querrás|sabrás|harás|dirás|vendrás|pondrás|saldrás|valdrás|habrás|cabrás)|irás|serás|verás|darás|preverás|reverás|entreverás|satisfarás)$',
-  caseSensitive: false,
-  unicode: true,
-);
+/// Prefixed compounds of irregular Spanish `tú` futures and short forms whose
+/// stem does not follow `<infinitive> + ás`.
+const Set<String> spanishIrregularTuFutureCompounds = {
+  'obtendrás',
+  'mantendrás',
+  'contendrás',
+  'detendrás',
+  'sostendrás',
+  'retendrás',
+  'entretendrás',
+  'dispondrás',
+  'propondrás',
+  'supondrás',
+  'repondrás',
+  'expondrás',
+  'impondrás',
+  'compondrás',
+  'opondrás',
+  'pospondrás',
+  'desharás',
+  'reharás',
+  'satisfarás',
+  'contradirás',
+  'predirás',
+  'convendrás',
+  'prevendrás',
+  'provendrás',
+  'intervendrás',
+  'sobresaldrás',
+  'equivaldrás',
+  'prevaldrás',
+  'preverás',
+  'reverás',
+  'entreverás',
+};
 
-/// Regular Spanish `tú` future forms: verb stem + thematic vowel `(a|e|i)` + `rás`
-/// (e.g. `subirás`, `guardarás`, `volarás`, `usarás`, `continuarás`, `recibirás`).
-final RegExp _spanishRegularTuFuture = RegExp(
-  r'^[\p{L}]{2,}[aei]rás$',
-  caseSensitive: false,
-  unicode: true,
-);
+/// Explicit allowlist of Spanish infinitives (`-ar`, `-er`, `-ir`) whose
+/// regular `tú` future is formed strictly as `<infinitive> + 'ás'` (e.g.
+/// `subir` -> `subirás`, `generar` -> `generarás`, `operar` -> `operarás`,
+/// `recuperar` -> `recuperarás`).
+///
+/// Replaces the overly broad `[aei]rás` regex (L-85), which falsely exempted
+/// `-rar` voseo presents such as `generás`, `operás`, and `recuperás` whose
+/// `-ás`-stripped stems (`gener`, `oper`, `recuper`) end in `er`/`ar`/`ir`
+/// without being infinitives.
+const Set<String> spanishRegularFutureInfinitives = {
+  // Short / core verbs
+  'ir',
+  'ser',
+  'ver',
+  'dar',
+  'estar',
+  // Flight / app domain & common Spanish regular verbs
+  'abrir',
+  'acceder',
+  'acelerar',
+  'aceptar',
+  'activar',
+  'actualizar',
+  'agarrar',
+  'agregar',
+  'ahorrar',
+  'añadir',
+  'aparecer',
+  'aplicar',
+  'aprobar',
+  'aprovechar',
+  'asegurar',
+  'avanzar',
+  'ayudar',
+  'borrar',
+  'buscar',
+  'cambiar',
+  'cancelar',
+  'cargar',
+  'cerrar',
+  'comenzar',
+  'compartir',
+  'completar',
+  'comprar',
+  'comprobar',
+  'conceder',
+  'conectar',
+  'configurar',
+  'confirmar',
+  'conseguir',
+  'consultar',
+  'continuar',
+  'crear',
+  'curar',
+  'decidir',
+  'declarar',
+  'dejar',
+  'desactivar',
+  'descargar',
+  'desconectar',
+  'durar',
+  'elegir',
+  'eliminar',
+  'empezar',
+  'encontrar',
+  'entrar',
+  'enviar',
+  'escanear',
+  'escribir',
+  'esperar',
+  'excluir',
+  'finalizar',
+  'generar',
+  'girar',
+  'grabar',
+  'guardar',
+  'habilitar',
+  'ignorar',
+  'ingresar',
+  'iniciar',
+  'instalar',
+  'intentar',
+  'leer',
+  'limpiar',
+  'llegar',
+  'llevar',
+  'llorar',
+  'lograr',
+  'mejorar',
+  'mirar',
+  'mostrar',
+  'necesitar',
+  'notificar',
+  'ocultar',
+  'operar',
+  'parar',
+  'pasar',
+  'pedir',
+  'pegar',
+  'perder',
+  'permitir',
+  'preparar',
+  'presionar',
+  'probar',
+  'quedar',
+  'quitar',
+  'recibir',
+  'recuperar',
+  'registrar',
+  'regresar',
+  'reintentar',
+  'renovar',
+  'revisar',
+  'sacar',
+  'seguir',
+  'seleccionar',
+  'sincronizar',
+  'sobrar',
+  'solicitar',
+  'subir',
+  'terminar',
+  'tirar',
+  'tocar',
+  'tomar',
+  'traer',
+  'transmitir',
+  'unir',
+  'usar',
+  'verificar',
+  'vincular',
+  'volar',
+  'volver',
+};
 
-/// Returns true when [word] is a valid Spanish `tú` future form ending in
-/// `-rás` (not a `-rar` present voseo form like `mirás` or `esperás`).
+/// Returns true ONLY when [word] is an explicitly allowlisted Spanish `tú`
+/// future form (irregular roots/compounds, or `<allowlisted infinitive> + 'ás'`).
+///
+/// Rejects `-rar` present-tense voseo forms such as `generás`, `operás`,
+/// `recuperás`, `mirás`, `esperás`, `entrás`, `cerrás`.
 bool isSpanishTuFuture(String word) {
   final lower = word.toLowerCase();
   if (!lower.endsWith('rás')) return false;
-  if (spanishVoseoPresentRasForms.contains(lower)) return false;
-  return _spanishIrregularTuFuture.hasMatch(lower) ||
-      _spanishRegularTuFuture.hasMatch(lower);
+  if (spanishIrregularTuFutureRoots.contains(lower)) return true;
+  if (spanishIrregularTuFutureCompounds.contains(lower)) return true;
+  // Regular `tú` future = `<infinitive ending in ar/er/ir> + 'ás'`.
+  final infinitive = lower.substring(0, lower.length - 2);
+  return spanishRegularFutureInfinitives.contains(infinitive);
 }
 
 /// Voseo imperatives with a final stressed vowel (e.g. `tené`, `mirá`, `hacé`,

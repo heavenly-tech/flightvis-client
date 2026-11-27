@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -14,6 +15,7 @@ class FlightVisException implements Exception {
     this.reason,
     this.serverMessage,
     this.retryAfterSeconds,
+    this.retryAfterRaw,
   });
 
   final String message;
@@ -29,6 +31,9 @@ class FlightVisException implements Exception {
   /// Optional parsed `Retry-After` delay in seconds (e.g. HTTP 429 responses).
   final int? retryAfterSeconds;
 
+  /// Raw `Retry-After` HTTP header value (integer seconds or HTTP-date).
+  final String? retryAfterRaw;
+
   /// True when the server rejected the request with `403` because the club is
   /// suspended/unavailable (distinct from session expiry).
   bool get isClubUnavailable {
@@ -42,14 +47,61 @@ class FlightVisException implements Exception {
     return false;
   }
 
-  /// Parses an integer-seconds `Retry-After` HTTP header value.
-  static int? parseRetryAfterSeconds(String? raw) {
+  /// True when the server rejected a batch as oversized (`413 Payload Too Large`
+  /// or an explicit `"oversized"` / `"batch too large"` / `"payload too large"` error).
+  bool get isOversizedBatch {
+    if (statusCode == 413) return true;
+    for (final raw in [body?['error'], reason, message]) {
+      final norm = raw?.toString().trim().toLowerCase();
+      if (norm == null || norm.isEmpty) continue;
+      if (norm.contains('oversized') ||
+          norm.contains('batch too large') ||
+          norm.contains('payload too large')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Parses a `Retry-After` HTTP header value (either integer seconds or an
+  /// RFC 7231 / RFC 9110 HTTP-date) relative to [now] (defaults to UTC now).
+  static Duration? parseRetryAfterDuration(String? raw, {DateTime? now}) {
     if (raw == null) return null;
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return null;
     final seconds = int.tryParse(trimmed);
-    if (seconds == null) return null;
-    return seconds < 0 ? 0 : seconds;
+    if (seconds != null) {
+      return Duration(seconds: seconds < 0 ? 0 : seconds);
+    }
+    try {
+      final target = HttpDate.parse(trimmed).toUtc();
+      final reference = (now ?? DateTime.now()).toUtc();
+      final diffMs = target.difference(reference).inMilliseconds;
+      return Duration(milliseconds: diffMs <= 0 ? 0 : diffMs);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Parses an integer-seconds or HTTP-date `Retry-After` header into whole
+  /// seconds (rounded up so the minimum wait is always respected).
+  static int? parseRetryAfterSeconds(String? raw, {DateTime? now}) {
+    final d = parseRetryAfterDuration(raw, now: now);
+    if (d == null) return null;
+    if (d.inMilliseconds <= 0) return 0;
+    return (d.inMilliseconds + 999) ~/ 1000;
+  }
+
+  /// Resolves the `Retry-After` delay relative to an injectable [now] clock.
+  Duration? resolveRetryAfter({DateTime? now}) {
+    if (retryAfterRaw != null) {
+      final parsed = parseRetryAfterDuration(retryAfterRaw, now: now);
+      if (parsed != null) return parsed;
+    }
+    if (retryAfterSeconds != null) {
+      return Duration(seconds: retryAfterSeconds! < 0 ? 0 : retryAfterSeconds!);
+    }
+    return null;
   }
 
   @override
@@ -62,7 +114,8 @@ int? _parseTrailMinutes(dynamic raw) {
   return null;
 }
 
-/// Pilot profile from login (no `licenseNo`) or `/api/club/me` (includes `licenseNo`).
+/// Pilot profile from login (no `licenseNo`), `/api/club/me` (includes `licenseNo`),
+/// or synthesized for a club-less personal account (`isClublessAccount == true`).
 class PilotProfile {
   PilotProfile({
     required this.id,
@@ -73,6 +126,7 @@ class PilotProfile {
     this.licenseNo,
     this.clubTrailMinutesDefault,
     this.emailVerified = false,
+    this.isClublessAccount = false,
   });
 
   final String id;
@@ -83,9 +137,13 @@ class PilotProfile {
   final String? licenseNo;
   final int? clubTrailMinutesDefault;
 
-  /// Top-level `email_verified` boolean from `GET /api/club/me` (false when
-  /// missing or for guest sessions). Drives the public-visibility gate.
+  /// Top-level `email_verified` boolean from `GET /api/club/me` or `GET /api/account/me`
+  /// (false when missing or for guest sessions). Drives the public-visibility gate.
   final bool emailVerified;
+
+  /// True when representing a signed-in global account with no active club
+  /// membership ("Piloto público" mode).
+  final bool isClublessAccount;
 
   factory PilotProfile.fromJson(
     Map<String, dynamic> json, {
@@ -104,6 +162,7 @@ class PilotProfile {
       clubTrailMinutesDefault: clubTrailMinutesDefault ??
           _parseTrailMinutes(json['clubTrailMinutesDefault']),
       emailVerified: resolvedEmailVerified,
+      isClublessAccount: json['isClublessAccount'] == true,
     );
   }
 
@@ -117,10 +176,199 @@ class PilotProfile {
         if (clubTrailMinutesDefault != null)
           'clubTrailMinutesDefault': clubTrailMinutesDefault,
         'email_verified': emailVerified,
+        if (isClublessAccount) 'isClublessAccount': true,
       };
 
   bool get isApproved => status == 'approved';
   bool get isGuest => status == 'guest';
+}
+
+/// Club membership entry from `/api/account/me`, `/api/account/login`, or
+/// `/api/account/auth/magic/complete`.
+class AccountMembership {
+  const AccountMembership({
+    required this.id,
+    required this.clubId,
+    required this.slug,
+    required this.name,
+    required this.role,
+    required this.status,
+  });
+
+  final String id;
+  final String clubId;
+  final String slug;
+  final String name;
+  final String role;
+  final String status;
+
+  /// Matches server `club_memberships.status IN ('active', 'approved')`.
+  bool get isActive => status == 'active' || status == 'approved';
+
+  factory AccountMembership.fromJson(Map<String, dynamic> json) =>
+      AccountMembership(
+        id: json['id'] as String? ?? '',
+        clubId: json['clubId'] as String? ?? '',
+        slug: json['slug'] as String? ?? '',
+        name: json['name'] as String? ?? (json['slug'] as String? ?? ''),
+        role: json['role'] as String? ?? 'pilot',
+        status: json['status'] as String? ?? 'pending',
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'clubId': clubId,
+        'slug': slug,
+        'name': name,
+        'role': role,
+        'status': status,
+      };
+}
+
+/// Global account profile from `GET /api/account/me`, `POST /api/account/login`,
+/// or `POST /api/account/auth/magic/complete`.
+class AccountProfile {
+  const AccountProfile({
+    required this.id,
+    required this.email,
+    required this.emailVerified,
+    this.emailVerifiedAt,
+    this.activeMembershipId,
+    this.memberships = const [],
+  });
+
+  final String id;
+  final String email;
+  final bool emailVerified;
+  final int? emailVerifiedAt;
+  final String? activeMembershipId;
+  final List<AccountMembership> memberships;
+
+  List<AccountMembership> get activeMemberships =>
+      memberships.where((m) => m.isActive).toList(growable: false);
+
+  bool get hasActiveClubMembership => activeMemberships.isNotEmpty;
+
+  AccountMembership? get activeMembership {
+    final targetId = activeMembershipId;
+    if (targetId == null || targetId.isEmpty) return null;
+    for (final m in memberships) {
+      if (m.id == targetId) return m;
+    }
+    return null;
+  }
+
+  /// Synthesizes a [PilotProfile] for club-less (personal) mode so local
+  /// buckets, UI headers, and email-verification gating work uniformly.
+  PilotProfile toPersonalPilotProfile() {
+    final displayName = email.contains('@') ? email.split('@').first : email;
+    return PilotProfile(
+      id: id,
+      name: displayName.isNotEmpty ? displayName : email,
+      email: email,
+      status: 'approved',
+      role: 'pilot',
+      emailVerified: emailVerified,
+      isClublessAccount: !hasActiveClubMembership,
+    );
+  }
+
+  factory AccountProfile.fromJson(Map<String, dynamic> json) {
+    final acct = json['account'] is Map<String, dynamic>
+        ? json['account'] as Map<String, dynamic>
+        : json;
+    final verifiedAtRaw = acct['emailVerifiedAt'];
+    final verifiedAt = verifiedAtRaw is num ? verifiedAtRaw.toInt() : null;
+    // GET /api/account/me returns top-level `email_verified`;
+    // POST /api/account/login and /api/account/auth/magic/complete return
+    // nested `account.emailVerified`.
+    final bool verified;
+    if (json.containsKey('email_verified')) {
+      verified = json['email_verified'] == true;
+    } else if (acct.containsKey('emailVerified')) {
+      verified = acct['emailVerified'] == true;
+    } else {
+      verified = verifiedAt != null;
+    }
+    final rawMemberships = json['memberships'] as List<dynamic>? ?? const [];
+    final memberships = rawMemberships
+        .whereType<Map<String, dynamic>>()
+        .map(AccountMembership.fromJson)
+        .toList(growable: false);
+    final rawActiveId = (json['activeMembershipId'] as String?)?.trim();
+    return AccountProfile(
+      id: acct['id'] as String? ?? '',
+      email: acct['email'] as String? ?? '',
+      emailVerified: verified,
+      emailVerifiedAt: verifiedAt,
+      activeMembershipId:
+          (rawActiveId != null && rawActiveId.isNotEmpty) ? rawActiveId : null,
+      memberships: memberships,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'account': {
+          'id': id,
+          'email': email,
+          'emailVerifiedAt': emailVerifiedAt,
+        },
+        'email_verified': emailVerified,
+        'activeMembershipId': activeMembershipId,
+        'memberships': [for (final m in memberships) m.toJson()],
+      };
+}
+
+/// Result of `POST /api/account/login` or `POST /api/account/auth/magic/complete`.
+class AccountAuthResult {
+  const AccountAuthResult({required this.profile, this.device});
+
+  final AccountProfile profile;
+  final DeviceRegistration? device;
+}
+
+/// Result of `POST /api/account/switch-club`.
+class SwitchClubResult {
+  const SwitchClubResult({
+    required this.pilotId,
+    required this.clubId,
+    required this.activeMembershipId,
+    required this.clubSlug,
+    required this.clubName,
+  });
+
+  final String pilotId;
+  final String clubId;
+  final String activeMembershipId;
+  final String clubSlug;
+  final String clubName;
+
+  factory SwitchClubResult.fromJson(Map<String, dynamic> json) {
+    final club = json['club'] is Map<String, dynamic>
+        ? json['club'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return SwitchClubResult(
+      pilotId: json['pilotId'] as String? ?? '',
+      clubId: json['clubId'] as String? ?? (club['id'] as String? ?? ''),
+      activeMembershipId: json['activeMembershipId'] as String? ?? '',
+      clubSlug: club['slug'] as String? ?? '',
+      clubName: club['name'] as String? ?? (club['slug'] as String? ?? ''),
+    );
+  }
+}
+
+/// Result of `POST /api/ingest`.
+class IngestBatchResult {
+  const IngestBatchResult({required this.ok, required this.accepted});
+
+  final bool ok;
+  final int accepted;
+
+  factory IngestBatchResult.fromJson(Map<String, dynamic> json) =>
+      IngestBatchResult(
+        ok: json['ok'] == true,
+        accepted: (json['accepted'] as num?)?.toInt() ?? 0,
+      );
 }
 
 class TailOption {
@@ -170,6 +418,8 @@ class CheckinResult {
     this.needsSignup = false,
     this.deviceId,
     this.deviceToken,
+    this.pilotId,
+    this.clubId,
   });
 
   final bool ok;
@@ -184,11 +434,17 @@ class CheckinResult {
   /// Whether the server indicates the guest still needs to claim/create an account.
   final bool needsSignup;
 
-  /// Raw device id minted by server on bearerless check-in (never sent as OsmAnd `id=`).
+  /// Raw device id minted by server on bearerless/multi-club check-in (never sent as OsmAnd `id=`).
   final String? deviceId;
 
   /// Device token minted or rotated by server (`json['token']`), used as Bearer and OsmAnd `id=`.
   final String? deviceToken;
+
+  /// Target pilot row id returned by E1 multi-club check-in (`json['pilotId']`).
+  final String? pilotId;
+
+  /// Target club id returned by E1 multi-club check-in (`json['clubId']`).
+  final String? clubId;
 
   bool get isGuest => status == 'guest' || needsSignup;
 
@@ -209,6 +465,8 @@ class CheckinResult {
     name ??= json['clubName'] as String?;
     final rawToken = (json['token'] as String?)?.trim();
     final rawDeviceId = (json['deviceId'] as String?)?.trim();
+    final rawPilotId = (json['pilotId'] as String?)?.trim();
+    final rawClubId = (json['clubId'] as String?)?.trim();
     return CheckinResult(
       ok: json['ok'] == true,
       id: json['id'] as String?,
@@ -219,6 +477,8 @@ class CheckinResult {
       needsSignup: json['needsSignup'] == true,
       deviceId: (rawDeviceId != null && rawDeviceId.isNotEmpty) ? rawDeviceId : null,
       deviceToken: (rawToken != null && rawToken.isNotEmpty) ? rawToken : null,
+      pilotId: (rawPilotId != null && rawPilotId.isNotEmpty) ? rawPilotId : null,
+      clubId: (rawClubId != null && rawClubId.isNotEmpty) ? rawClubId : null,
     );
   }
 
@@ -404,17 +664,21 @@ class LiveTrailsResponse {
   final bool notModified;
 }
 
-/// Typed HTTP client for heavenly-tech/flight_vis club APIs (PR #15).
+/// Typed HTTP client for heavenly-tech/flight_vis club & account APIs (PR #15 + E1).
 class FlightVisClient {
   FlightVisClient({
     required this.baseUrl,
     http.Client? httpClient,
     String? sessionId,
+    String? accountSessionId,
     String? deviceToken,
+    String? personalDeviceToken,
     String? clubSlug,
   })  : _http = httpClient ?? http.Client(),
         _sessionId = sessionId,
+        _accountSessionId = accountSessionId,
         _deviceToken = deviceToken,
+        _personalDeviceToken = personalDeviceToken,
         _clubSlug = clubSlug;
 
   static const passkeyRpId = 'flight.heavenly.cl';
@@ -422,20 +686,36 @@ class FlightVisClient {
   String baseUrl;
   final http.Client _http;
   String? _sessionId;
+  String? _accountSessionId;
+  String? _signupNonce;
   String? _deviceToken;
+  String? _personalDeviceToken;
   String? _clubSlug;
   String? _acceptLanguage;
   int? _clubTrailMinutesDefault;
 
   String? get sessionId => _sessionId;
+  String? get accountSessionId => _accountSessionId;
   String? get deviceToken => _deviceToken;
+  String? get personalDeviceToken => _personalDeviceToken;
   int? get clubTrailMinutesDefault => _clubTrailMinutesDefault;
   bool get hasSession => _sessionId != null && _sessionId!.isNotEmpty;
+  bool get hasAccountSession =>
+      _accountSessionId != null && _accountSessionId!.isNotEmpty;
+  bool get hasAnySession => hasSession || hasAccountSession;
   bool get hasDeviceToken => _deviceToken != null && _deviceToken!.isNotEmpty;
+  bool get hasPersonalDeviceToken =>
+      _personalDeviceToken != null && _personalDeviceToken!.isNotEmpty;
 
   void setSessionId(String? value) => _sessionId = value;
+  void setAccountSessionId(String? value) => _accountSessionId = value;
   void setDeviceToken(String? value) => _deviceToken = value;
+  void setPersonalDeviceToken(String? value) => _personalDeviceToken = value;
   void setClubTrailMinutesDefault(int? value) => _clubTrailMinutesDefault = value;
+
+  String? deviceTokenForFlightMode(String flightMode) =>
+      flightMode == 'personal' ? _personalDeviceToken : _deviceToken;
+
   void setAcceptLanguage(String? tag) {
     if (tag == null || tag.trim().isEmpty) {
       _acceptLanguage = null;
@@ -457,15 +737,37 @@ class FlightVisClient {
 
   Uri _uri(String path) => Uri.parse('${AppConfig.normalizeBaseUrl(baseUrl)}$path');
 
-  Map<String, String> _headers({bool jsonBody = false}) {
+  Map<String, String> _headers({
+    bool jsonBody = false,
+    bool acceptJson = false,
+    String? bearerOverride,
+    bool omitBearer = false,
+    bool includeSignupNonce = false,
+  }) {
     final headers = <String, String>{
       if (jsonBody) 'Content-Type': 'application/json',
+      if (acceptJson) 'Accept': 'application/json',
     };
-    if (_sessionId != null && _sessionId!.isNotEmpty) {
-      headers['Cookie'] = 'fv_club_session=$_sessionId';
+    final cookies = <String>[];
+    if (_accountSessionId != null && _accountSessionId!.isNotEmpty) {
+      cookies.add('fv_account_session=$_accountSessionId');
     }
-    if (_deviceToken != null && _deviceToken!.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $_deviceToken';
+    if (_sessionId != null && _sessionId!.isNotEmpty) {
+      cookies.add('fv_club_session=$_sessionId');
+    }
+    if (includeSignupNonce &&
+        _signupNonce != null &&
+        _signupNonce!.isNotEmpty) {
+      cookies.add('__Host-fv_account_signup_nonce=$_signupNonce');
+    }
+    if (cookies.isNotEmpty) {
+      headers['Cookie'] = cookies.join('; ');
+    }
+    if (!omitBearer) {
+      final bearer = bearerOverride ?? _deviceToken;
+      if (bearer != null && bearer.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $bearer';
+      }
     }
     if (_acceptLanguage != null && _acceptLanguage!.isNotEmpty) {
       headers['Accept-Language'] = _acceptLanguage!;
@@ -473,23 +775,27 @@ class FlightVisClient {
     return headers;
   }
 
-  String? _sessionFromResponse(http.Response response) {
+  String? _cookieFromResponse(http.Response response, String cookieName) {
     final raw = response.headers['set-cookie'];
-    if (raw == null) return null;
-    for (final part in raw.split(',')) {
-      final trimmed = part.trim();
-      if (trimmed.startsWith('fv_club_session=')) {
-        final value = trimmed.substring('fv_club_session='.length).split(';').first;
-        if (value.isNotEmpty) return value;
+    if (raw == null || raw.isEmpty) return null;
+    final pattern = RegExp(
+      '(?:^|[,;]\\s*)${RegExp.escape(cookieName)}=([^;,\\r\\n]*)',
+    );
+    String? found;
+    for (final m in pattern.allMatches(raw)) {
+      final value = m.group(1)?.trim();
+      if (value != null && value.isNotEmpty) {
+        found = value;
       }
     }
-    for (final segment in raw.split(';')) {
-      if (segment.trim().startsWith('fv_club_session=')) {
-        return segment.trim().substring('fv_club_session='.length);
-      }
-    }
-    return null;
+    return found;
   }
+
+  String? _sessionFromResponse(http.Response response) =>
+      _cookieFromResponse(response, 'fv_club_session');
+
+  String? _accountSessionFromResponse(http.Response response) =>
+      _cookieFromResponse(response, 'fv_account_session');
 
   Map<String, dynamic> _decodeJson(http.Response response) {
     if (response.body.isEmpty) return {};
@@ -507,15 +813,15 @@ class FlightVisClient {
     final serverMessage =
         (rawServerMessage != null && rawServerMessage.isNotEmpty) ? rawServerMessage : null;
     final error = body?['error']?.toString() ?? reason ?? 'HTTP ${response.statusCode}';
+    final retryAfterRaw = response.headers['retry-after'];
     throw FlightVisException(
       error,
       statusCode: response.statusCode,
       body: body,
       reason: reason,
       serverMessage: serverMessage,
-      retryAfterSeconds: FlightVisException.parseRetryAfterSeconds(
-        response.headers['retry-after'],
-      ),
+      retryAfterSeconds: FlightVisException.parseRetryAfterSeconds(retryAfterRaw),
+      retryAfterRaw: retryAfterRaw,
     );
   }
 
@@ -551,7 +857,7 @@ class FlightVisClient {
   }
 
   Future<PilotProfile?> meProfile() async {
-    if (!hasSession) return null;
+    if (!hasAnySession) return null;
     final response = await _http.get(_uri(FlightVisApiPaths.clubMe), headers: _headers());
     if (response.statusCode == 401 || response.statusCode == 403) {
       _clubTrailMinutesDefault = null;
@@ -577,19 +883,217 @@ class FlightVisClient {
     );
   }
 
+  /// Global account profile (`GET /api/account/me`, `account_routes.rs:538`).
+  Future<AccountProfile?> accountMe() async {
+    if (!hasAccountSession) return null;
+    final response = await _http.get(
+      _uri(FlightVisApiPaths.accountMe),
+      headers: _headers(acceptJson: true),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    return AccountProfile.fromJson(_decodeJson(response));
+  }
+
+  /// Creates a global account (`POST /api/account/signup`, `account_routes.rs:37`).
+  /// Omit [clubSlug] for a club-less ("Piloto público") account.
+  Future<void> accountSignup({
+    required String email,
+    String? password,
+    String? clubSlug,
+  }) async {
+    final trimmedSlug = clubSlug?.trim();
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountSignup),
+      headers: _headers(jsonBody: true, acceptJson: true),
+      body: jsonEncode({
+        'email': email.trim(),
+        if (password != null && password.isNotEmpty) 'password': password,
+        if (trimmedSlug != null && trimmedSlug.isNotEmpty)
+          'clubSlug': trimmedSlug,
+      }),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      _throwForError(response);
+    }
+    final nonce =
+        _cookieFromResponse(response, '__Host-fv_account_signup_nonce');
+    if (nonce != null) _signupNonce = nonce;
+  }
+
+  /// Sends a global account magic link (`POST /api/account/magic-link`, `account_routes.rs:386`).
+  Future<void> sendAccountMagicLink(String email, {String? locale}) async {
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountMagicLink),
+      headers: _headers(jsonBody: true, acceptJson: true),
+      body: jsonEncode({
+        'email': email.trim(),
+        if (locale != null && locale.isNotEmpty) 'locale': locale,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+  }
+
+  /// Email + password login for a global account (`POST /api/account/login`, `account_routes.rs:414`).
+  /// When [installId] is provided, the server lazily ensures the personal pilot
+  /// and returns a personal device token in `body['device']`.
+  Future<AccountAuthResult> accountLogin(
+    String email,
+    String password, {
+    String? installId,
+    String? label,
+    String? model,
+  }) async {
+    final trimmedInstallId = installId?.trim();
+    final trimmedLabel = label?.trim();
+    final trimmedModel = model?.trim();
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountLogin),
+      headers: _headers(jsonBody: true, acceptJson: true, omitBearer: true),
+      body: jsonEncode({
+        'email': email.trim(),
+        'password': password,
+        if (trimmedInstallId != null && trimmedInstallId.isNotEmpty)
+          'installId': trimmedInstallId,
+        if (trimmedLabel != null && trimmedLabel.isNotEmpty)
+          'label': trimmedLabel,
+        if (trimmedModel != null && trimmedModel.isNotEmpty)
+          'model': trimmedModel,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    return _parseAccountAuthResponse(response);
+  }
+
+  /// Completes an `/api/account/auth/magic` App Link (`POST /api/account/auth/magic/complete`,
+  /// `account_routes.rs:1102`).
+  Future<AccountAuthResult> completeAccountMagicLink(
+    String token, {
+    String? purpose,
+    String? installId,
+    String? label,
+    String? model,
+  }) async {
+    final trimmedPurpose = purpose?.trim();
+    final trimmedInstallId = installId?.trim();
+    final trimmedLabel = label?.trim();
+    final trimmedModel = model?.trim();
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountAuthMagicComplete),
+      headers: _headers(
+        jsonBody: true,
+        acceptJson: true,
+        omitBearer: true,
+        includeSignupNonce: true,
+      ),
+      body: jsonEncode({
+        'token': token.trim(),
+        if (trimmedPurpose != null && trimmedPurpose.isNotEmpty)
+          'purpose': trimmedPurpose,
+        if (trimmedInstallId != null && trimmedInstallId.isNotEmpty)
+          'installId': trimmedInstallId,
+        if (trimmedLabel != null && trimmedLabel.isNotEmpty)
+          'label': trimmedLabel,
+        if (trimmedModel != null && trimmedModel.isNotEmpty)
+          'model': trimmedModel,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    _signupNonce = null;
+    return _parseAccountAuthResponse(response);
+  }
+
+  AccountAuthResult _parseAccountAuthResponse(http.Response response) {
+    final accountSession = _accountSessionFromResponse(response);
+    if (accountSession != null) _accountSessionId = accountSession;
+    final clubSession = _sessionFromResponse(response);
+    if (clubSession != null) _sessionId = clubSession;
+    final body = _decodeJson(response);
+    final profile = AccountProfile.fromJson(body);
+    DeviceRegistration? device;
+    final rawDevice = body['device'];
+    if (rawDevice is Map<String, dynamic>) {
+      try {
+        device = DeviceRegistration.fromJson(rawDevice);
+        if (profile.activeMembershipId == null) {
+          _personalDeviceToken = device.token;
+        } else {
+          _deviceToken = device.token;
+        }
+      } catch (_) {}
+    }
+    return AccountAuthResult(profile: profile, device: device);
+  }
+
+  /// Mints or rotates a device token for the account (`POST /api/account/devices`,
+  /// `club/routes.rs:3366`). Use `mode: 'personal'` for club-less flights.
+  Future<DeviceRegistration> registerAccountDevice({
+    required String mode,
+    required String installId,
+    String label = 'Android',
+    String? model,
+  }) async {
+    final trimmedModel = model?.trim();
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountDevices),
+      headers: _headers(jsonBody: true, acceptJson: true),
+      body: jsonEncode({
+        'mode': mode,
+        'label': label,
+        'installId': installId,
+        if (trimmedModel != null && trimmedModel.isNotEmpty)
+          'model': trimmedModel,
+      }),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    final reg = DeviceRegistration.fromJson(_decodeJson(response));
+    if (mode == 'personal') {
+      _personalDeviceToken = reg.token;
+    } else if (mode == 'club') {
+      _deviceToken = reg.token;
+    }
+    return reg;
+  }
+
+  /// Switches the active club membership for a multi-club account
+  /// (`POST /api/account/switch-club`, `account_routes.rs:589`).
+  Future<SwitchClubResult> switchClub(String membershipId) async {
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.accountSwitchClub),
+      headers: _headers(jsonBody: true, acceptJson: true),
+      body: jsonEncode({'membershipId': membershipId.trim()}),
+    );
+    if (response.statusCode != 200) _throwForError(response);
+    final clubSession = _sessionFromResponse(response);
+    if (clubSession != null) _sessionId = clubSession;
+    final result = SwitchClubResult.fromJson(_decodeJson(response));
+    if (result.clubSlug.isNotEmpty) {
+      _clubSlug = result.clubSlug;
+    }
+    return result;
+  }
+
   Future<void> logout({String? installId}) async {
-    if (!hasSession) {
+    if (!hasAnySession) {
       _sessionId = null;
+      _accountSessionId = null;
       _clubTrailMinutesDefault = null;
       return;
     }
+    final useAccountLogout = hasAccountSession;
     final response = await _http.post(
-      _uri(FlightVisApiPaths.clubLogout),
-      headers: _headers(jsonBody: installId != null),
-      body: installId == null ? null : jsonEncode({'installId': installId}),
+      _uri(
+        useAccountLogout
+            ? FlightVisApiPaths.accountLogout
+            : FlightVisApiPaths.clubLogout,
+      ),
+      headers: _headers(jsonBody: !useAccountLogout && installId != null),
+      body: (!useAccountLogout && installId != null)
+          ? jsonEncode({'installId': installId})
+          : null,
     );
     if (response.statusCode != 200) _throwForError(response);
     _sessionId = null;
+    _accountSessionId = null;
     _clubTrailMinutesDefault = null;
   }
 
@@ -683,11 +1187,17 @@ class FlightVisClient {
     String kioskToken, {
     String? clubSlug,
     String? deviceId,
+    String? installId,
+    String? label,
+    String? model,
   }) async {
     if (clubSlug != null && clubSlug.isNotEmpty) {
       _clubSlug = clubSlug;
     }
     final trimmedDeviceId = deviceId?.trim();
+    final trimmedInstallId = installId?.trim();
+    final trimmedLabel = label?.trim();
+    final trimmedModel = model?.trim();
     final response = await _http.post(
       _uri(FlightVisApiPaths.checkin),
       headers: _headers(jsonBody: true),
@@ -695,6 +1205,12 @@ class FlightVisClient {
         'token': kioskToken.trim(),
         if (trimmedDeviceId != null && trimmedDeviceId.isNotEmpty)
           'deviceId': trimmedDeviceId,
+        if (trimmedInstallId != null && trimmedInstallId.isNotEmpty)
+          'installId': trimmedInstallId,
+        if (trimmedLabel != null && trimmedLabel.isNotEmpty)
+          'label': trimmedLabel,
+        if (trimmedModel != null && trimmedModel.isNotEmpty)
+          'model': trimmedModel,
       }),
     );
     if (response.statusCode != 200) _throwForError(response);
@@ -726,11 +1242,16 @@ class FlightVisClient {
     bool showPilotNamePublic = false,
     int? trailMinutes,
     bool sendTrail = true,
+    String? mode,
+    String? deviceToken,
   }) async {
+    final effectiveBearer =
+        deviceToken ?? (mode == 'personal' ? _personalDeviceToken : null);
     final response = await _http.post(
       _uri(FlightVisApiPaths.flights),
-      headers: _headers(jsonBody: true),
+      headers: _headers(jsonBody: true, bearerOverride: effectiveBearer),
       body: jsonEncode({
+        if (mode != null && mode.isNotEmpty) 'mode': mode,
         'tail': tail,
         'visibility': visibility,
         'show_pilot_name_public': showPilotNamePublic,
@@ -739,6 +1260,27 @@ class FlightVisClient {
     );
     if (response.statusCode != 200) _throwForError(response);
     return StartFlightResult.fromJson(_decodeJson(response));
+  }
+
+  /// Uploads a batch of queued fixes (`POST /api/ingest`, `live/ingest.rs:39`,
+  /// `live/types.rs:43-61`) using the device bearer token.
+  Future<IngestBatchResult> ingestBatch(
+    List<Map<String, dynamic>> fixes, {
+    String? deviceToken,
+  }) async {
+    final response = await _http.post(
+      _uri(FlightVisApiPaths.ingest),
+      headers: _headers(
+        jsonBody: true,
+        acceptJson: true,
+        bearerOverride: deviceToken,
+      ),
+      body: jsonEncode({'fixes': fixes}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwForError(response);
+    }
+    return IngestBatchResult.fromJson(_decodeJson(response));
   }
 
   /// Guest pilot session (`POST /api/devices/anonymous` → server `post_guest`).
@@ -786,11 +1328,22 @@ class FlightVisClient {
     return DeviceRegistration.fromJson(body);
   }
 
-  Future<List<MyFlightSummary>> myFlights() async {
-    if (!hasSession) return const [];
+  Future<List<MyFlightSummary>> myFlights({
+    String? mode,
+    String? deviceToken,
+  }) async {
+    final effectiveBearer =
+        deviceToken ?? (mode == 'personal' ? _personalDeviceToken : null);
+    if (!hasAnySession && (effectiveBearer == null || effectiveBearer.isEmpty)) {
+      return const [];
+    }
+    final baseUri = _uri(FlightVisApiPaths.meFlights);
+    final uri = (mode != null && mode.isNotEmpty)
+        ? baseUri.replace(queryParameters: {'mode': mode})
+        : baseUri;
     final response = await _http.get(
-      _uri(FlightVisApiPaths.meFlights),
-      headers: _headers(),
+      uri,
+      headers: _headers(bearerOverride: effectiveBearer),
     );
     if (response.statusCode != 200) _throwForError(response);
     final body = _decodeJson(response);
@@ -800,9 +1353,13 @@ class FlightVisClient {
         .toList();
   }
 
-  /// Returns true if [flightId] is still `active` on the server (session required).
-  Future<bool> isFlightActiveOnServer(String flightId) async {
-    final flights = await myFlights();
+  /// Returns true if [flightId] is still `active` on the server (session or bearer required).
+  Future<bool> isFlightActiveOnServer(
+    String flightId, {
+    String? mode,
+    String? deviceToken,
+  }) async {
+    final flights = await myFlights(mode: mode, deviceToken: deviceToken);
     return flights.any((f) => f.id == flightId && f.isActive);
   }
 
@@ -964,10 +1521,14 @@ class FlightVisClient {
 
   /// Updates live trail length override (`PATCH /api/flights/{id}/trail`).
   /// Treats 409 (flight already ended) as a no-op.
-  Future<int?> setFlightTrail(String flightId, int? trailMinutes) async {
+  Future<int?> setFlightTrail(
+    String flightId,
+    int? trailMinutes, {
+    String? deviceToken,
+  }) async {
     final response = await _http.patch(
       _uri(FlightVisApiPaths.flightTrail(flightId)),
-      headers: _headers(jsonBody: true),
+      headers: _headers(jsonBody: true, bearerOverride: deviceToken),
       body: jsonEncode({'trailMinutes': trailMinutes}),
     );
     if (response.statusCode == 409) return trailMinutes;
@@ -977,10 +1538,10 @@ class FlightVisClient {
   }
 
   /// Ends flight; treats 409/404 as already ended (C-3).
-  Future<void> endFlight(String flightId) async {
+  Future<void> endFlight(String flightId, {String? deviceToken}) async {
     final response = await _http.post(
       _uri(FlightVisApiPaths.flightEnd(flightId)),
-      headers: _headers(),
+      headers: _headers(bearerOverride: deviceToken),
     );
     if (response.statusCode == 409 || response.statusCode == 404) return;
     if (response.statusCode != 200) _throwForError(response);

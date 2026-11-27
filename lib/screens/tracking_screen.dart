@@ -12,9 +12,12 @@ import '../l10n/pilot_l10n.dart';
 import '../map/own_trail_buffer.dart';
 import '../services/app_repository.dart';
 import '../services/device_location_provider.dart';
+import '../services/fix_upload_worker.dart';
 import '../services/local_fix_source.dart';
 import '../services/tracking_lifecycle.dart';
 import '../services/tracking_service.dart';
+import '../storage/fix_upload_queue.dart';
+import '../storage/local_flight_store.dart';
 import '../widgets/tracking_map_card.dart';
 import '../widgets/trail_length_chips.dart';
 
@@ -26,6 +29,10 @@ class TrackingScreen extends StatefulWidget {
     required this.tail,
     required this.tracking,
     required this.onStopped,
+    this.flightMode = 'club',
+    this.accountBucket = LocalFlightStore.guestBucket,
+    this.uploadQueue,
+    this.uploadWorker,
     this.onSessionExpired,
     this.deviceLocationProvider,
     this.tileProvider,
@@ -41,6 +48,19 @@ class TrackingScreen extends StatefulWidget {
   final String tail;
   final TrackingService tracking;
   final VoidCallback onStopped;
+
+  /// `'club'` or `'personal'` (club-less / Piloto público).
+  final String flightMode;
+
+  /// Scoped account bucket for the persisted store-and-forward upload queue.
+  final String accountBucket;
+
+  /// Optional injectable store-and-forward upload queue for tests.
+  final FixUploadQueueStore? uploadQueue;
+
+  /// Optional injectable store-and-forward upload worker for tests.
+  final FixUploadWorker? uploadWorker;
+
   final VoidCallback? onSessionExpired;
   final DeviceLocationProvider? deviceLocationProvider;
   final TileProvider? tileProvider;
@@ -65,9 +85,27 @@ class _TrackingScreenState extends State<TrackingScreen>
   int _trailRequestSeq = 0;
   bool _mapPointerActive = false;
 
-  int? get _clubTrailMinutesDefault =>
-      widget.repo.client.clubTrailMinutesDefault ??
-      widget.repo.prefs.clubTrailMinutesDefault();
+  /// Store-and-forward state for broadcast fixes Traccar failed to deliver
+  /// (offline / 429 / 5xx).
+  FixUploadWorker? _ownedUploadWorker;
+  StreamSubscription<LocalFix>? _fixSub;
+  final List<LocalFix> _unconfirmedLiveFixes = [];
+  bool _traccarDegraded = false;
+  bool _traccarRateLimited = false;
+  String? _activeDeviceToken;
+
+  bool get _isPersonalFlight => widget.flightMode == 'personal';
+
+  FixUploadWorker? get _uploadWorker =>
+      widget.uploadWorker ?? _ownedUploadWorker;
+
+  LocalFixSource get _effectiveFixSource =>
+      widget.fixSource ?? widget.tracking.fixSource;
+
+  int? get _clubTrailMinutesDefault => _isPersonalFlight
+      ? 5
+      : (widget.repo.client.clubTrailMinutesDefault ??
+          widget.repo.prefs.clubTrailMinutesDefault());
 
   @override
   void didChangeDependencies() {
@@ -81,11 +119,85 @@ class _TrackingScreenState extends State<TrackingScreen>
     WidgetsBinding.instance.addObserver(this);
     _trailMinutes = widget.repo.prefs.activeFlightTrailMinutes();
     _confirmedTrailMinutes = _trailMinutes;
+    _initUploadWorker();
     _bootstrap();
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle == null || lifecycle == AppLifecycleState.resumed) {
       _startStatusPoll();
+    } else {
+      _uploadWorker?.pause();
     }
+  }
+
+  void _initUploadWorker() {
+    if (AppConfig.screenshotTest) return;
+    if (widget.uploadWorker == null) {
+      final queue = widget.uploadQueue ??
+          FileFixUploadQueueStore(accountBucket: widget.accountBucket);
+      _ownedUploadWorker = FixUploadWorker(
+        queue: queue,
+        uploadBatch: (batch, {required String flightMode}) async {
+          final token =
+              await widget.repo.readDeviceTokenForMode(flightMode) ??
+                  _activeDeviceToken;
+          return widget.repo.client.ingestBatch(
+            [for (final f in batch) f.toIngestJson()],
+            deviceToken: token,
+          );
+        },
+        onStateChanged: () {
+          if (mounted) setState(() {});
+        },
+      );
+    }
+    _fixSub = _effectiveFixSource.watchFixes().listen(_onLiveFixCaptured);
+    unawaited(_uploadWorker?.refreshPendingCount());
+  }
+
+  void _onLiveFixCaptured(LocalFix fix) {
+    if (!fix.hasValidCoordinates) return;
+    if (_traccarDegraded) {
+      unawaited(
+        _uploadWorker?.enqueue(
+          QueuedFixInput.fromLocalFix(
+            fix,
+            flightId: widget.flightId,
+            flightMode: widget.flightMode,
+          ),
+          triggerFlush: false,
+        ),
+      );
+      return;
+    }
+    _unconfirmedLiveFixes.add(fix);
+    if (_unconfirmedLiveFixes.length > 120) {
+      _unconfirmedLiveFixes.removeRange(
+        0,
+        _unconfirmedLiveFixes.length - 120,
+      );
+    }
+  }
+
+  Future<void> _enqueueUnconfirmedFixes({bool includeRecentNative = false}) async {
+    final worker = _uploadWorker;
+    if (worker == null) return;
+    final candidates = <LocalFix>[..._unconfirmedLiveFixes];
+    _unconfirmedLiveFixes.clear();
+    if (includeRecentNative) {
+      final recent = await _effectiveFixSource.getRecentFixes();
+      candidates.addAll(recent);
+    }
+    if (candidates.isEmpty) return;
+    await worker.enqueueAll(
+      candidates.map(
+        (f) => QueuedFixInput.fromLocalFix(
+          f,
+          flightId: widget.flightId,
+          flightMode: widget.flightMode,
+        ),
+      ),
+      triggerFlush: false,
+    );
   }
 
   void _startStatusPoll() {
@@ -97,12 +209,22 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_tick());
+      unawaited(_onForegroundResumed());
       _startStatusPoll();
     } else {
       _poll?.cancel();
       _poll = null;
+      _uploadWorker?.pause();
     }
+  }
+
+  Future<void> _onForegroundResumed() async {
+    await _tick();
+    if (!mounted) return;
+    if (_traccarDegraded) {
+      await _enqueueUnconfirmedFixes(includeRecentNative: true);
+    }
+    await _uploadWorker?.resume();
   }
 
   Future<void> _onSelectTrail(int? minutes) async {
@@ -110,9 +232,12 @@ class _TrackingScreenState extends State<TrackingScreen>
     final seq = ++_trailRequestSeq;
     setState(() => _trailMinutes = minutes);
     try {
+      final token = _activeDeviceToken ??
+          await widget.repo.readDeviceTokenForMode(widget.flightMode);
       final confirmed = await widget.repo.client.setFlightTrail(
         widget.flightId,
         minutes,
+        deviceToken: token,
       );
       if (!mounted || seq != _trailRequestSeq) return;
       _confirmedTrailMinutes = confirmed;
@@ -132,6 +257,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Future<void> _haltTracking() async {
+    _uploadWorker?.pause();
     await widget.tracking.stop();
     await widget.repo.prefs.setActiveFlightId(null);
     if (mounted) widget.onStopped();
@@ -140,42 +266,70 @@ class _TrackingScreenState extends State<TrackingScreen>
   Future<void> _tick() async {
     if (!mounted) return;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
-    if (checkinExpired(
-      expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
-      nowMs: nowMs,
-    )) {
+    if (!_isPersonalFlight &&
+        checkinExpired(
+          expiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
+          nowMs: nowMs,
+        )) {
       await _haltTracking();
       return;
     }
-    if (await widget.tracking.ingestFailureRequiresStop()) {
+    final logStatus = await widget.tracking.pollIngestStatus();
+    if (logStatus.requiresStop) {
       await _haltTracking();
       return;
+    }
+    if (logStatus.sawFailure) {
+      _traccarDegraded = true;
+      if (logStatus.sawRateLimited) {
+        _traccarRateLimited = true;
+      }
+      await _enqueueUnconfirmedFixes();
+    }
+    if (logStatus.sawNetworkRestored || logStatus.sawSuccess) {
+      if (logStatus.sawSuccess) {
+        _unconfirmedLiveFixes.clear();
+        _traccarDegraded = false;
+        _traccarRateLimited = false;
+      }
+      if ((_uploadWorker?.pendingCount ?? 0) > 0) {
+        unawaited(_uploadWorker?.drain());
+      }
     }
     final on = await widget.tracking.isTracking();
     if (mounted) setState(() => _active = on);
   }
 
   Future<void> _bootstrap() async {
-    final expiresMs = widget.repo.prefs.checkinExpiresAtMs();
-    if (checkinExpired(expiresAtMs: expiresMs, nowMs: DateTime.now().millisecondsSinceEpoch)) {
+    final expiresMs = _isPersonalFlight
+        ? null
+        : widget.repo.prefs.checkinExpiresAtMs();
+    if (!_isPersonalFlight &&
+        checkinExpired(
+          expiresAtMs: expiresMs,
+          nowMs: DateTime.now().millisecondsSinceEpoch,
+        )) {
       await _haltTracking();
       return;
     }
-    final token = (await widget.repo.secure.readDeviceToken())?.trim();
+    final token = (await widget.repo.readDeviceTokenForMode(widget.flightMode))
+        ?.trim();
     if (token == null || token.isEmpty) {
       if (mounted) setState(() => _error = _missingTokenMessage);
       return;
     }
+    _activeDeviceToken = token;
     await widget.tracking.initForFlight(
       baseUrl: widget.repo.prefs.baseUrl(),
       deviceToken: token,
-      checkinExpiresAtMs: widget.repo.prefs.checkinExpiresAtMs(),
+      checkinExpiresAtMs: expiresMs,
     );
     try {
       final started = await widget.tracking.start();
       if (!mounted) return;
       if (started) {
         setState(() => _active = true);
+        unawaited(_uploadWorker?.resume());
       } else {
         setState(() {
           _active = false;
@@ -205,6 +359,8 @@ class _TrackingScreenState extends State<TrackingScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
+    unawaited(_fixSub?.cancel());
+    _ownedUploadWorker?.dispose();
     super.dispose();
   }
 
@@ -243,7 +399,15 @@ class _TrackingScreenState extends State<TrackingScreen>
         await widget.repo.prefs.setActiveFlightId(null);
         return;
       }
-      await widget.repo.client.endFlight(widget.flightId);
+      // Best-effort flush of queued store-and-forward fixes before closing flight.
+      if ((_uploadWorker?.pendingCount ?? 0) > 0) {
+        try {
+          await _uploadWorker?.drain(maxAttempts: 1);
+        } catch (_) {}
+      }
+      final token = _activeDeviceToken ??
+          await widget.repo.readDeviceTokenForMode(widget.flightMode);
+      await widget.repo.client.endFlight(widget.flightId, deviceToken: token);
       await widget.repo.prefs.setActiveFlightId(null);
       if (mounted) widget.onStopped();
     } on FlightVisException catch (e) {
@@ -264,6 +428,9 @@ class _TrackingScreenState extends State<TrackingScreen>
     final theme = Theme.of(context);
     final screenHeight = MediaQuery.sizeOf(context).height;
     final mapHeight = (screenHeight * 0.30).clamp(168.0, 260.0);
+    final pendingQueueCount = _uploadWorker?.pendingCount ?? 0;
+    final showRateLimited =
+        _traccarRateLimited || (_uploadWorker?.isRateLimited ?? false);
 
     return Scaffold(
       key: FlightVisTestKeys.trackingScreen,
@@ -305,6 +472,26 @@ class _TrackingScreenState extends State<TrackingScreen>
                         ),
                       ],
                     ),
+                    if (showRateLimited) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        l10n.trackingRateLimitedNotice,
+                        key: FlightVisTestKeys.trackingRateLimitBanner,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.secondary,
+                        ),
+                      ),
+                    ],
+                    if (pendingQueueCount > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        l10n.trackingQueuedFixesPending(pendingQueueCount),
+                        key: FlightVisTestKeys.trackingQueueBanner,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     TrackingMapCard(
                       client: widget.repo.client,
@@ -312,7 +499,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                       ownTail: widget.tail,
                       trailMinutesOverride: _trailMinutes,
                       clubDefaultMinutes: _clubTrailMinutesDefault,
-                      fixSource: widget.fixSource ?? widget.tracking.fixSource,
+                      fixSource: _effectiveFixSource,
                       deviceLocationProvider: widget.deviceLocationProvider,
                       onSessionExpired: widget.onSessionExpired,
                       mapHeight: mapHeight,

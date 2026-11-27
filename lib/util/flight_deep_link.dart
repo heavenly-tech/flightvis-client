@@ -47,6 +47,25 @@ class MagicLinkDeepLink extends ParsedDeepLink {
   int get hashCode => token.hashCode;
 }
 
+/// `https://flight.heavenly.cl/api/account/auth/magic?token=...[&purpose=...]`
+/// — E1 account magic-link sign-in/signup/invite App Link.
+class AccountMagicLinkDeepLink extends ParsedDeepLink {
+  const AccountMagicLinkDeepLink({required this.token, this.purpose});
+
+  final String token;
+  final String? purpose;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AccountMagicLinkDeepLink &&
+          other.token == token &&
+          other.purpose == purpose;
+
+  @override
+  int get hashCode => Object.hash(token, purpose);
+}
+
 /// `https://flight.heavenly.cl/app.html` — open the signed-in / guest home hub.
 class AppHomeDeepLink extends ParsedDeepLink {
   const AppHomeDeepLink();
@@ -126,9 +145,22 @@ class FlightDeepLink {
         segs[1] == 'club' &&
         segs[2] == 'auth' &&
         segs[3] == 'magic') {
-      final token = uri.queryParameters['token'];
+      final token = uri.queryParameters['token']?.trim();
       if (token != null && token.isNotEmpty) {
         return MagicLinkDeepLink(token: token);
+      }
+    }
+    if (segs.length == 4 &&
+        segs[0] == 'api' &&
+        segs[1] == 'account' &&
+        segs[2] == 'auth' &&
+        segs[3] == 'magic') {
+      final token = uri.queryParameters['token']?.trim();
+      if (token != null && token.isNotEmpty) {
+        final rawPurpose = uri.queryParameters['purpose']?.trim();
+        final purpose =
+            (rawPurpose != null && rawPurpose.isNotEmpty) ? rawPurpose : null;
+        return AccountMagicLinkDeepLink(token: token, purpose: purpose);
       }
     }
     return null;

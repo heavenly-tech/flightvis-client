@@ -363,5 +363,45 @@
       "count": {"type": "int"}
     }
   },
+  "errorClubVisibilityRequiresClub": "La visibilidad de club requiere pertenecer a un club.",
+  "errorInvalidTail": "Ingresa una matrícula válida (1 a 16 letras, números o guiones).",
+  "errorMagicLinkExpired": "El enlace de acceso expiró. Solicita uno nuevo.",
+  "errorMagicLinkInvalid": "El enlace de acceso no es válido o ya se usó.",
+  "errorWeakPassword": "Usa al menos 8 caracteres para la contraseña.",
+  "errorSignupFailed": "No pudimos crear tu cuenta. Revisa tu correo e inténtalo de nuevo.",
+  "pilotModeLabel": "Modo de vuelo",
+  "pilotModeClub": "Club",
+  "pilotModePublicPilot": "Piloto público",
+  "pilotHubPublicPilotStatus": "Piloto público (sin club)",
+  "pilotHubPersonalBroadcastTitle": "Transmitir como piloto público",
+  "pilotHubPersonalBroadcastSubtitle": "Transmite en vivo sin registro de club con matrícula libre",
+  "pilotHubLocalRecordAction": "Grabar vuelo solo en este teléfono",
+  "pilotHubClubPickerTitle": "Cambiar club activo",
+  "pilotHubClubSwitchButton": "Cambiar club",
+  "pilotHubClubSwitched": "Club activo: {name}",
+  "@pilotHubClubSwitched": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
+  "personalFlightTitle": "Vuelo piloto público",
+  "personalFlightIntro": "Transmite sin registro de club. Ingresa la matrícula y elige la visibilidad.",
+  "personalFlightTailHint": "Ej. CC-ABC",
+  "personalFlightTailHelper": "1 a 16 caracteres: A-Z, 0-9 o guion (-)",
+  "personalFlightTailRequired": "Ingresa una matrícula válida (A-Z, 0-9 o guion).",
+  "pilotCreateAccountTitle": "Crear cuenta",
+  "pilotCreateAccountPasswordOptional": "Contraseña (opcional, mín. 8 caracteres)",
+  "pilotCreateAccountSubmit": "Enviar enlace de registro",
+  "pilotCreateAccountSent": "Te enviamos un enlace mágico a tu correo. Ábrelo en este teléfono para entrar.",
+  "pilotCreateAccountBrowserFallback": "Abrir en el navegador",
+  "pilotMagicLinkSigningIn": "Iniciando sesión con enlace mágico…",
+  "pilotMagicLinkSignedIn": "Sesión iniciada correctamente.",
+  "trackingQueuedFixesPending": "{count, plural, =1{1 posición pendiente de envío} other{{count} posiciones pendientes de envío}}",
+  "@trackingQueuedFixesPending": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "trackingRateLimitedNotice": "Límite temporal del servidor; seguimos grabando y reintentaremos pronto.",
   "@@locale": "es"
 }

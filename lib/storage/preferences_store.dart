@@ -14,7 +14,10 @@ class PreferencesStore {
   static const baseUrlKey = 'fv_base_url';
   static const checkinExpiresAtKey = 'fv_checkin_expires_at_ms';
   static const activeFlightIdKey = 'fv_active_flight_id';
+  static const activeFlightModeKey = 'fv_active_flight_mode';
+  static const activeFlightTailKey = 'fv_active_flight_tail';
   static const activeFlightTrailMinutesKey = 'fv_active_flight_trail_minutes';
+  static const preferredFlightModeKey = 'fv_preferred_flight_mode';
   static const clubTrailMinutesDefaultKey = 'fv_club_trail_minutes_default';
   static const mapLayerOwnKey = 'fv_map_layer_own';
   static const mapLayerClubKey = 'fv_map_layer_club';
@@ -50,6 +53,7 @@ class PreferencesStore {
   static const pendingCheckinSlugKey = 'fv_pending_checkin_slug';
   static const pendingCheckinTokenKey = 'fv_pending_checkin_token';
   static const cachedPilotProfileKey = 'fv_cached_pilot_profile';
+  static const cachedAccountProfileKey = 'fv_cached_account_profile';
   static const legacyFlightsResolvedKey = 'fv_legacy_flights_resolved';
   static const legacyFlightsClaimantBucketKey =
       'fv_legacy_flights_claimant_bucket';
@@ -102,9 +106,44 @@ class PreferencesStore {
   Future<void> setActiveFlightId(String? id) async {
     if (id == null) {
       await _prefs.remove(activeFlightIdKey);
+      await _prefs.remove(activeFlightModeKey);
+      await _prefs.remove(activeFlightTailKey);
       await _prefs.remove(activeFlightTrailMinutesKey);
     } else {
       await _prefs.setString(activeFlightIdKey, id);
+    }
+  }
+
+  /// Active broadcast flight mode (`'club'` or `'personal'`). Defaults to `'club'`.
+  String activeFlightMode() =>
+      _prefs.getString(activeFlightModeKey) == 'personal' ? 'personal' : 'club';
+
+  Future<void> setActiveFlightMode(String? mode) async {
+    if (mode == null || mode.isEmpty) {
+      await _prefs.remove(activeFlightModeKey);
+    } else {
+      await _prefs.setString(activeFlightModeKey, mode);
+    }
+  }
+
+  String? activeFlightTail() => _prefs.getString(activeFlightTailKey);
+
+  Future<void> setActiveFlightTail(String? tail) async {
+    if (tail == null || tail.isEmpty) {
+      await _prefs.remove(activeFlightTailKey);
+    } else {
+      await _prefs.setString(activeFlightTailKey, tail);
+    }
+  }
+
+  /// Last user-selected hub broadcast mode (`'club'` or `'personal'`).
+  String? preferredFlightMode() => _prefs.getString(preferredFlightModeKey);
+
+  Future<void> setPreferredFlightMode(String? mode) async {
+    if (mode == null || mode.isEmpty) {
+      await _prefs.remove(preferredFlightModeKey);
+    } else {
+      await _prefs.setString(preferredFlightModeKey, mode);
     }
   }
 
@@ -213,6 +252,32 @@ class PreferencesStore {
       await _prefs.remove(cachedPilotProfileKey);
     } else {
       await _prefs.setString(cachedPilotProfileKey, jsonEncode(profile.toJson()));
+    }
+  }
+
+  /// Cached last verified global account profile for offline startups.
+  AccountProfile? cachedAccountProfile() {
+    final raw = _prefs.getString(cachedAccountProfileKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return AccountProfile.fromJson(decoded);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setCachedAccountProfile(AccountProfile? profile) async {
+    if (profile == null) {
+      await _prefs.remove(cachedAccountProfileKey);
+    } else {
+      await _prefs.setString(
+        cachedAccountProfileKey,
+        jsonEncode(profile.toJson()),
+      );
     }
   }
 

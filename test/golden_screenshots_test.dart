@@ -22,6 +22,7 @@ import 'package:flight_vis/screens/local_flight_screen.dart';
 import 'package:flight_vis/screens/login_screen.dart';
 import 'package:flight_vis/screens/pairing_screen.dart';
 import 'package:flight_vis/screens/permissions_onboarding_screen.dart';
+import 'package:flight_vis/screens/personal_flight_start_screen.dart';
 import 'package:flight_vis/screens/tail_picker_screen.dart';
 import 'package:flight_vis/screens/tracking_screen.dart';
 import 'package:flight_vis/services/app_repository.dart';
@@ -561,6 +562,174 @@ void main() {
       '13-local-flight',
     );
     await _maybeExportShot(tester, '13-local-flight.png');
+  });
+
+  testWidgets('hub multi-club mode picker golden', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      PreferencesStore.activeClubSlugKey: 'cas',
+      PreferencesStore.activeClubNameKey: 'Club Aéreo de Santiago',
+    });
+    final prefs = await PreferencesStore.open();
+    final repo = AppRepository(
+      secure: _FakeSecure(),
+      prefs: prefs,
+      client: FlightVisClient(
+        baseUrl: prefs.baseUrl(),
+        accountSessionId: 'acct-demo',
+      ),
+    );
+    const account = AccountProfile(
+      id: 'acct-multi',
+      email: 'pablo@club.cl',
+      emailVerified: true,
+      activeMembershipId: 'mem-1',
+      memberships: [
+        AccountMembership(
+          id: 'mem-1',
+          clubId: 'c1',
+          slug: 'cas',
+          name: 'Club Aéreo de Santiago',
+          role: 'pilot',
+          status: 'active',
+        ),
+        AccountMembership(
+          id: 'mem-2',
+          clubId: 'c2',
+          slug: 'cav',
+          name: 'Club Aéreo de Valparaíso',
+          role: 'pilot',
+          status: 'active',
+        ),
+      ],
+    );
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'p1',
+          name: 'Pablo Pilot',
+          email: 'pablo@club.cl',
+          status: 'approved',
+          role: 'pilot',
+          emailVerified: true,
+        ),
+        accountProfile: account,
+        onStartFlight: (_, _) {},
+        onSwitchClub: (_) async {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        localFlightStore: InMemoryLocalFlightStore(),
+      ),
+      '14-hub-mode-picker',
+    );
+    await _maybeExportShot(tester, '14-hub-mode-picker.png');
+  });
+
+  testWidgets('hub public pilot (club-less) golden', (tester) async {
+    final repo = await _repo();
+    repo.client.setAccountSessionId('acct-clubless');
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'acct-pub',
+          name: 'piloto.libre',
+          email: 'piloto.libre@example.cl',
+          status: 'approved',
+          role: 'pilot',
+          emailVerified: true,
+          isClublessAccount: true,
+        ),
+        accountProfile: const AccountProfile(
+          id: 'acct-pub',
+          email: 'piloto.libre@example.cl',
+          emailVerified: true,
+          memberships: [],
+        ),
+        onStartFlight: (_, _) {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        localFlightStore: InMemoryLocalFlightStore(),
+      ),
+      '15-hub-public-pilot',
+    );
+    await _maybeExportShot(tester, '15-hub-public-pilot.png');
+  });
+
+  testWidgets('personal flight start screen golden', (tester) async {
+    final repo = await _repo();
+    await _golden(
+      tester,
+      PersonalFlightStartScreen(
+        repo: repo,
+        pilot: PilotProfile(
+          id: 'acct-pub',
+          name: 'piloto.libre',
+          email: 'piloto.libre@example.cl',
+          status: 'approved',
+          role: 'pilot',
+          emailVerified: true,
+          isClublessAccount: true,
+        ),
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        initialTail: 'CC-PUB',
+        onFlightStarted: (_, _) {},
+      ),
+      '16-personal-flight-start',
+    );
+    await _maybeExportShot(tester, '16-personal-flight-start.png');
+  });
+
+  testWidgets('hub magic-link expired error banner golden', (tester) async {
+    final repo = await _repo();
+    await _golden(
+      tester,
+      HomeHubScreen(
+        repo: repo,
+        pilot: null,
+        magicLinkNotice: 'El enlace de acceso expiró. Solicita uno nuevo.',
+        magicLinkNoticeIsError: true,
+        onStartFlight: (_, _) {},
+        onRequestLogin: () {},
+        onLogout: () {},
+        permissions: _GoldenPermissions(
+          const FlightPermissionStatus(
+            fineLocationGranted: true,
+            backgroundLocationGranted: true,
+            notificationsGranted: true,
+            batteryUnrestricted: true,
+          ),
+        ),
+        localFlightStore: InMemoryLocalFlightStore(),
+      ),
+      '17-magic-link-error',
+    );
+    await _maybeExportShot(tester, '17-magic-link-error.png');
   });
 }
 

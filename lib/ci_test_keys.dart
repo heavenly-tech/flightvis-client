@@ -101,6 +101,36 @@ abstract final class FlightVisTestKeys {
       ValueKey<String>('flightvis_local_flight_delete_dialog');
   static const localFlightDeleteConfirm =
       ValueKey<String>('flightvis_local_flight_delete_confirm');
+  static const hubModePicker = ValueKey<String>('flightvis_hub_mode_picker');
+  static const hubModeClub = ValueKey<String>('flightvis_hub_mode_club');
+  static const hubModePersonal = ValueKey<String>('flightvis_hub_mode_personal');
+  static const hubClubSwitchButton =
+      ValueKey<String>('flightvis_hub_club_switch');
+  static const hubLocalRecordAction =
+      ValueKey<String>('flightvis_hub_local_record_action');
+  static const hubMagicStatusBanner =
+      ValueKey<String>('flightvis_hub_magic_status_banner');
+  static const personalFlightScreen =
+      ValueKey<String>('flightvis_personal_flight_screen');
+  static const personalFlightTailField =
+      ValueKey<String>('flightvis_personal_flight_tail_field');
+  static const personalFlightStart =
+      ValueKey<String>('flightvis_personal_flight_start');
+  static const loginSignupDialog =
+      ValueKey<String>('flightvis_login_signup_dialog');
+  static const loginSignupEmail =
+      ValueKey<String>('flightvis_login_signup_email');
+  static const loginSignupPassword =
+      ValueKey<String>('flightvis_login_signup_password');
+  static const loginSignupSubmit =
+      ValueKey<String>('flightvis_login_signup_submit');
+  static const trackingQueueBanner =
+      ValueKey<String>('flightvis_tracking_queue_banner');
+  static const trackingRateLimitBanner =
+      ValueKey<String>('flightvis_tracking_rate_limit_banner');
+
+  static ValueKey<String> clubPickerOption(String membershipId) =>
+      ValueKey<String>('flightvis_club_option_$membershipId');
 
   static ValueKey<String> localFlightDelete(String id) =>
       ValueKey<String>('flightvis_local_flight_delete_$id');
