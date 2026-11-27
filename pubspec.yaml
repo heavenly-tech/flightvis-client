@@ -1,7 +1,7 @@
 name: flight_vis
 description: "flight_vis pilot tracker for flying clubs"
 publish_to: 'none'
-version: 1.4.0+5
+version: 1.4.1+6
 
 environment:
   sdk: ^3.7.2
