@@ -638,6 +638,14 @@ class FixUploadWorker {
         return const _SliceResult.stopped();
       }
 
+      if (e.statusCode == 409) {
+        _log(
+          'Flight mismatch (${e.statusCode}: ${e.message}); '
+          'halting queue drain without dropping fixes to avoid 409 hot-loop',
+        );
+        return const _SliceResult.stopped();
+      }
+
       if (e.statusCode == 400) {
         final msg = e.message.trim().toLowerCase();
         if (msg.contains('no active flight')) {

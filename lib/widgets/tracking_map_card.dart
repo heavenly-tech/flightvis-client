@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,13 +11,16 @@ import '../api/flight_vis_client.dart';
 import '../app_config.dart';
 import '../ci_test_keys.dart';
 import '../l10n/pilot_l10n.dart';
+import '../map/globe_bridge.dart';
 import '../map/live_trails_source.dart';
 import '../map/map_tile_config.dart';
 import '../map/own_trail_buffer.dart';
 import '../map/trail_styles.dart';
 import '../services/device_location_provider.dart';
 import '../services/local_fix_source.dart';
+import '../services/native_fix_queue.dart';
 import '../storage/preferences_store.dart';
+import 'globe_view.dart';
 
 /// Default map center (Tobalaba aerodrome, SCTB) before first GPS fix arrives.
 const LatLng _defaultMapCenter = LatLng(-33.4569, -70.5478);
@@ -32,6 +36,9 @@ class TrackingMapCard extends StatefulWidget {
     required this.client,
     required this.prefs,
     this.ownTail,
+    this.ownFlightId,
+    this.ownFlightMode = 'club',
+    this.minOwnFixTimeMs,
     this.trailMinutesOverride,
     this.clubDefaultMinutes,
     this.fixSource,
@@ -39,6 +46,7 @@ class TrackingMapCard extends StatefulWidget {
     this.deviceLocationProvider,
     this.onSessionExpired,
     this.showLayerControls = true,
+    this.enable3dToggle = false,
     this.mapHeight = 230,
     this.tileProvider,
     this.pollInterval = const Duration(seconds: 5),
@@ -49,11 +57,22 @@ class TrackingMapCard extends StatefulWidget {
     this.initialRemoteFlights = const [],
     this.onMapPointerActiveChanged,
     this.clock,
+    this.globeControllerFactory,
+    this.isOnline,
+    this.globeReadyTimeout = globeBridgeReadyTimeout,
+    this.globeThrottleInterval = globeBridgeThrottleInterval,
+    this.externalUrlLauncher,
   });
 
   final FlightVisClient client;
   final PreferencesStore prefs;
   final String? ownTail;
+  final String? ownFlightId;
+  final String ownFlightMode;
+
+  /// L-94: drop any live or native own GPS fix with `timeMs < minOwnFixTimeMs`.
+  final int? minOwnFixTimeMs;
+
   final int? trailMinutesOverride;
   final int? clubDefaultMinutes;
   final LocalFixSource? fixSource;
@@ -69,6 +88,10 @@ class TrackingMapCard extends StatefulWidget {
 
   /// Whether to show layer filter chips and radius controls.
   final bool showLayerControls;
+
+  /// Whether to show the 2D / 3D segmented toggle (`LiveMapScreen` &
+  /// `TrackingScreen` only; local flight screens remain 2D).
+  final bool enable3dToggle;
 
   final double mapHeight;
   final TileProvider? tileProvider;
@@ -91,6 +114,21 @@ class TrackingMapCard extends StatefulWidget {
   /// Optional injectable clock for deterministic throttling tests.
   final DateTime Function()? clock;
 
+  /// Injectable 3D WebView controller factory for tests/screenshots.
+  final GlobeViewControllerFactory? globeControllerFactory;
+
+  /// Injectable connectivity probe checked when switching to 3D.
+  final Future<bool> Function()? isOnline;
+
+  /// Injectable timeout for waiting on the 3D WebView `ready` handshake.
+  final Duration globeReadyTimeout;
+
+  /// Injectable throttle interval for outbound 3D bridge messages.
+  final Duration globeThrottleInterval;
+
+  /// Injectable external URL launcher for 3D WebView credit links.
+  final GlobeExternalUrlLauncher? externalUrlLauncher;
+
   @override
   State<TrackingMapCard> createState() => _TrackingMapCardState();
 }
@@ -107,6 +145,9 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   late bool _showClub;
   late bool _showPublic;
   late int _publicRadiusKm;
+  bool _is3d = false;
+  int _viewSwitchSeq = 0;
+  String? _inlineFallbackMessage;
   bool _followOwn = true;
   bool _mapReady = false;
   bool _isForeground = true;
@@ -173,12 +214,108 @@ class _TrackingMapCardState extends State<TrackingMapCard>
       _showPublic = false;
     }
     _publicRadiusKm = widget.prefs.mapPublicRadiusKm();
+    if (widget.enable3dToggle && widget.prefs.mapViewIs3d()) {
+      final initialEmbedUri = buildGlobeEmbedUri(widget.prefs.baseUrl());
+      if (initialEmbedUri != null) {
+        _is3d = true;
+        unawaited(_verifyOnlineForInitial3d(initialEmbedUri));
+      } else {
+        unawaited(widget.prefs.setMapViewIs3d(false));
+      }
+    }
 
     _ownBuffer.addAll(widget.initialOwnFixes);
     _remoteFlights = _filterRemoteFlights(widget.initialRemoteFlights);
 
     if (_isForeground) {
       _resumeForegroundActivity(triggerImmediatePoll: true);
+    }
+  }
+
+  Future<bool> _checkOnline(Uri embedUri) async {
+    final override = widget.isOnline ?? GlobeViewTestHooks.isOnlineOverride;
+    if (override != null) {
+      try {
+        return await override();
+      } catch (_) {
+        return false;
+      }
+    }
+    if (widget.globeControllerFactory != null ||
+        GlobeViewTestHooks.controllerFactoryOverride != null) {
+      return !_pollStatusError;
+    }
+    if (_pollStatusError) return false;
+    if (isLoopbackOrEmulatorHost(embedUri.host)) return true;
+    try {
+      final resolved = await InternetAddress.lookup(embedUri.host)
+          .timeout(const Duration(seconds: 2));
+      return resolved.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _verifyOnlineForInitial3d(Uri embedUri) async {
+    final seq = _viewSwitchSeq;
+    final online = await _checkOnline(embedUri);
+    if (!mounted || seq != _viewSwitchSeq || !_is3d) return;
+    if (!online) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || seq != _viewSwitchSeq || !_is3d) return;
+        _handleGlobeFallback(GlobeFallbackReason.offline);
+      });
+    }
+  }
+
+  Future<void> _onSelectViewMode(bool want3d) async {
+    if (!widget.enable3dToggle) return;
+    if (want3d == _is3d) return;
+    final seq = ++_viewSwitchSeq;
+    if (!want3d) {
+      setState(() {
+        _is3d = false;
+        _inlineFallbackMessage = null;
+      });
+      unawaited(widget.prefs.setMapViewIs3d(false));
+      return;
+    }
+    final embedUri = buildGlobeEmbedUri(widget.prefs.baseUrl());
+    if (embedUri == null) {
+      _handleGlobeFallback(GlobeFallbackReason.invalidUrl);
+      return;
+    }
+    final online = await _checkOnline(embedUri);
+    if (!mounted || seq != _viewSwitchSeq) return;
+    if (!online) {
+      _handleGlobeFallback(GlobeFallbackReason.offline);
+      return;
+    }
+    setState(() {
+      _is3d = true;
+      _mapReady = false;
+      _inlineFallbackMessage = null;
+    });
+    unawaited(widget.prefs.setMapViewIs3d(true));
+  }
+
+  void _handleGlobeFallback(GlobeFallbackReason reason) {
+    if (!mounted) return;
+    final l10n = context.pilotL10n;
+    final message = reason == GlobeFallbackReason.offline
+        ? l10n.map3dOffline
+        : l10n.map3dLoadFailed;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() {
+      _is3d = false;
+      _inlineFallbackMessage = messenger == null ? message : null;
+    });
+    // Do not keep 3D persisted after an automatic fallback to avoid retry loops.
+    unawaited(widget.prefs.setMapViewIs3d(false));
+    if (messenger != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -215,7 +352,11 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final resumed = state == AppLifecycleState.resumed;
     if (resumed == _isForeground) return;
-    _isForeground = resumed;
+    if (mounted) {
+      setState(() => _isForeground = resumed);
+    } else {
+      _isForeground = resumed;
+    }
     if (!resumed) {
       _pauseForegroundActivity();
     } else {
@@ -304,7 +445,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
         prev.timeMs != loc.timeMs;
     if (!changed) return;
     setState(() => _deviceLocation = loc);
-    if (_followOwn && _mapReady) {
+    if (!_is3d && _followOwn && _mapReady) {
       final zoom = hadPos ? _mapController.camera.zoom : 13.0;
       _mapController.move(loc.latLng, zoom);
     }
@@ -319,7 +460,17 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   }) async {
     final fixSource = widget.fixSource;
     if (fixSource == null) return;
-    final recent = await fixSource.getRecentFixes();
+    final rawRecent = await fixSource.getRecentFixes();
+    final recent = widget.minOwnFixTimeMs == null
+        ? rawRecent
+        : rawRecent
+            .where(
+              (f) => isFixAtOrAfterFlightStart(
+                tMs: f.timeMs,
+                startedAtMs: widget.minOwnFixTimeMs,
+              ),
+            )
+            .toList(growable: false);
     if (!mounted || recent.isEmpty) return;
     final hadPos = _effectivePosition != null;
     final changed = _ownBuffer.addAll(recent);
@@ -334,6 +485,12 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   }
 
   void _onOwnFix(LocalFix fix) {
+    if (!isFixAtOrAfterFlightStart(
+      tMs: fix.timeMs,
+      startedAtMs: widget.minOwnFixTimeMs,
+    )) {
+      return;
+    }
     final hadPos = _effectivePosition != null;
     final changed = _ownBuffer.add(fix);
     if (!changed || !_isForeground || !mounted) return;
@@ -369,7 +526,7 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     _lastRedrawAt = now;
     setState(() {});
     final latest = _effectivePosition;
-    if (_followOwn && _mapReady && latest != null) {
+    if (!_is3d && _followOwn && _mapReady && latest != null) {
       final zoom = snapZoom ? 13.0 : _mapController.camera.zoom;
       _mapController.move(latest.latLng, zoom);
     }
@@ -621,30 +778,56 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     return 11.0;
   }
 
+  bool _isRemoteFlightVisible(LiveTrailFlight flight) =>
+      flight.isPublic ? _effectiveShowPublic : _effectiveShowClub;
+
+  List<GlobeBridgeFlight> _buildGlobeFlights() {
+    final ownWindowed = _showOwn
+        ? _ownBuffer.windowedTrail(
+            overrideMinutes: widget.trailMinutesOverride,
+            clubDefaultMinutes: widget.clubDefaultMinutes,
+          )
+        : const <LocalFix>[];
+    return buildGlobeBridgeFlights(
+      showOwn: _showOwn,
+      ownFlightId: widget.ownFlightId,
+      ownTail: widget.ownTail,
+      ownTailSource: widget.ownFlightMode == 'personal' ? 'pilot' : 'club',
+      ownTrailPoints: ownWindowed,
+      ownLatestFix: _showOwn ? _ownBuffer.latestFix : null,
+      remoteFlights: _remoteFlights,
+      includeClub: _effectiveShowClub,
+      includePublic: _effectiveShowPublic,
+    );
+  }
+
+  bool get _hasOwnAircraft =>
+      (widget.ownFlightId != null && widget.ownFlightId!.trim().isNotEmpty) ||
+      (widget.ownTail != null && widget.ownTail!.trim().isNotEmpty);
+
   List<Polyline> _buildPolylines() {
     final polylines = <Polyline>[];
 
-    // 1. Public trails (bottom-most: thinner, dashed, slate-purple).
-    if (_effectiveShowPublic) {
-      for (final flight in _remoteFlights) {
-        if (!flight.isPublic) continue;
-        if (flight.trailMinutes == 0 || flight.points.length < 2) continue;
-        polylines.addAll(
-          buildFadedTrailPolylines(
-            points: [
-              for (final p in flight.points) LatLng(p.latitude, p.longitude),
-            ],
-            timestampsMs: [for (final p in flight.points) p.timeMs],
-            kind: MapTrailKind.public,
-          ),
-        );
-      }
+    // 1. Public & other-club/non-club trails (bottom-most: thinner, dashed, slate-purple).
+    for (final flight in _remoteFlights) {
+      if (!_isRemoteFlightVisible(flight)) continue;
+      if (!flight.isDistinctNonOwnClub) continue;
+      if (flight.trailMinutes == 0 || flight.points.length < 2) continue;
+      polylines.addAll(
+        buildFadedTrailPolylines(
+          points: [
+            for (final p in flight.points) LatLng(p.latitude, p.longitude),
+          ],
+          timestampsMs: [for (final p in flight.points) p.timeMs],
+          kind: MapTrailKind.public,
+        ),
+      );
     }
 
-    // 2. Club trails (middle: aviation blue, solid).
+    // 2. Own-club trails (middle: aviation blue, solid).
     if (_effectiveShowClub) {
       for (final flight in _remoteFlights) {
-        if (flight.isPublic) continue;
+        if (flight.isDistinctNonOwnClub) continue;
         if (flight.trailMinutes == 0 || flight.points.length < 2) continue;
         polylines.addAll(
           buildFadedTrailPolylines(
@@ -681,31 +864,30 @@ class _TrackingMapCardState extends State<TrackingMapCard>
   List<Marker> _buildMarkers() {
     final markers = <Marker>[];
 
-    // Public aircraft markers (bottom).
-    if (_effectiveShowPublic) {
-      for (final flight in _remoteFlights) {
-        if (!flight.isPublic) continue;
-        final latest = flight.latestPoint;
-        if (latest == null) continue;
-        markers.add(
-          Marker(
-            point: LatLng(latest.latitude, latest.longitude),
-            width: 96,
-            height: 44,
-            alignment: Alignment.center,
-            child: _AircraftMarker(
-              tail: flight.tail,
-              kind: MapTrailKind.public,
-            ),
+    // Public & other-club/non-club aircraft markers (bottom).
+    for (final flight in _remoteFlights) {
+      if (!_isRemoteFlightVisible(flight)) continue;
+      if (!flight.isDistinctNonOwnClub) continue;
+      final latest = flight.latestPoint;
+      if (latest == null) continue;
+      markers.add(
+        Marker(
+          point: LatLng(latest.latitude, latest.longitude),
+          width: 96,
+          height: 44,
+          alignment: Alignment.center,
+          child: _AircraftMarker(
+            tail: flight.tail,
+            kind: MapTrailKind.public,
           ),
-        );
-      }
+        ),
+      );
     }
 
-    // Club aircraft markers (middle).
+    // Own-club aircraft markers (middle).
     if (_effectiveShowClub) {
       for (final flight in _remoteFlights) {
-        if (flight.isPublic) continue;
+        if (flight.isDistinctNonOwnClub) continue;
         final latest = flight.latestPoint;
         if (latest == null) continue;
         markers.add(
@@ -761,10 +943,15 @@ class _TrackingMapCardState extends State<TrackingMapCard>
     final theme = Theme.of(context);
     final resolvedTileProvider =
         widget.tileProvider ?? TrackingMapTestHooks.tileProviderOverride;
-    final polylines = _buildPolylines();
-    final markers = _buildMarkers();
+    final polylines = _is3d ? const <Polyline>[] : _buildPolylines();
+    final markers = _is3d ? const <Marker>[] : _buildMarkers();
     final isGuestMode =
         !_trailsSource.supportsClubLayer && _trailsSource.supportsRemotePolling;
+    final globeEmbedUri =
+        _is3d ? buildGlobeEmbedUri(widget.prefs.baseUrl()) : null;
+    final globeLang = normalizeGlobeBridgeLang(
+      Localizations.maybeLocaleOf(context)?.languageCode,
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -819,6 +1006,11 @@ class _TrackingMapCardState extends State<TrackingMapCard>
                     optionLabel: l10n.pilotMapPublicRadiusKm,
                     onSelected: _changePublicRadius,
                   ),
+                if (widget.enable3dToggle)
+                  _MapViewModeToggle(
+                    is3d: _is3d,
+                    onChanged: (is3d) => unawaited(_onSelectViewMode(is3d)),
+                  ),
               ],
             ),
           ),
@@ -832,6 +1024,24 @@ class _TrackingMapCardState extends State<TrackingMapCard>
               ),
             ),
           ],
+        ] else if (widget.enable3dToggle) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _MapViewModeToggle(
+              is3d: _is3d,
+              onChanged: (is3d) => unawaited(_onSelectViewMode(is3d)),
+            ),
+          ),
+        ],
+        if (_inlineFallbackMessage != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _inlineFallbackMessage!,
+            key: FlightVisTestKeys.map3dFallbackNotice,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ],
         if (_sessionExpired) ...[
           const SizedBox(height: 6),
@@ -931,9 +1141,24 @@ class _TrackingMapCardState extends State<TrackingMapCard>
                     widget.onMapPointerActiveChanged?.call(false),
                 onPointerCancel: (_) =>
                     widget.onMapPointerActiveChanged?.call(false),
-                child: Stack(
-                  children: [
-                    FlutterMap(
+                child: _is3d && globeEmbedUri != null
+                    ? GlobeView(
+                        embedUri: globeEmbedUri,
+                        lang: globeLang,
+                        ownFlightId: widget.ownFlightId,
+                        flights: _buildGlobeFlights(),
+                        hasOwnAircraft: _hasOwnAircraft,
+                        paused: !_isForeground,
+                        onFallback: _handleGlobeFallback,
+                        controllerFactory: widget.globeControllerFactory,
+                        externalUrlLauncher: widget.externalUrlLauncher,
+                        readyTimeout: widget.globeReadyTimeout,
+                        throttleInterval: widget.globeThrottleInterval,
+                        clock: widget.clock,
+                      )
+                    : Stack(
+                        children: [
+                          FlutterMap(
                       mapController: _mapController,
                       options: MapOptions(
                         initialCenter: _initialCenter(),
@@ -1074,6 +1299,66 @@ class _TrackingMapCardState extends State<TrackingMapCard>
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MapViewModeToggle extends StatelessWidget {
+  const _MapViewModeToggle({
+    required this.is3d,
+    required this.onChanged,
+  });
+
+  final bool is3d;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.pilotL10n;
+    return Semantics(
+      label: l10n.mapViewModeLabel,
+      child: SegmentedButton<bool>(
+        key: FlightVisTestKeys.mapViewToggle,
+        showSelectedIcon: false,
+        style: const ButtonStyle(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          minimumSize: WidgetStatePropertyAll<Size>(Size(0, 32)),
+          padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(
+            EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          ),
+        ),
+        segments: [
+          ButtonSegment<bool>(
+            value: false,
+            label: Semantics(
+              label: l10n.mapViewMode2dSemantic,
+              excludeSemantics: true,
+              child: Text(
+                l10n.mapViewMode2d,
+                key: FlightVisTestKeys.mapViewToggle2d,
+              ),
+            ),
+          ),
+          ButtonSegment<bool>(
+            value: true,
+            label: Semantics(
+              label: l10n.mapViewMode3dSemantic,
+              excludeSemantics: true,
+              child: Text(
+                l10n.mapViewMode3d,
+                key: FlightVisTestKeys.mapViewToggle3d,
+              ),
+            ),
+          ),
+        ],
+        selected: <bool>{is3d},
+        onSelectionChanged: (selection) {
+          if (selection.isNotEmpty) {
+            onChanged(selection.first);
+          }
+        },
+      ),
     );
   }
 }

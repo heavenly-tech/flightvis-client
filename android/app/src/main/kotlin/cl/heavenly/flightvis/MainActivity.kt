@@ -94,11 +94,13 @@ class MainActivity : FlutterActivity() {
                         val args = call.arguments as? Map<*, *>
                         val flightId = (args?.get("flightId") as? String)?.trim()
                         val flightMode = (args?.get("flightMode") as? String)?.trim() ?: "club"
+                        val startedAtMs = (args?.get("startedAtMs") as? Number)?.toLong()
                         if (!flightId.isNullOrEmpty()) {
                             NativeFixQueueStore.setActiveFlight(
                                 applicationContext,
                                 flightId,
                                 flightMode,
+                                startedAtMs,
                             )
                         } else {
                             NativeFixQueueStore.clearActiveFlight(applicationContext)
@@ -107,6 +109,10 @@ class MainActivity : FlutterActivity() {
                     }
                     "clearActiveNativeFlight" -> {
                         NativeFixQueueStore.clearActiveFlight(applicationContext)
+                        result.success(null)
+                    }
+                    "clearNativeFixQueue" -> {
+                        NativeFixQueueStore.clearQueue(applicationContext)
                         result.success(null)
                     }
                     "readNativeFixQueue" -> {

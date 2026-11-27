@@ -345,7 +345,7 @@
       "count": {"type": "int"}
     }
   },
-  "localFlightsLegacyBody": "{count, plural, =1{You can save it to your account or delete it from this phone. This choice is shown only once.} other{You can save them to your account or delete them from this phone. This choice is shown only once.}}",
+  "localFlightsLegacyBody": "{count, plural, =1{You can save it to your account or delete it from this phone. Once you choose, this option won't appear again.} other{You can save them to your account or delete them from this phone. Once you choose, this option won't appear again.}}",
   "@localFlightsLegacyBody": {
     "placeholders": {
       "count": {"type": "int"}
@@ -411,5 +411,16 @@
     }
   },
   "magicLinkConfirmTitleGeneric": "Sign in with this link?",
-  "magicLinkConfirmTrackingWarning": "You have a flight in progress. Continuing will stop the current tracking."
+  "magicLinkConfirmTrackingWarning": "You have a flight in progress. Continuing will stop the current tracking.",
+  "mapViewModeLabel": "Map view",
+  "mapViewMode2d": "2D",
+  "mapViewMode3d": "3D",
+  "mapViewMode2dSemantic": "2D map view",
+  "mapViewMode3dSemantic": "3D map view",
+  "map3dFollowOwn": "Follow my aircraft",
+  "map3dRecenter": "Recenter",
+  "map3dLoading": "Loading 3D map…",
+  "map3dLoadFailed": "Couldn't load the 3D map. Showing 2D.",
+  "map3dOffline": "Offline: the 3D map isn't available.",
+  "errorNotFoundOrForbidden": "We couldn't find that flight or you don't have permission to modify it."
 }

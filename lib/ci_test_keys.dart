@@ -60,6 +60,16 @@ abstract final class FlightVisTestKeys {
       ValueKey<String>('flightvis_map_poll_status_error');
   static const mapClubDisabledHint =
       ValueKey<String>('flightvis_map_club_disabled_hint');
+  static const mapViewToggle = ValueKey<String>('flightvis_map_view_toggle');
+  static const mapViewToggle2d =
+      ValueKey<String>('flightvis_map_view_toggle_2d');
+  static const mapViewToggle3d =
+      ValueKey<String>('flightvis_map_view_toggle_3d');
+  static const mapGlobeView = ValueKey<String>('flightvis_map_globe_view');
+  static const map3dFollow = ValueKey<String>('flightvis_map_3d_follow');
+  static const map3dRecenter = ValueKey<String>('flightvis_map_3d_recenter');
+  static const map3dFallbackNotice =
+      ValueKey<String>('flightvis_map_3d_fallback_notice');
   static const liveMapScreen = ValueKey<String>('flightvis_live_map_screen');
   static const localFlightStartDialog =
       ValueKey<String>('flightvis_local_flight_start_dialog');

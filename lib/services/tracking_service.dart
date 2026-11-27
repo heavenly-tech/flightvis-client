@@ -28,6 +28,7 @@ class TrackingService {
   int? _checkinExpiresAtMs;
   String? _activeFlightId;
   String _activeFlightMode = 'club';
+  int? _activeFlightStartedAtMs;
 
   LocalFixSource get fixSource => _fixSource;
   NativeFixQueueBridge get nativeFixQueue => _nativeFixQueue;
@@ -41,6 +42,7 @@ class TrackingService {
     int? checkinExpiresAtMs,
     String? flightId,
     String flightMode = 'club',
+    int? flightStartedAtMs,
   }) async {
     if (AppConfig.screenshotTest) return;
     final token = deviceToken.trim();
@@ -54,6 +56,10 @@ class TrackingService {
             ? trimmedFlightId
             : null;
     _activeFlightMode = flightMode == 'personal' ? 'personal' : 'club';
+    _activeFlightStartedAtMs =
+        (flightStartedAtMs != null && flightStartedAtMs > 0)
+            ? flightStartedAtMs
+            : null;
     final config = Config(
       serverUrl: AppConfig.osmandUrl(baseUrl),
       // OsmAnd `id=` must be the server-issued device token, never the raw device id.
@@ -88,6 +94,7 @@ class TrackingService {
       await _nativeFixQueue.setActiveFlight(
         flightId: flightId,
         flightMode: _activeFlightMode,
+        startedAtMs: _activeFlightStartedAtMs,
       );
     }
     try {
@@ -107,6 +114,7 @@ class TrackingService {
   Future<void> stop() async {
     if (AppConfig.screenshotTest) return;
     _activeFlightId = null;
+    _activeFlightStartedAtMs = null;
     try {
       await _nativeFixQueue.clearActiveFlight();
     } catch (_) {}

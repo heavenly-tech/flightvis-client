@@ -528,12 +528,35 @@ class DeviceRegistration {
   }
 }
 
+int? _parseEpochMs(dynamic raw) {
+  if (raw is int) return raw > 0 ? raw : null;
+  if (raw is num && raw.isFinite) {
+    final v = raw.toInt();
+    return v > 0 ? v : null;
+  }
+  if (raw is String) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final asInt = int.tryParse(trimmed);
+    if (asInt != null) return asInt > 0 ? asInt : null;
+    final parsed = DateTime.tryParse(trimmed);
+    if (parsed != null) return parsed.toUtc().millisecondsSinceEpoch;
+  }
+  return null;
+}
+
 class MyFlightSummary {
-  MyFlightSummary({required this.id, required this.tail, required this.status});
+  MyFlightSummary({
+    required this.id,
+    required this.tail,
+    required this.status,
+    this.startedAtMs,
+  });
 
   final String id;
   final String tail;
   final String status;
+  final int? startedAtMs;
 
   bool get isActive => status == 'active';
 
@@ -541,6 +564,9 @@ class MyFlightSummary {
         id: json['id'] as String,
         tail: json['tail'] as String? ?? '',
         status: json['status'] as String? ?? '',
+        startedAtMs: _parseEpochMs(
+          json['startedAt'] ?? json['started_at'] ?? json['startedAtMs'],
+        ),
       );
 }
 
@@ -551,6 +577,7 @@ class StartFlightResult {
     required this.showPilotNamePublic,
     this.trailMinutes,
     this.hasTrailMinutes = false,
+    this.startedAtMs,
   });
 
   final String id;
@@ -558,6 +585,7 @@ class StartFlightResult {
   final bool showPilotNamePublic;
   final int? trailMinutes;
   final bool hasTrailMinutes;
+  final int? startedAtMs;
 
   factory StartFlightResult.fromJson(Map<String, dynamic> json) =>
       StartFlightResult(
@@ -566,6 +594,9 @@ class StartFlightResult {
         showPilotNamePublic: json['showPilotNamePublic'] as bool? ?? false,
         trailMinutes: _parseTrailMinutes(json['trailMinutes']),
         hasTrailMinutes: json.containsKey('trailMinutes'),
+        startedAtMs: _parseEpochMs(
+          json['startedAt'] ?? json['started_at'] ?? json['startedAtMs'],
+        ),
       );
 }
 
@@ -605,7 +636,8 @@ class LiveTrailPoint {
   }
 }
 
-/// Another aircraft's live trail returned by `GET /api/me/live-trails`.
+/// Another aircraft's live trail returned by `GET /api/me/live-trails` or
+/// `GET /api/public/live-trails`.
 class LiveTrailFlight {
   const LiveTrailFlight({
     required this.flightId,
@@ -613,6 +645,9 @@ class LiveTrailFlight {
     required this.layer,
     required this.trailMinutes,
     required this.points,
+    this.tailSource = 'club',
+    this.otherClub = false,
+    this.nonClub = false,
   });
 
   final String flightId;
@@ -621,8 +656,18 @@ class LiveTrailFlight {
   final int trailMinutes;
   final List<LiveTrailPoint> points;
 
+  /// `'club'` (club-managed tail) or `'pilot'` (pilot-entered free-text tail).
+  final String tailSource;
+
+  /// PR #54 L-92: `true` for nearby public flights belonging to another club.
+  final bool otherClub;
+
+  /// PR #54 L-92: `true` for nearby club-less / pilot-tail flights.
+  final bool nonClub;
+
   bool get isPublic => layer == 'public';
   bool get isClub => layer == 'club';
+  bool get isDistinctNonOwnClub => isPublic || otherClub || nonClub;
   LiveTrailPoint? get latestPoint => points.isEmpty ? null : points.last;
 
   factory LiveTrailFlight.fromJson(Map<String, dynamic> json) {
@@ -632,12 +677,16 @@ class LiveTrailFlight {
       final point = LiveTrailPoint.fromJsonList(entry);
       if (point != null) parsedPoints.add(point);
     }
+    final rawTailSource = (json['tailSource'] as String?)?.trim();
     return LiveTrailFlight(
       flightId: json['flightId'] as String? ?? '',
       tail: json['tail'] as String? ?? '',
       layer: json['layer'] as String? ?? 'club',
       trailMinutes: _parseTrailMinutes(json['trailMinutes']) ?? 0,
       points: List<LiveTrailPoint>.unmodifiable(parsedPoints),
+      tailSource: rawTailSource == 'pilot' ? 'pilot' : 'club',
+      otherClub: json['otherClub'] == true,
+      nonClub: json['nonClub'] == true,
     );
   }
 }
