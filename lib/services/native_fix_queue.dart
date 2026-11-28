@@ -3,6 +3,56 @@ import 'package:flutter/services.dart';
 
 import '../storage/fix_upload_queue.dart';
 
+/// Pure L-94 pre-start timestamp filter mirrored identically in Kotlin
+/// `NativeFixQueueLogic.tagFixForActiveFlight`.
+///
+/// Enforces zero tolerance: any fix strictly older than [startedAtMs]
+/// (`tMs < startedAtMs`) is dropped so Traccar's replayed last-known location
+/// from before the flight started never enters the upload queue or own trail.
+/// When [startedAtMs] is `null` or `<= 0`, all timestamps are accepted.
+bool isFixAtOrAfterFlightStart({
+  required int tMs,
+  required int? startedAtMs,
+}) {
+  if (startedAtMs == null || startedAtMs <= 0) return true;
+  return tMs >= startedAtMs;
+}
+
+/// Pure Dart mirror of Kotlin `NativeFixQueueLogic.tagFixForActiveFlight` so
+/// unit tests verify active-flight tagging and the L-94 zero-tolerance
+/// `tMs < startedAtMs` drop guard directly without a Kotlin JVM test harness.
+QueuedFixInput? tagFixForActiveFlight({
+  required String? activeFlightId,
+  String? activeFlightMode,
+  int? activeFlightStartedAtMs,
+  required int tMs,
+  required double lat,
+  required double lon,
+  double? alt,
+  double? speed,
+  double? course,
+  double? accuracy,
+}) {
+  final trimmedFlightId = activeFlightId?.trim();
+  if (trimmedFlightId == null || trimmedFlightId.isEmpty) return null;
+  if (!isFixAtOrAfterFlightStart(tMs: tMs, startedAtMs: activeFlightStartedAtMs)) {
+    return null;
+  }
+  double? finiteOrNull(double? v) => (v != null && v.isFinite) ? v : null;
+  final input = QueuedFixInput(
+    flightId: trimmedFlightId,
+    flightMode: activeFlightMode?.trim() == 'personal' ? 'personal' : 'club',
+    tMs: tMs,
+    lat: lat,
+    lon: lon,
+    alt: finiteOrNull(alt),
+    speed: finiteOrNull(speed),
+    course: finiteOrNull(course),
+    accuracy: finiteOrNull(accuracy),
+  );
+  return input.hasValidCoordinates ? input : null;
+}
+
 /// Result of importing natively persisted offline fixes into the Dart
 /// [FixUploadQueueStore].
 class NativeQueueImportResult {
@@ -60,11 +110,13 @@ class NativeFixQueueBridge {
     }
   }
 
-  /// Persists the currently open broadcast [flightId] and [flightMode] on the
-  /// native side so fixes captured while Dart is dead are tagged accurately.
+  /// Persists the currently open broadcast [flightId], [flightMode], and
+  /// optional [startedAtMs] (L-94) on the native side so fixes captured while
+  /// Dart is dead are tagged accurately and pre-start points are dropped.
   Future<void> setActiveFlight({
     required String flightId,
     String flightMode = 'club',
+    int? startedAtMs,
   }) async {
     final trimmed = flightId.trim();
     if (trimmed.isEmpty) {
@@ -72,10 +124,12 @@ class NativeFixQueueBridge {
       return;
     }
     try {
-      await _channel.invokeMethod<void>('setActiveNativeFlight', {
+      final args = <String, Object>{
         'flightId': trimmed,
         'flightMode': flightMode == 'personal' ? 'personal' : 'club',
-      });
+        if (startedAtMs != null && startedAtMs > 0) 'startedAtMs': startedAtMs,
+      };
+      await _channel.invokeMethod<void>('setActiveNativeFlight', args);
     } on MissingPluginException {
       // Non-Android platform or unit test without platform mock.
     } on PlatformException catch (e) {
@@ -93,6 +147,24 @@ class NativeFixQueueBridge {
     } on PlatformException catch (e) {
       _log('clearActiveNativeFlight failed: ${e.code}');
     }
+  }
+
+  /// Clears all entries from the native on-disk durable fix queue (L-93).
+  Future<void> clearQueue() async {
+    try {
+      await _channel.invokeMethod<void>('clearNativeFixQueue');
+    } on MissingPluginException {
+      // Non-Android / unit test.
+    } on PlatformException catch (e) {
+      _log('clearNativeFixQueue failed: ${e.code}');
+    }
+  }
+
+  /// Clears BOTH the native active flight metadata AND the native durable fix
+  /// queue (L-93: called on logout, session expiry, and account change).
+  Future<void> clearAll() async {
+    await clearActiveFlight();
+    await clearQueue();
   }
 
   /// Reads all valid queued fixes currently stored in the native JSONL file.
@@ -133,12 +205,36 @@ class NativeFixQueueBridge {
   /// Imports all natively queued fixes into [store] (dedup by `(flightId, tMs)`,
   /// preserving each fix's original `flightId`) and atomically truncates the
   /// native file only after [store.enqueueAll] completes.
+  ///
+  /// When [activeFlightId] and [activeFlightStartedAtMs] are provided (L-94),
+  /// any native-imported fix tagged with [activeFlightId] whose `tMs` is
+  /// strictly earlier than [activeFlightStartedAtMs] is dropped before entering
+  /// [store] while still truncating its key from the native file.
   Future<NativeQueueImportResult> importIntoStore(
-    FixUploadQueueStore store,
-  ) async {
+    FixUploadQueueStore store, {
+    String? activeFlightId,
+    int? activeFlightStartedAtMs,
+  }) async {
     final fixes = await readQueuedFixes();
     if (fixes.isEmpty) return NativeQueueImportResult.empty;
-    final added = await store.enqueueAll(fixes);
+    final trimmedActive = activeFlightId?.trim();
+    final eligible = (trimmedActive != null &&
+            trimmedActive.isNotEmpty &&
+            activeFlightStartedAtMs != null &&
+            activeFlightStartedAtMs > 0)
+        ? fixes
+            .where(
+              (f) =>
+                  f.flightId != trimmedActive ||
+                  isFixAtOrAfterFlightStart(
+                    tMs: f.tMs,
+                    startedAtMs: activeFlightStartedAtMs,
+                  ),
+            )
+            .toList(growable: false)
+        : fixes;
+    final added =
+        eligible.isEmpty ? 0 : await store.enqueueAll(eligible);
     await truncateQueuedFixes(
       importedDedupKeys: fixes.map((f) => f.dedupKey),
     );

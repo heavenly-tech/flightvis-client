@@ -62,8 +62,9 @@ object NativeFixQueueLogic {
     /**
      * Tags a GPS fix with [activeFlightId] and [activeFlightMode].
      *
-     * Returns `null` when no active flight is open or coordinates are invalid
-     * so untagged fixes are never written to the broadcast queue (H-8).
+     * Returns `null` when no active flight is open, coordinates are invalid,
+     * or [tMs] precedes [activeFlightStartedAtMs] (L-94: drop replayed
+     * last-known fixes from before flight start with zero tolerance).
      */
     fun tagFixForActiveFlight(
         activeFlightId: String?,
@@ -75,10 +76,14 @@ object NativeFixQueueLogic {
         speed: Double? = null,
         course: Double? = null,
         accuracy: Double? = null,
+        activeFlightStartedAtMs: Long? = null,
     ): NativeQueuedFix? {
         val trimmedFlightId = activeFlightId?.trim()
         if (trimmedFlightId.isNullOrEmpty()) return null
         if (!isValidCoordinate(lat, lon)) return null
+        if (activeFlightStartedAtMs != null && activeFlightStartedAtMs > 0L && tMs < activeFlightStartedAtMs) {
+            return null
+        }
         return NativeQueuedFix(
             flightId = trimmedFlightId,
             flightMode = normalizeMode(activeFlightMode),

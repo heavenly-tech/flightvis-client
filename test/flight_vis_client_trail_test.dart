@@ -156,8 +156,8 @@ void main() {
       expect(result, 5);
     });
 
-    test('throws FlightVisException on 400, 403, and 404', () async {
-      for (final status in [400, 403, 404]) {
+    test('throws FlightVisException on 400 and 403 (404 treated like ended — PR #54)', () async {
+      for (final status in [400, 403]) {
         final client = FlightVisClient(
           baseUrl: 'https://example.test',
           deviceToken: 'dev-tok',
@@ -173,6 +173,14 @@ void main() {
           ),
         );
       }
+      final client404 = FlightVisClient(
+        baseUrl: 'https://example.test',
+        deviceToken: 'dev-tok',
+        httpClient: MockClient((_) async {
+          return http.Response(jsonEncode({'error': 'not found'}), 404);
+        }),
+      );
+      expect(await client404.setFlightTrail('f1', 10), 10);
     });
   });
 

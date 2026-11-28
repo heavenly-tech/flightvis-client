@@ -345,7 +345,7 @@
       "count": {"type": "int"}
     }
   },
-  "localFlightsLegacyBody": "{count, plural, =1{Puedes guardarlo en tu cuenta o eliminarlo de este teléfono. Esta opción aparece solo una vez.} other{Puedes guardarlos en tu cuenta o eliminarlos de este teléfono. Esta opción aparece solo una vez.}}",
+  "localFlightsLegacyBody": "{count, plural, =1{Puedes guardarlo en tu cuenta o eliminarlo de este teléfono. Una vez que elijas, esta opción no vuelve a aparecer.} other{Puedes guardarlos en tu cuenta o eliminarlos de este teléfono. Una vez que elijas, esta opción no vuelve a aparecer.}}",
   "@localFlightsLegacyBody": {
     "placeholders": {
       "count": {"type": "int"}
@@ -412,5 +412,16 @@
   },
   "magicLinkConfirmTitleGeneric": "¿Iniciar sesión con este enlace?",
   "magicLinkConfirmTrackingWarning": "Tienes un vuelo en curso. Si continúas, se detendrá el seguimiento actual.",
+  "mapViewModeLabel": "Vista del mapa",
+  "mapViewMode2d": "2D",
+  "mapViewMode3d": "3D",
+  "mapViewMode2dSemantic": "Vista del mapa en 2D",
+  "mapViewMode3dSemantic": "Vista del mapa en 3D",
+  "map3dFollowOwn": "Seguir mi avión",
+  "map3dRecenter": "Centrar",
+  "map3dLoading": "Cargando mapa 3D…",
+  "map3dLoadFailed": "No se pudo cargar el mapa 3D. Te mostramos el 2D.",
+  "map3dOffline": "Sin conexión: el mapa 3D no está disponible.",
+  "errorNotFoundOrForbidden": "No encontramos ese vuelo o no tienes permiso para modificarlo.",
   "@@locale": "es"
 }

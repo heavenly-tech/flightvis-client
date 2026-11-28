@@ -160,6 +160,7 @@ class _FlightVisAppState extends State<FlightVisApp>
     final device = WidgetsBinding.instance.platformDispatcher.locale;
     _locale = widget.repo.localePrefs.resolveLocale(device);
     widget.repo.syncApiLocale(_locale);
+    widget.repo.onAccountSwitchedForL93 = _clearL93AuthState;
     DeepLinkTestHooks.handler = _onDeepLink;
     if (widget.bindPlatformDeepLinks) {
       _deepLinks.bind(_onDeepLink);
@@ -271,9 +272,10 @@ class _FlightVisAppState extends State<FlightVisApp>
         final ctx = await _waitForNavigatorContext();
         if (!mounted || ctx == null || !ctx.mounted) return;
         final l10n = ctx.pilotL10n;
-        final linkEmail = link.email;
-        final title = (linkEmail != null && linkEmail.isNotEmpty)
-            ? l10n.magicLinkConfirmTitleWithEmail(linkEmail)
+        // M-33: never use attacker-controlled link.email / JWT email for UI copy.
+        final confirmEmail = _magicLinkConfirmEmail();
+        final title = confirmEmail != null
+            ? l10n.magicLinkConfirmTitleWithEmail(confirmEmail)
             : l10n.magicLinkConfirmTitleGeneric;
         confirmed = await showDialog<bool>(
           context: ctx,
@@ -486,6 +488,39 @@ class _FlightVisAppState extends State<FlightVisApp>
     await _presentCheckinDeepLink(link);
   }
 
+  /// M-33: confirm-dialog title email from trusted local state only.
+  String? _magicLinkConfirmEmail() {
+    final pendingEmail = widget.repo.prefs.pendingMagicLinkRequest()?.email.trim();
+    if (pendingEmail != null && pendingEmail.isNotEmpty) return pendingEmail;
+    final accountEmail = widget.repo.prefs.cachedAccountProfile()?.email.trim();
+    if (accountEmail != null && accountEmail.isNotEmpty) return accountEmail;
+    final pilotEmail = widget.repo.prefs.cachedPilotProfile()?.email.trim();
+    if (pilotEmail != null && pilotEmail.isNotEmpty) return pilotEmail;
+    return null;
+  }
+
+  /// L-93: purge native durable queue, active flight tag, and prior-account
+  /// Dart upload queues on logout, session expiry, or account switch.
+  Future<void> _clearL93AuthState() async {
+    await _tracking.nativeFixQueue.clearAll();
+    if (widget.uploadQueue != null) {
+      await widget.uploadQueue!.clear();
+      return;
+    }
+    try {
+      await widget.repo
+          .clearUploadQueuesForBuckets(
+            widget.repo.uploadQueueBucketsForAuthReset(
+              pilot: _pilot,
+              account: _accountProfile,
+            ),
+          )
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // Best-effort; path_provider may hang or fail in widget tests.
+    }
+  }
+
   /// Stops active club tracking and clears active flight + check-in state
   /// consistently on both logout and session expiry (M-24).
   Future<void> _stopClubTrackingAndClearCheckin() async {
@@ -521,6 +556,7 @@ class _FlightVisAppState extends State<FlightVisApp>
     _profileRetryPending = false;
     _clubUnavailableNotice = false;
     _sessionExpiredNotice = true;
+    await _clearL93AuthState();
   }
 
   void _scheduleProfileRetry() {
@@ -1185,8 +1221,10 @@ class _FlightVisAppState extends State<FlightVisApp>
     String id,
     String tail, {
     String flightMode = 'club',
+    int? startedAtMs,
   }) async {
     await widget.repo.prefs.setActiveFlightId(id);
+    await widget.repo.prefs.setActiveFlightStartedAtMs(startedAtMs ?? _nowMs());
     await widget.repo.prefs.setActiveFlightMode(flightMode);
     await widget.repo.prefs.setActiveFlightTail(tail);
     if (!mounted) return;
@@ -1297,6 +1335,7 @@ class _FlightVisAppState extends State<FlightVisApp>
     _profileRetryPending = false;
     _profileRetryTimer?.cancel();
     _profileRetryTimer = null;
+    await _clearL93AuthState();
     await _restore();
   }
 

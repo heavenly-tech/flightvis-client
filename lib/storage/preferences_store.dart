@@ -73,6 +73,7 @@ class PreferencesStore {
   static const activeFlightIdKey = 'fv_active_flight_id';
   static const activeFlightModeKey = 'fv_active_flight_mode';
   static const activeFlightTailKey = 'fv_active_flight_tail';
+  static const activeFlightStartedAtMsKey = 'fv_active_flight_started_at_ms';
   static const activeFlightTrailMinutesKey = 'fv_active_flight_trail_minutes';
   static const preferredFlightModeKey = 'fv_preferred_flight_mode';
   static const clubTrailMinutesDefaultKey = 'fv_club_trail_minutes_default';
@@ -80,6 +81,7 @@ class PreferencesStore {
   static const mapLayerClubKey = 'fv_map_layer_club';
   static const mapLayerPublicKey = 'fv_map_layer_public';
   static const mapPublicRadiusKmKey = 'fv_map_public_radius_km';
+  static const mapViewModeKey = 'fv_map_view_mode';
   static const permissionsOnboardingKey = 'fv_permissions_onboarding_done';
 
   /// Discrete pilot-selectable radii (km) for the Público map layer, matching
@@ -171,9 +173,24 @@ class PreferencesStore {
       await _prefs.remove(activeFlightIdKey);
       await _prefs.remove(activeFlightModeKey);
       await _prefs.remove(activeFlightTailKey);
+      await _prefs.remove(activeFlightStartedAtMsKey);
       await _prefs.remove(activeFlightTrailMinutesKey);
     } else {
       await _prefs.setString(activeFlightIdKey, id);
+    }
+  }
+
+  /// Epoch ms when the currently active broadcast flight started (L-94).
+  int? activeFlightStartedAtMs() {
+    final v = _prefs.getInt(activeFlightStartedAtMsKey);
+    return (v != null && v > 0) ? v : null;
+  }
+
+  Future<void> setActiveFlightStartedAtMs(int? startedAtMs) async {
+    if (startedAtMs == null || startedAtMs <= 0) {
+      await _prefs.remove(activeFlightStartedAtMsKey);
+    } else {
+      await _prefs.setInt(activeFlightStartedAtMsKey, startedAtMs);
     }
   }
 
@@ -257,6 +274,12 @@ class PreferencesStore {
         mapPublicRadiusKmKey,
         normalizePublicRadiusKm(radiusKm),
       );
+
+  /// Map view preference: `false` = 2D (default), `true` = 3D.
+  bool mapViewIs3d() => _prefs.getString(mapViewModeKey) == '3d';
+
+  Future<void> setMapViewIs3d(bool is3d) =>
+      _prefs.setString(mapViewModeKey, is3d ? '3d' : '2d');
 
   String? activeClubSlug() => _prefs.getString(activeClubSlugKey);
 

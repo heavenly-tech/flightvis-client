@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 import '../api/flight_vis_client.dart';
 import 'device_install_id.dart';
 import '../services/locale_preferences.dart';
+import '../storage/fix_upload_queue.dart';
+import '../storage/local_flight_store.dart';
 import '../storage/preferences_store.dart';
 import '../storage/secure_store.dart';
 
@@ -120,6 +122,10 @@ class AppRepository {
     client.setPersonalDeviceToken(null);
   }
 
+  /// Optional hook invoked when [clearPersonalDeviceTokenIfAccountChanged]
+  /// detects an account switch (L-93 durable fix queue + upload queue purge).
+  Future<void> Function()? onAccountSwitchedForL93;
+
   /// Clears `fv_personal_device_token` whenever the signed-in account id
   /// changes (M-31), and persists [newAccountId] as the active account id.
   /// Returns `true` when an account switch was detected and the token cleared.
@@ -136,9 +142,39 @@ class AppRepository {
         previous != null && previous.isNotEmpty && previous != normalized;
     if (changed) {
       await clearPersonalDeviceToken();
+      await onAccountSwitchedForL93?.call();
     }
     await prefs.setLastSignedInAccountId(normalized);
     return changed;
+  }
+
+  /// Account buckets whose on-disk upload queues should be purged on auth reset.
+  Set<String> uploadQueueBucketsForAuthReset({
+    PilotProfile? pilot,
+    AccountProfile? account,
+  }) {
+    return <String>{
+      LocalFlightStore.guestBucket,
+      LocalFlightStore.bucketForPilot(pilot),
+      LocalFlightStore.bucketForPilotId(account?.id),
+      LocalFlightStore.bucketForPilotId(prefs.cachedPilotProfile()?.id),
+      LocalFlightStore.bucketForPilotId(prefs.cachedAccountProfile()?.id),
+      LocalFlightStore.bucketForPilotId(prefs.lastSignedInAccountId()),
+    };
+  }
+
+  /// Clears Dart [FileFixUploadQueueStore] JSONL queues for [buckets] (L-93).
+  Future<void> clearUploadQueuesForBuckets(Iterable<String> buckets) async {
+    final seen = <String>{};
+    for (final raw in buckets) {
+      final bucket = LocalFlightStore.sanitizeBucket(raw);
+      if (bucket.isEmpty || !seen.add(bucket)) continue;
+      try {
+        await FileFixUploadQueueStore(accountBucket: bucket).clear();
+      } catch (_) {
+        // Best-effort during auth reset (e.g. missing path_provider in unit tests).
+      }
+    }
   }
 
   Future<String?> readDeviceTokenForMode(String flightMode) async {

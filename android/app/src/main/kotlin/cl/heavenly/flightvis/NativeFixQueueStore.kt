@@ -19,6 +19,7 @@ object NativeFixQueueStore {
     private const val PREFS_NAME = "flightvis_native_fix_queue"
     private const val KEY_ACTIVE_FLIGHT_ID = "active_flight_id"
     private const val KEY_ACTIVE_FLIGHT_MODE = "active_flight_mode"
+    private const val KEY_ACTIVE_FLIGHT_STARTED_AT_MS = "active_flight_started_at_ms"
     private const val QUEUE_DIR = "native_fix_queue"
     private const val QUEUE_FILE = "queue.jsonl"
 
@@ -47,6 +48,7 @@ object NativeFixQueueStore {
         context: Context,
         flightId: String,
         flightMode: String,
+        startedAtMs: Long? = null,
     ) {
         val trimmedId = flightId.trim()
         if (trimmedId.isEmpty()) {
@@ -55,11 +57,17 @@ object NativeFixQueueStore {
         }
         val mode = NativeFixQueueLogic.normalizeMode(flightMode)
         try {
-            prefs(context)
-                .edit()
-                .putString(KEY_ACTIVE_FLIGHT_ID, trimmedId)
-                .putString(KEY_ACTIVE_FLIGHT_MODE, mode)
-                .commit()
+            val editor =
+                prefs(context)
+                    .edit()
+                    .putString(KEY_ACTIVE_FLIGHT_ID, trimmedId)
+                    .putString(KEY_ACTIVE_FLIGHT_MODE, mode)
+            if (startedAtMs != null && startedAtMs > 0L) {
+                editor.putLong(KEY_ACTIVE_FLIGHT_STARTED_AT_MS, startedAtMs)
+            } else {
+                editor.remove(KEY_ACTIVE_FLIGHT_STARTED_AT_MS)
+            }
+            editor.commit()
         } catch (_: Exception) {
             Log.w(TAG, "Failed to persist active flight metadata")
         }
@@ -71,10 +79,15 @@ object NativeFixQueueStore {
                 .edit()
                 .remove(KEY_ACTIVE_FLIGHT_ID)
                 .remove(KEY_ACTIVE_FLIGHT_MODE)
+                .remove(KEY_ACTIVE_FLIGHT_STARTED_AT_MS)
                 .commit()
         } catch (_: Exception) {
             Log.w(TAG, "Failed to clear active flight metadata")
         }
+    }
+
+    fun clearQueue(context: Context) {
+        truncateImported(context, null)
     }
 
     fun activeFlightId(context: Context): String? =
@@ -91,6 +104,14 @@ object NativeFixQueueStore {
             "club"
         }
 
+    fun activeFlightStartedAtMs(context: Context): Long? =
+        try {
+            val stored = prefs(context).getLong(KEY_ACTIVE_FLIGHT_STARTED_AT_MS, -1L)
+            if (stored > 0L) stored else null
+        } catch (_: Exception) {
+            null
+        }
+
     fun appendForActiveFlight(
         context: Context,
         timeMs: Long,
@@ -103,6 +124,7 @@ object NativeFixQueueStore {
     ): Boolean {
         val flightId = activeFlightId(context) ?: return false
         val flightMode = activeFlightMode(context)
+        val startedAtMs = activeFlightStartedAtMs(context)
         val tagged =
             NativeFixQueueLogic.tagFixForActiveFlight(
                 activeFlightId = flightId,
@@ -114,6 +136,7 @@ object NativeFixQueueStore {
                 speed = speed,
                 course = course,
                 accuracy = accuracy,
+                activeFlightStartedAtMs = startedAtMs,
             ) ?: return false
         return try {
             queueFile(context).append(tagged)

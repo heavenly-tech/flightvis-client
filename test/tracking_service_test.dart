@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:traccar_client_sdk/traccar_client_sdk.dart';
 
+import 'package:flight_vis/services/native_fix_queue.dart';
 import 'package:flight_vis/services/tracking_service.dart';
 
 class _FakeTraccarClientSdk extends Fake implements TraccarClientSdk {
@@ -97,6 +98,33 @@ void main() {
     );
     expect(fake.initCalls, isEmpty);
     expect(fake.setConfigCalls, isEmpty);
+  });
+
+  test('start passes startedAtMs to native setActiveNativeFlight (L-94)', () async {
+    final nativeCalls = <Map<String, Object?>>[];
+    const channel = MethodChannel('cl.heavenly.flightvis/tracking');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'setActiveNativeFlight') {
+        nativeCalls.add(Map<String, Object?>.from(call.arguments as Map));
+      }
+      return null;
+    });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    final fake = _FakeTraccarClientSdk();
+    final tracking = TrackingService(tracker: fake, nativeFixQueue: const NativeFixQueueBridge(channel: channel));
+    await tracking.initForFlight(
+      baseUrl: 'https://flight.heavenly.cl',
+      deviceToken: '01234567890123456789012345678901',
+      flightId: 'flt-1',
+      flightStartedAtMs: 1_700_000_000_000,
+    );
+    await tracking.start();
+    expect(nativeCalls.single['startedAtMs'], 1_700_000_000_000);
   });
 
   test('start returns false and does not throw when Traccar SDK start() throws', () async {
